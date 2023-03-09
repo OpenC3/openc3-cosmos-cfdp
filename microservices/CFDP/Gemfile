@@ -1,0 +1,26 @@
+source ENV['RUBYGEMS_URL'] || "https://rubygems.org"
+git_source(:github) { |repo| "https://github.com/#{repo}.git" }
+
+# Bundle edge Rails instead: gem 'rails', github: 'rails/rails'
+gem 'rails', '>= 7.0.0'
+
+# Reduces boot times through caching; required in config/boot.rb
+gem 'bootsnap', '>= 1.9.3', require: false
+
+# Use Rack CORS for handling Cross-Origin Resource Sharing (CORS), making cross-origin AJAX possible
+gem 'rack-cors', '>= 1.1'
+
+# Windows does not include zoneinfo files, so bundle the tzinfo-data gem
+gem 'tzinfo-data'
+
+if ENV['OPENC3_DEVEL']
+  gem 'openc3', :path => ENV['OPENC3_DEVEL']
+elsif ENV['OPENC3_PATH']
+  gem 'openc3', :path => ENV['OPENC3_PATH']
+else
+  gem 'openc3', '>= 5.4.2.pre'
+end
+
+if ENV['OPENC3_ENTERPRISE_TAG']
+  gem 'openc3-enterprise', '>= 5.4.2.pre'
+end

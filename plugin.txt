@@ -1,0 +1,9 @@
+VARIABLE cfdp_microservice_name CFDP
+VARIABLE cfdp_route_prefix /cfdp
+VARIABLE cfdp_port 2905
+
+MICROSERVICE CFDP <%= cfdp_microservice_name %>
+  WORK_DIR .
+  ROUTE_PREFIX <%= cfdp_route_prefix %>
+  PORT <%= cfdp_port %>
+  CMD rails s -b 0.0.0.0 -p <%= cfdp_port %>
