@@ -1,0 +1,175 @@
+# encoding: ascii-8bit
+
+# Copyright 2023 OpenC3, Inc.
+# All Rights Reserved.
+#
+# This file may only be used under the terms of a commercial license
+# if purchased from OpenC3, Inc.
+
+require 'openc3/packets/packet'
+require 'openc3/utilities/crc'
+
+require_relative 'cfdp_pdu/cfdp_pdu_enum'
+require_relative 'cfdp_pdu/cfdp_pdu_tlv'
+require_relative 'cfdp_pdu/cfdp_pdu_eof'
+require_relative 'cfdp_pdu/cfdp_pdu_finished'
+require_relative 'cfdp_pdu/cfdp_pdu_ack'
+require_relative 'cfdp_pdu/cfdp_pdu_metadata'
+require_relative 'cfdp_pdu/cfdp_pdu_nak'
+require_relative 'cfdp_pdu/cfdp_pdu_prompt'
+require_relative 'cfdp_pdu/cfdp_pdu_keep_alive'
+require_relative 'cfdp_pdu/cfdp_pdu_file_data'
+
+class CfdpPdu < OpenC3::Packet
+  def initialize(crcs_required:)
+    super()
+    append_item("VERSION", 3, :UINT)
+    item = append_item("TYPE", 1, :UINT)
+    item.states = {"FILE_DIRECTIVE" => 0, "FILE_DATA" => 1}
+    item = append_item("DIRECTION", 1, :UINT)
+    item.states = {"TOWARD_FILE_RECEIVER" => 0, "TOWARD_FILE_SENDER" => 1}
+    item = append_item("TRANSMISSION_MODE", 1, :UINT)
+    item.states = {"ACKNOWLEDGED" => 0, "UNACKNOWLEDGED" => 1}
+    item = append_item("CRC_FLAG", 1, :UINT)
+    item.states = {"CRC_NOT_PRESENT" => 0, "CRC_PRESENT" => 1}
+    item = append_item("LARGE_FILE_FLAG", 1, :UINT)
+    item.states = {"SMALL_FILE" => 0, "LARGE_FILE" => 1}
+    item = append_item("PDU_DATA_LENGTH", 16, :UINT)
+    item = append_item("SEGMENTATION_CONTROL", 1, :UINT)
+    item.states = {"NOT_PRESERVED" => 0, "PRESERVED" => 1}
+    item = append_item("ENTITY_ID_LENGTH", 3, :UINT)
+    item = append_item("SEGMENT_METADATA_FLAG", 1, :UINT)
+    item.states = {"NOT_PRESENT" => 0, "PRESENT" => 1}
+    item = append_item("SEQUENCE_NUMBER_LENGTH", 3, :UINT)
+    if crcs_required
+      item = append_item("VARIABLE_DATA", -16, :BLOCK)
+      item = define_item("CRC", -16, 16, :UINT)
+    else
+      item = append_item("VARIABLE_DATA", 0, :BLOCK)
+    end
+  end
+
+  def self.decom(pdu_data)
+    pdu_hash = {}
+    source_entity = CfdpMib.source_entity
+    pdu = new(crcs_required: source_entity['crcs_required'])
+    pdu.buffer = pdu
+
+    # Static header
+    keys = [
+      "VERSION",
+      "TYPE",
+      "DIRECTION",
+      "TRANSMISSION_MODE",
+      "CRC_FLAG",
+      "LARGE_FILE_FLAG",
+      "PDU_DATA_LENGTH",
+      "SEGMENTATION_CONTROL",
+      "ENTITY_ID_LENGTH",
+      "SEGMENT_METADATA_FLAG",
+      "SEQUENCE_NUMBER_LENGTH",
+      "VARIABLE_DATA"
+    ]
+    keys << "CRC" if source_entity['crcs_required']
+    keys.each do |key|
+      pdu_hash[key] = pdu.read(key)
+    end
+
+    # Variable Header
+    s = pdu.define_variable_header
+    variable_header = pdu_hash['VARIABLE_DATA'][0..(s.defined_length - 1)]
+    s.buffer = variable_header
+    variable_header_keys = [
+      "SOURCE_ENTITY_ID",
+      "SEQUENCE_NUMBER",
+      "DESTINATION_ENTITY_ID"
+    ]
+    keys << "DIRECTIVE_CODE" if pdu_hash['TYPE'] == "FILE_DIRECTIVE"
+    variable_header_keys.each do |key|
+      pdu_hash[key] = s.read(key)
+    end
+
+    variable_data = pdu_hash['VARIABLE_DATA'][(s.defined_length)..-1]
+
+    # PDU Specific Data
+    case pdu_hash["DIRECTIVE_CODE"]
+    when "EOF"
+      decom_eof_pdu_contents(pdu, pdu_hash, variable_data)
+    when "FINISHED"
+      decom_finished_pdu_contents(pdu, pdu_hash, variable_data)
+    when "ACK"
+      decom_ack_pdu_contents(pdu, pdu_hash, variable_data)
+    when "METADATA"
+      decom_metadata_pdu_contents(pdu, pdu_hash, variable_data)
+    when "NAK"
+      decom_nak_pdu_contents(pdu, pdu_hash, variable_data)
+    when "PROMPT"
+      decom_prompt_pdu_contents(pdu, pdu_hash, variable_data)
+    when "KEEP_ALIVE"
+      decom_keep_alive_pdu_contents(pdu, pdu_hash, variable_data)
+    else # File Data
+      decom_file_data_pdu_contents(pdu, pdu_hash, variable_data)
+    end
+
+    return pdu_hash
+  end
+
+  def self.build_initial_pdu(destination_entity:, file_size:, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
+    pdu = self.new(crcs_required: destination_entity['crcs_required'])
+    pdu.write("VERSION", 3, destination_entity['protocol_version_number'])
+    pdu.write("TYPE", "FILE_DATA")
+    pdu.write("DIRECTION", "TOWARD_FILE_RECEIVER")
+    if transmission_mode
+      pdu.write("TRANSMISSION_MODE", transmission_mode)
+    else
+      pdu.write("TRANSMISSION_MODE", destination_entity['default_transmission_mode'])
+    end
+    if destination_entity['crcs_required']
+      pdu.write("CRC_FLAG", "CRC_PRESENT")
+    else
+      pdu.write("CRC_FLAG", "CRC_NOT_PRESENT")
+    end
+    if file_size >= 4_294_967_296
+      pdu.write("LARGE_FILE_FLAG", "LARGE_FILE")
+    else
+      pdu.write("LARGE_FILE_FLAG", "SMALL_FILE")
+    end
+    pdu.write("SEGMENTATION_CONTROL", segmentation_control)
+    pdu.write("ENTITY_ID_LENGTH", destination_entity['entity_id_length'])
+    pdu.write("SEGMENT_METADATA_FLAG", "NOT_PRESENT") # Not implemented
+    pdu.write("SEQUENCE_NUMBER_LENGTH", destination_entity['sequence_number_length'])
+    return pdu
+  end
+
+  def define_variable_header
+    id_length = read("ENTITY_ID_LENGTH") + 1
+    seq_num_length = read("SEQUENCE_NUMBER_LENGTH") + 1
+    type = read("TYPE")
+    s = OpenC3::Structure.new(:BIG_ENDIAN)
+    s.append_item("SOURCE_ENTITY_ID", id_length * 8, :UINT)
+    s.append_item("SEQUENCE_NUMBER", seq_num_length * 8, :UINT, nil, :BIG_ENDIAN, :TRUNCATE)
+    s.append_item("DESTINATION_ENTITY_ID", id_length * 8, :UINT)
+    if type == "FILE_DIRECTIVE"
+      s.append_item("DIRECTIVE_CODE", 8, :UINT)
+      s.states = DIRECTIVE_CODES
+    end
+    return s
+  end
+
+  def build_variable_header(source_entity_id:, transaction_seq_num:, destination_entity_id:, directive_code: nil)
+    s = define_variable_header()
+    s.write("SOURCE_ENTITY_ID", source_entity_id)
+    s.write("SEQUENCE_NUMBER", transaction_seq_num)
+    s.write("DESTINATION_ENTITY_ID", destination_entity_id)
+    s.write("DIRECTIVE_CODE", directive_code) if directive_code
+    return s.buffer(false)
+  end
+
+  def self.checksum_type_implemented(checksum_type)
+    if [0,15].include?(checksum_type)
+      return true
+    else
+      return false
+    end
+  end
+end
