@@ -1,4 +1,6 @@
-require 'openc3/models/microservice_model'
+require 'cfdp_mib'
+require 'cfdp_user'
 
 CfdpMib.setup
-$cfdp_user = CfdpUser.new.start
+$cfdp_user = CfdpUser.new
+$cfdp_user.start

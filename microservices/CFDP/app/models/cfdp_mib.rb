@@ -1,0 +1,206 @@
+# Table 8-2: Remote Entity Configuration Information
+# Remote entity ID
+# Protocol version number
+# UT address
+# Positive ACK timer interval
+# NAK timer interval
+# Keep Alive interval
+# Immediate NAK mode enabled
+# Default transmission mode
+# Transaction closure requested
+# Check limit
+# Default type of checksum to calculate for all file transmission to this remote entity
+# Disposition of incomplete received file on transaction cancellation
+# CRCs required on transmission
+# Maximum file segment length
+# Keep Alive discrepancy limit
+# Positive ACK timer expiration limit
+# NAK timer expiration limit
+# Transaction inactivity limit
+# Start of transmission opportunity
+# End of transmission opportunity
+# Start of reception opportunity
+# End of reception opportunity
+
+require 'openc3/models/microservice_model'
+require 'tempfile'
+require 'fileutils'
+
+class Tempfile
+  def persist(filename)
+    FileUtils.mv(self.path, filename)
+    ObjectSpace.undefine_finalizer(self)
+  end
+end
+
+class CfdpMib
+  KNOWN_FIELD_NAMES = [
+    'protocol_version_number',
+    'cmd_info',
+    'tlm_info',
+    'ack_timer_interval',
+    'nak_timer_interval',
+    'keep_alive_interval',
+    'immediate_nak_mode',
+    'default_transmission_mode',
+    'transaction_closure_requested',
+    'check_limit',
+    'default_checksum_type',
+    'incomplete_file_disposition',
+    'crcs_required',
+    'maximum_file_segment_length',
+    'keep_alive_discrepancy_limit',
+    'ack_timer_expiration_limit',
+    'nak_timer_expiration_limit',
+    'transaction_inactivity_limit',
+    'entity_id_length',
+    'sequence_number_length'
+  ]
+
+  @@source_entity_id = 0
+  @@entities = {}
+  @@bucket = nil
+  @@root_path = "/"
+  @@transactions = {}
+
+  def self.transactions
+    @@transactions
+  end
+
+  def self.entity(entity_id)
+    return @@entities[entity_id]
+  end
+
+  def self.source_entity_id=(id)
+    @@source_entity_id = id
+  end
+
+  def self.source_entity_id
+    @@source_entity_id
+  end
+
+  def self.source_entity
+    return @@entities[@@source_entity_id]
+  end
+
+  def self.bucket=(bucket)
+    @@bucket = bucket
+  end
+
+  def self.bucket
+    return @@bucket
+  end
+
+  def self.root_path=(root_path)
+    @@root_path = root_path
+  end
+
+  def self.root_path
+    @@root_path
+  end
+
+  def self.define_entity(entity_id)
+    entity_id = Integer(entity_id)
+    entity = {}
+    entity['id'] = entity_id
+    entity['protocol_version_number'] = 0
+    # These two settings map to UT address in COSMOS
+    entity['cmd_info'] = nil
+    entity['tlm_info'] = []
+    entity['ack_timer_interval'] = 600
+    entity['nak_timer_interval'] = 600
+    entity['keep_alive_interval'] = 600
+    entity['immediate_nak_mode'] = false
+    entity['default_transmission_mode'] = 'UNACKNOWLEDGED'
+    entity['transaction_closure_requested'] = "CLOSURE_REQUESTED"
+    entity['check_limit'] = 300
+    entity['default_checksum_type'] = 0
+    entity['incomplete_file_disposition'] = "DISCARD"
+    entity['crcs_required'] = true
+    entity['maximum_file_segment_length'] = 1024
+    entity['keep_alive_discrepancy_limit'] = 16
+    entity['ack_timer_expiration_limit'] = 1
+    entity['nak_timer_expiration_limit'] = 1
+    entity['transaction_inactivity_limit'] = 1
+    entity['entity_id_length'] = 0 # 0 = 1 byte
+    entity['sequence_number_length'] = 0 # 0 = 1 byte
+    # TODO: Use interface connected? to limit opportunities?
+    @@entities[entity_id] = entity
+    return entity
+  end
+
+  def self.set_entity_value(entity_id, field_name, value)
+    field_name = field_name.downcase
+    entity_id = Integer(entity_id)
+    raise "Unknown OPTION #{field_name}" unless KNOWN_FIELD_NAMES.include?(field_name)
+    case field_name
+    when 'tlm_info'
+      if value.length == 3
+        @@entities[entity_id][field_name] << value
+      else
+        raise "Invalid tlm_info: #{value}"
+      end
+    when 'cmd_info'
+      if value.length == 3
+        @@entities[entity_id][field_name] = value
+      else
+        raise "Invalid cmd_info: #{value}"
+      end
+    else
+      @@entities[entity_id][field_name] = value
+    end
+  end
+
+  def self.get_source_file(source_file_name)
+    # TODO: Handle bucket
+    file_name = File.join(@@root_path, source_file_name)
+    file = File.open(file_name, 'rb')
+  end
+
+  def self.put_destination_file(destination_filename, tmp_file)
+    file_name = File.join(@@root_path, destination_filename)
+    tmp_file.persist(file_name)
+  end
+
+  def self.setup
+    # Get options for our microservice
+    model = OpenC3::MicroserviceModel.get_model(name: ENV['OPENC3_MICROSERVICE_NAME'], scope: ENV['OPENC3_SCOPE'])
+
+    # Initialize MIB from OPTIONS
+    current_entity_id = nil
+    source_entity_defined = false
+    destination_entity_defined = false
+    root_path_defined = false
+    model.options.each do |option|
+      field_name = option[0].to_s.downcase
+      value = option[1..-1]
+      value = value[0] if value.length == 1
+      case field_name
+      when 'source_entity_id'
+        source_entity_defined = true
+        current_entity_id = Integer(value)
+        CfdpMib.define_entity(current_entity_id)
+        CfdpMib.source_entity_id = current_entity_id
+      when 'destination_entity_id'
+        destination_entity_defined = true
+        current_entity_id = Integer(value)
+        CfdpMib.define_entity(current_entity_id)
+      when 'bucket'
+        CfdpMib.bucket = value
+      when 'root_path'
+        root_path_defined = true
+        CfdpMib.root_path = value
+      else
+        if current_entity_id
+          CfdpMib.set_entity_value(current_entity_id, field_name, value)
+        else
+          raise "Must declare source_entity_id or destination_entity_id before other options"
+        end
+      end
+    end
+
+    raise "OPTION source_entity_id is required" unless source_entity_defined
+    raise "OPTION destination_entity_id is required" unless destination_entity_defined
+    raise "OPTION root_path is required" unless root_path_defined
+  end
+end

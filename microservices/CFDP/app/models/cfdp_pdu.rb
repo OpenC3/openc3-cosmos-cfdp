@@ -52,8 +52,27 @@ class CfdpPdu < OpenC3::Packet
   def self.decom(pdu_data)
     pdu_hash = {}
     source_entity = CfdpMib.source_entity
-    pdu = new(crcs_required: source_entity['crcs_required'])
-    pdu.buffer = pdu
+    crcs_required = source_entity['crcs_required']
+    pdu = new(crcs_required: crcs_required)
+    pdu.buffer = pdu_data
+
+    # Handle CRC
+    pdu_hash["CRC_FLAG"] = pdu.read("CRC_FLAG")
+    if pdu_hash["CRC_FLAG"] == "CRC_PRESENT"
+      unless crcs_required
+        # Recreate with CRC
+        pdu = new(crcs_required: true)
+        pdu.buffer = pdu_data
+      end
+      pdu_hash["CRC"] = pdu.read("CRC")
+      crc16 = OpenC3::Crc16.new
+      calculated = crc16.calc(pdu.buffer(false)[0..-3])
+      if pdu_hash["CRC"] != calculated
+        raise "PDU with invalid CRC received: Received: #{sprintf("0x%04X", pdu_hash["CRC"])}, Calculated: #{sprintf("0x%04X", calculated)}"
+      end
+    elsif crcs_required
+      raise "PDU without required CRC received"
+    end
 
     # Static header
     keys = [
@@ -61,7 +80,6 @@ class CfdpPdu < OpenC3::Packet
       "TYPE",
       "DIRECTION",
       "TRANSMISSION_MODE",
-      "CRC_FLAG",
       "LARGE_FILE_FLAG",
       "PDU_DATA_LENGTH",
       "SEGMENTATION_CONTROL",
@@ -70,7 +88,6 @@ class CfdpPdu < OpenC3::Packet
       "SEQUENCE_NUMBER_LENGTH",
       "VARIABLE_DATA"
     ]
-    keys << "CRC" if source_entity['crcs_required']
     keys.each do |key|
       pdu_hash[key] = pdu.read(key)
     end
@@ -84,7 +101,7 @@ class CfdpPdu < OpenC3::Packet
       "SEQUENCE_NUMBER",
       "DESTINATION_ENTITY_ID"
     ]
-    keys << "DIRECTIVE_CODE" if pdu_hash['TYPE'] == "FILE_DIRECTIVE"
+    variable_header_keys << "DIRECTIVE_CODE" if pdu_hash['TYPE'] == "FILE_DIRECTIVE"
     variable_header_keys.each do |key|
       pdu_hash[key] = s.read(key)
     end
@@ -114,10 +131,10 @@ class CfdpPdu < OpenC3::Packet
     return pdu_hash
   end
 
-  def self.build_initial_pdu(destination_entity:, file_size:, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
+  def self.build_initial_pdu(type:, destination_entity:, file_size:, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
     pdu = self.new(crcs_required: destination_entity['crcs_required'])
-    pdu.write("VERSION", 3, destination_entity['protocol_version_number'])
-    pdu.write("TYPE", "FILE_DATA")
+    pdu.write("VERSION", destination_entity['protocol_version_number'])
+    pdu.write("TYPE", type)
     pdu.write("DIRECTION", "TOWARD_FILE_RECEIVER")
     if transmission_mode
       pdu.write("TRANSMISSION_MODE", transmission_mode)
@@ -145,13 +162,13 @@ class CfdpPdu < OpenC3::Packet
     id_length = read("ENTITY_ID_LENGTH") + 1
     seq_num_length = read("SEQUENCE_NUMBER_LENGTH") + 1
     type = read("TYPE")
-    s = OpenC3::Structure.new(:BIG_ENDIAN)
+    s = OpenC3::Packet.new(nil, nil, :BIG_ENDIAN)
     s.append_item("SOURCE_ENTITY_ID", id_length * 8, :UINT)
     s.append_item("SEQUENCE_NUMBER", seq_num_length * 8, :UINT, nil, :BIG_ENDIAN, :TRUNCATE)
     s.append_item("DESTINATION_ENTITY_ID", id_length * 8, :UINT)
     if type == "FILE_DIRECTIVE"
-      s.append_item("DIRECTIVE_CODE", 8, :UINT)
-      s.states = DIRECTIVE_CODES
+      item = s.append_item("DIRECTIVE_CODE", 8, :UINT)
+      item.states = DIRECTIVE_CODES
     end
     return s
   end

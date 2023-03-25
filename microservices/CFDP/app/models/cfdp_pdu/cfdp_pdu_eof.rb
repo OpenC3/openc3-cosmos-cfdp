@@ -8,7 +8,7 @@
 
 class CfdpPdu < OpenC3::Packet
   def self.decom_eof_pdu_contents(pdu, pdu_hash, variable_data)
-    s = pdu.define_eof_pdu_contents(variable_data: variable_data)
+    s = pdu.define_eof_pdu_contents()
     s.buffer = variable_data
     pdu_hash["CONDITION_CODE"] = s.read("CONDITION_CODE")
     pdu_hash["FILE_CHECKSUM"] = s.read("FILE_CHECKSUM")
@@ -30,9 +30,9 @@ class CfdpPdu < OpenC3::Packet
     transmission_mode: nil,
     canceling_entity_id: nil)
 
-    pdu = build_initial_pdu(destination_entity: destination_entity, transmission_mode: transmission_mode, file_size: file_size, segmentation_control: segmentation_control)
+    pdu = build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, transmission_mode: transmission_mode, file_size: file_size, segmentation_control: segmentation_control)
     pdu_header_part_1_length = pdu.length # Measured here before writing variable data
-    pdu_header = build_variable_header(source_entity_id: source_entity['id'], transaction_seq_num: transaction_seq_num, destination_entity_id: destination_entity['id'], directive_code: "EOF")
+    pdu_header = pdu.build_variable_header(source_entity_id: source_entity['id'], transaction_seq_num: transaction_seq_num, destination_entity_id: destination_entity['id'], directive_code: "EOF")
     pdu_header_part_2_length = pdu_header.length
     pdu_contents = pdu.build_eof_pdu_contents(condition_code: condition_code, file_checksum: file_checksum, file_size: file_size, canceling_entity_id: canceling_entity_id)
     pdu.write("VARIABLE_DATA", pdu_header + pdu_contents)

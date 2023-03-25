@@ -22,7 +22,7 @@ class CfdpPdu < OpenC3::Packet
     transmission_mode: nil,
     response_required:)
 
-    pdu = build_initial_pdu(destination_entity: destination_entity, transmission_mode: transmission_mode, file_size: file_size, segmentation_control: segmentation_control)
+    pdu = build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, transmission_mode: transmission_mode, file_size: file_size, segmentation_control: segmentation_control)
     pdu_header_part_1_length = pdu.length # Measured here before writing variable data
     pdu_header = pdu.build_variable_header(source_entity_id: source_entity['id'], transaction_seq_num: transaction_seq_num, destination_entity_id: destination_entity['id'], directive_code: "PROMPT")
     pdu_header_part_2_length = pdu_header.length

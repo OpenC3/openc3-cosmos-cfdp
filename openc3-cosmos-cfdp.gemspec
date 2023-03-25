@@ -27,5 +27,6 @@ spec = Gem::Specification.new do |s|
   end
   s.licenses = ['Nonstandard']
 
+  s.require_paths = ['lib', 'microservices/CFDP/app/models']
   s.files = Dir.glob("{targets,lib,tools,microservices}/**/*") + %w(Rakefile LICENSE.txt README.md plugin.txt)
 end

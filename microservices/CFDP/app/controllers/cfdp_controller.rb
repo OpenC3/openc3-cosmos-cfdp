@@ -19,13 +19,20 @@ class CfdpController < ApplicationController
   #   [messages to user],
   #   [filestore requests])
   def put
+    authorization('cmd')
+    transaction = CfdpSourceTransaction.new
     Thread.new do
-      CfdpProcedures.put(
-        destination_entity_id: params[:destination_entity_id],
-        source_file_name: params[:source_file_name],
-        destination_file_name: params[:destination_file_name]
-      )
+      begin
+        transaction.put(
+          destination_entity_id: params[:destination_entity_id],
+          source_file_name: params[:source_file_name],
+          destination_file_name: params[:destination_file_name]
+        )
+      rescue => err
+        OpenC3::Logger.error(err.formatted, scope: ENV['OPENC3_SCOPE'])
+      end
     end
+    render json: transaction.id
   end
 
   # Cancel.request (transaction ID)
@@ -82,6 +89,8 @@ class CfdpController < ApplicationController
   #    progress)
   # EOF-Recv.indication (transaction ID)
   def indications
-
+    authorization('cmd')
+    result = CfdpTopic.read_indications(transaction_id: params[:transaction_id], continuation: params[:continuation], limit: params[:limit])
+    render json: result
   end
 end

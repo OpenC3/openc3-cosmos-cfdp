@@ -1,2 +1,5 @@
-# This work may only be used under the terms of a commercial license
-# purchased from OpenC3, Inc.
+# OpenC3 Evaluation License
+#
+# This work is licensed for evaluation purposes only. It may NOT be used
+# for formal development, integration and test, or operations without the purchase
+# of a commercial license from OpenC3, Inc.

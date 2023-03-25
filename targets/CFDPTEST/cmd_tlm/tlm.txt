@@ -1,0 +1,4 @@
+TELEMETRY <%= target_name %> CFDP_PDU BIG_ENDIAN "Example wrapper telemetry packet containing a PDU"
+  APPEND_ITEM LENGTH 32 UINT
+  APPEND_ITEM ID 32 UINT 1
+  APPEND_ITEM PDU 0 BLOCK ""

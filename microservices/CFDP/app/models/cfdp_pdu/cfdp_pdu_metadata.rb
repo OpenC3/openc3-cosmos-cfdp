@@ -41,7 +41,7 @@ class CfdpPdu < OpenC3::Packet
     closure_requested:,
     options: [])
 
-    pdu = build_initial_pdu(destination_entity: destination_entity, transmission_mode: transmission_mode, file_size: file_size, segmentation_control: segmentation_control)
+    pdu = build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, transmission_mode: transmission_mode, file_size: file_size, segmentation_control: segmentation_control)
     pdu_header_part_1_length = pdu.length # Measured here before writing variable data
     pdu_header = pdu.build_variable_header(source_entity_id: source_entity['id'], transaction_seq_num: transaction_seq_num, destination_entity_id: destination_entity['id'], directive_code: "METADATA")
     pdu_header_part_2_length = pdu_header.length
@@ -50,7 +50,7 @@ class CfdpPdu < OpenC3::Packet
     else
       checksum_type = 0
     end
-    pdu_contents = pdu.build_meta_data_pdu_contents(closure_requested: closure_requested, checksum_type: checksum_type, file_size: file_size, source_file_name: source_file_name, destination_file_name: destination_file_name, options: options)
+    pdu_contents = pdu.build_metadata_pdu_contents(source_entity: source_entity, closure_requested: closure_requested, checksum_type: checksum_type, file_size: file_size, source_file_name: source_file_name, destination_file_name: destination_file_name, options: options)
     pdu.write("VARIABLE_DATA", pdu_header + pdu_contents)
     pdu.write("PDU_DATA_LENGTH", pdu.length - pdu_header_part_1_length - pdu_header_part_2_length)
     if destination_entity['crcs_required']
@@ -83,10 +83,14 @@ class CfdpPdu < OpenC3::Packet
     return s, s2
   end
 
-  def build_metadata_pdu_contents(closure_requested:, checksum_type:, file_size:, source_file_name: nil, destination_file_name: nil, options: [])
+  def build_metadata_pdu_contents(source_entity:, closure_requested:, checksum_type:, file_size:, source_file_name: nil, destination_file_name: nil, options: [])
     s, s2 = define_metadata_pdu_contents()
     s.write("RESERVED", 0)
-    s.write("CLOSURE_REQUESTED", closure_requested)
+    if closure_requested
+      s.write("CLOSURE_REQUESTED", closure_requested)
+    else
+      s.write("CLOSURE_REQUESTED", source_entity['transaction_closure_requested'])
+    end
     s.write("RESERVED2", 0)
     s.write("CHECKSUM_TYPE", checksum_type)
     s.write("FILE_SIZE", file_size)
