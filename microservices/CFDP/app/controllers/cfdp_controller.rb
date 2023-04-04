@@ -7,7 +7,6 @@
 # if purchased from OpenC3, Inc.
 
 class CfdpController < ApplicationController
-
   # Put.request (destination CFDP entity ID,
   #   [source file name],
   #   [destination file name],
@@ -20,6 +19,7 @@ class CfdpController < ApplicationController
   #   [filestore requests])
   def put
     return unless authorization('cmd')
+    params.require([:destination_entity_id, :source_file_name, :destination_file_name])
     transaction = CfdpSourceTransaction.new
     Thread.new do
       begin
@@ -35,6 +35,8 @@ class CfdpController < ApplicationController
       end
     end
     render json: transaction.id
+  rescue ActionController::ParameterMissing => error
+    render :json => { :status => 'error', :message => error.message }, :status => 400
   end
 
   # Cancel.request (transaction ID)

@@ -164,6 +164,7 @@ class CfdpSourceTransaction
     # Wait for Finished if Closure Requested
     if closure_requested == "CLOSURE_REQUESTED"
       start_time = Time.now
+      puts "start:#{start_time} limit:#{source_entity['check_limit']}"
       while (Time.now - start_time) < source_entity['check_limit']
         sleep(1)
         break if @finished_pdu_hash
