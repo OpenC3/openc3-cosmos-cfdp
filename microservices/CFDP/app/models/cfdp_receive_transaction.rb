@@ -1,16 +1,9 @@
-require 'openc3/api/api'
-require_relative 'cfdp_topic'
-require_relative 'cfdp_mib'
-require_relative 'cfdp_checksum'
-require_relative 'cfdp_null_checksum'
-require_relative 'cfdp_pdu'
-require 'tempfile'
+require_relative 'cfdp_transaction'
 
-class CfdpReceiveTransaction
-  include OpenC3::Api
-  attr_reader :id
+class CfdpReceiveTransaction < CfdpTransaction
 
   def initialize(metadata_pdu_hash)
+    super()
     @metadata_pdu_hash = metadata_pdu_hash
     @id = self.class.build_transaction_id(metadata_pdu_hash["SOURCE_ENTITY_ID"], metadata_pdu_hash["SEQUENCE_NUMBER"])
     @transmission_mode = metadata_pdu_hash["TRANSMISSION_MODE"]
@@ -68,6 +61,7 @@ class CfdpReceiveTransaction
     @eof_pdu_hash = nil
     @checksum_type = @metadata_pdu_hash["CHECKSUM_TYPE"]
     @checksum = get_checksum(@checksum_type)
+    CfdpMib.transactions[@id] = self
   end
 
   def self.build_transaction_id(source_entity_id, transaction_seq_num)
@@ -204,16 +198,6 @@ class CfdpReceiveTransaction
 
         CfdpTopic.write_indication("File-Segment-Recv", transaction_id: @id, offset: offset, length: file_data.length)
       end
-    end
-  end
-
-  # private
-
-  def get_checksum(checksum_type)
-    if checksum_type == 0
-      return CfdpChecksum.new
-    else
-      return NullChecksum.new
     end
   end
 end

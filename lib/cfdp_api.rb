@@ -85,13 +85,22 @@ end
 # api.example_method
 #
 class CfdpApi < OpenC3::JsonApi
-  def put(destination_entity_id:, source_file_name:, destination_file_name:, closure_requested: nil, filestore_requests: [], scope: $openc3_scope)
+  def put(
+    destination_entity_id:,
+    source_file_name:,
+    destination_file_name:,
+    transmission_mode: nil,
+    closure_requested: nil,
+    filestore_requests: [],
+    scope: $openc3_scope)
+
     begin
       endpoint = "/put"
       data = {
         "destination_entity_id" => destination_entity_id.to_i,
         "source_file_name" => source_file_name,
         "destination_file_name" => destination_file_name,
+        "transmission_mode" => transmission_mode,
         "closure_requested" => closure_requested,
         "filestore_requests" => filestore_requests
       }
@@ -107,6 +116,22 @@ class CfdpApi < OpenC3::JsonApi
     rescue => error
       raise "CFDP put failed due to #{error.formatted}"
     end
+  end
+
+  def cancel(transaction_id:, scope: $openc3_scope)
+    transaction_id_post(method_name: "cancel", transaction_id: transaction_id, scope: $openc3_scope)
+  end
+
+  def suspend(transaction_id:, scope: $openc3_scope)
+    transaction_id_post(method_name: "suspend", transaction_id: transaction_id, scope: $openc3_scope)
+  end
+
+  def resume(transaction_id:, scope: $openc3_scope)
+    transaction_id_post(method_name: "resume", transaction_id: transaction_id, scope: $openc3_scope)
+  end
+
+  def report(transaction_id:, scope: $openc3_scope)
+    transaction_id_post(method_name: "report", transaction_id: transaction_id, scope: $openc3_scope)
   end
 
   def indications(transaction_id: nil, continuation: nil, limit: 100, scope: $openc3_scope)
@@ -128,6 +153,26 @@ class CfdpApi < OpenC3::JsonApi
       return JSON.parse(response.body)
     rescue => error
       raise "CFDP indications failed due to #{error.formatted}"
+    end
+  end
+
+  # private
+
+  transaction_id_post(method_name:, transaction_id:, scope: $openc3_scope)
+    begin
+      endpoint = "/#{method_name}"
+      data = { "transaction_id" => transaction_id.to_s }
+      response = _request('post', endpoint, data: data, scope: scope)
+      if response.nil? || response.code != 200
+        if response
+          raise "CFDP #{method_name} error: #{response.body}"
+        else
+          raise "CFDP #{method_name} failed"
+        end
+      end
+      return response.body
+    rescue => error
+      raise "CFDP #{method_name} failed due to #{error.formatted}"
     end
   end
 end
