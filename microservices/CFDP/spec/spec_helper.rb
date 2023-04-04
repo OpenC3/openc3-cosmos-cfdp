@@ -20,6 +20,8 @@
 # the additional setup, and require it from the spec files that actually need
 # it.
 
+require 'openc3'
+
 # NOTE: You MUST require simplecov before anything else!
 if !ENV['OPENC3_NO_SIMPLECOV']
   require 'simplecov'
@@ -75,6 +77,30 @@ def mock_redis
   OpenC3::EphemeralStore.instance_variable_set(:@instance, nil)
   redis
 end
+
+# def setup_system(targets = %w[CFDPTEST])
+#   result = nil
+#   capture_io do |stdout|
+#     require 'openc3/system'
+#     dir = File.join(__dir__, 'targets')
+#     OpenC3::System.class_variable_set(:@@instance, nil)
+#     OpenC3::System.instance(targets, dir)
+#     result = stdout
+#   end
+#   result
+# end
+
+# def get_all_redis_keys
+#   cursor = 0
+#   keys = []
+#   loop do
+#     cursor, result = OpenC3::Store.scan(cursor)
+#     keys.concat(result)
+#     cursor = cursor.to_i # cursor is returned as a string
+#     break if cursor == 0
+#   end
+#   keys
+# end
 
 # Create a easy alias to the base of the spec directory
 SPEC_DIR = File.dirname(__FILE__)
