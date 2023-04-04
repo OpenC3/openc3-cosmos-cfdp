@@ -19,7 +19,7 @@ class CfdpController < ApplicationController
   #   [messages to user],
   #   [filestore requests])
   def put
-    authorization('cmd')
+    return unless authorization('cmd')
     transaction = CfdpSourceTransaction.new
     Thread.new do
       begin
@@ -89,7 +89,7 @@ class CfdpController < ApplicationController
   #    progress)
   # EOF-Recv.indication (transaction ID)
   def indications
-    authorization('cmd')
+    return unless authorization('cmd')
     result = CfdpTopic.read_indications(transaction_id: params[:transaction_id], continuation: params[:continuation], limit: params[:limit])
     render json: result
   end

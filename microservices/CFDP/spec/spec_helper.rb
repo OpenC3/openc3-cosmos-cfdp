@@ -61,7 +61,7 @@ ENV['OPENC3_REDIS_PASSWORD'] = 'openc3password'
 ENV['OPENC3_BUCKET_USERNAME'] = 'openc3minio'
 ENV['OPENC3_BUCKET_PASSWORD'] = 'openc3miniopassword'
 ENV['OPENC3_SCOPE'] = 'DEFAULT'
-ENV['OPENC3_CLOUD'] = 'aws'
+ENV['OPENC3_CLOUD'] = 'local'
 
 $openc3_scope = ENV['OPENC3_SCOPE']
 $openc3_token = ENV['OPENC3_API_PASSWORD']
@@ -75,6 +75,9 @@ def mock_redis
   OpenC3::EphemeralStore.instance_variable_set(:@instance, nil)
   redis
 end
+
+# Create a easy alias to the base of the spec directory
+SPEC_DIR = File.dirname(__FILE__)
 
 # See https://rubydoc.info/gems/rspec-core/RSpec/Core/Configuration
 RSpec.configure do |config|
