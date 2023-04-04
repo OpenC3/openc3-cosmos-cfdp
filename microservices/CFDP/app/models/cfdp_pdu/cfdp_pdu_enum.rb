@@ -142,6 +142,11 @@ class CfdpPdu < OpenC3::Packet
     "NOT_PERFORMED" => 15
   }
 
+  # Special for unknown action codes
+  UNKNOWN_STATUS_CODES = {
+    "NOT_PERFORMED" => 15
+  }
+
   # Table 5-18: Filestore Response Status Codes
   FILESTORE_RESPONSE_STATUS_CODES = {
     "CREATE_FILE" => CREATE_FILE_STATUS_CODES,

@@ -158,8 +158,116 @@ class CfdpMib
   end
 
   def self.put_destination_file(destination_filename, tmp_file)
+    # TODO: Handle bucket
     file_name = File.join(@@root_path, destination_filename)
     tmp_file.persist(file_name)
+  end
+
+  def self.filestore_request(action_code, first_file_name, second_file_name)
+    # TODO: Handle bucket
+
+    # Apply root path
+    first_file_name = File.join(@@root_path, first_file_name.to_s)
+    second_file_name = File.join(@@root_path, second_file_name.to_s)
+
+    # Handle file path safety
+    first_file_name = File.absolute_path(first_file_name)
+    second_file_name = File.absolute_path(second_file_name)
+    if first_file_name.index(@@root_path) != 0 or second_file_name.index(@@root_path) != 0
+      return "NOT_ALLOWED", "Dangerous filename"
+    end
+
+    status_code = nil
+    filestore_message = nil
+    begin
+      case action_code
+      when "CREATE_FILE"
+        FileUtils.touch(first_file_name)
+        status_code = "SUCCESSFUL"
+
+      when "DELETE_FILE"
+        if File.exist?(first_file_name)
+          FileUtils.rm(first_file_name)
+          status_code = "SUCCESSFUL"
+        else
+          status_code = "FILE_DOES_NOT_EXIST"
+        end
+
+      when "RENAME_FILE"
+        if File.exist?(second_file_name)
+          status_code = "NEW_FILE_ALREADY_EXISTS"
+        elsif not File.exist?(first_file_name)
+          status_code = "OLD_FILE_DOES_NOT_EXIST"
+        else
+          FileUtils.mv(first_file_name, second_file_name)
+          status_code = "SUCCESSFUL"
+        end
+
+      when "APPEND_FILE"
+        if not File.exist?(first_file_name)
+          status_code = "FILE_1_DOES_NOT_EXIST"
+        elsif not File.exist?(second_file_name)
+          status_code = "FILE_2_DOES_NOT_EXIST"
+        else
+          File.open(first_file_name, 'ab') do |file|
+            file.write(File.read(second_file_name))
+          end
+          status_code = "SUCCESSFUL"
+        end
+
+      when "REPLACE_FILE"
+        if not File.exist?(first_file_name)
+          status_code = "FILE_1_DOES_NOT_EXIST"
+        elsif not File.exist?(second_file_name)
+          status_code = "FILE_2_DOES_NOT_EXIST"
+        else
+          FileUtils.rm(first_file_name)
+          FileUtils.mv(second_file_name, first_file_name)
+          status_code = "SUCCESSFUL"
+        end
+
+      when "CREATE_DIRECTORY"
+        FileUtils.mkdir(first_file_name)
+        status_code = "SUCCESSFUL"
+
+      when "REMOVE_DIRECTORY"
+        if not Dir.exist?(first_file_name)
+          status_code = "DOES_NOT_EXIST"
+        else
+          FileUtils.rmdir(first_file_name)
+          status_code = "SUCCESSFUL"
+        end
+
+      when "DENY_FILE"
+        if File.exist?(first_file_name)
+          FileUtils.rm(first_file_name)
+          status_code = "SUCCESSFUL"
+        else
+          status_code = "SUCCESSFUL"
+        end
+
+      when "DENY_DIRECTORY"
+        if not Dir.exist?(first_file_name)
+          status_code = "SUCCESSFUL"
+        else
+          FileUtils.rmdir(first_file_name)
+          status_code = "SUCCESSFUL"
+        end
+
+      else
+        status_code = "NOT_PERFORMED"
+        filestore_message = "Unknown action code: #{action_code}"
+      end
+    rescue => err
+      if action_code != "CREATE_DIRECTORY"
+        status_code = "NOT_ALLOWED"
+      else
+        status_code = "CANNOT_BE_CREATED"
+      end
+      filestore_message = "#{err.class}:#{err.message}"
+    end
+
+    return status_code, filestore_message
   end
 
   def self.setup

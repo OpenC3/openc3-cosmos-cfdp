@@ -35,6 +35,11 @@ class CfdpSourceTransaction
     raise "destination_entity_id is required" if destination_entity_id.nil?
     destination_entity_id = Integer(destination_entity_id)
 
+    segmentation_control = "NOT_PRESERVED" unless segmentation_control
+    fault_handler_overrides = [] unless fault_handler_overrides
+    messages_to_user = [] unless messages_to_user
+    filestore_requests = [] unless filestore_requests
+
     transaction_start_notification()
     copy_file(
       transaction_seq_num: @transaction_seq_num,
@@ -83,6 +88,18 @@ class CfdpSourceTransaction
     file_size = source_file.size
     read_size = destination_entity['maximum_file_segment_length']
 
+    # Prepare options
+    options = []
+    filestore_requests = [] unless filestore_requests
+    filestore_requests.each do |fsr|
+      tlv = {}
+      tlv["TLV_TYPE"] = "FILESTORE_REQUEST"
+      tlv['ACTION_CODE'] = fsr[0].to_s.upcase
+      tlv["FIRST_FILE_NAME"] = fsr[1]
+      tlv["SECOND_FILE_NAME"] = fsr[2] if fsr[2]
+      options << tlv
+    end
+
     # Send Metadata PDU
     metadata_pdu = CfdpPdu.build_metadata_pdu(
       source_entity: source_entity,
@@ -92,7 +109,7 @@ class CfdpSourceTransaction
       file_size: file_size,
       source_file_name: source_file_name,
       destination_file_name: destination_file_name,
-      options: [],
+      options: options,
       segmentation_control: segmentation_control,
       transmission_mode: transmission_mode)
     cmd_params = {}
@@ -160,7 +177,29 @@ class CfdpSourceTransaction
       end
     end
 
-    CfdpTopic.write_indication("Transaction-Finished", transaction_id: transaction_id, condition_code: @condition_code, file_status: @file_status, delivery_code: @delivery_code)
+    filestore_responses = []
+    if @finished_pdu_hash
+      tlvs = @finished_pdu_hash["TLVS"]
+      if tlvs
+        tlvs.each do |tlv|
+          case tlv['TLV_TYPE']
+          when 'FILESTORE_RESPONSE'
+            filestore_response['ACTION_CODE'] = action_code
+            filestore_response['STATUS_CODE'] = status_code
+            filestore_response['FIRST_FILE_NAME'] = first_file_name
+            filestore_response['SECOND_FILE_NAME'] = second_file_name
+            filestore_response['FILESTORE_MESSAGE'] = filestore_message
+            filestore_responses << tlv.except('TLV_TYPE')
+          end
+        end
+      end
+    end
+
+    if filestore_responses.length > 0
+      CfdpTopic.write_indication("Transaction-Finished", transaction_id: transaction_id, condition_code: @condition_code, file_status: @file_status, delivery_code: @delivery_code, filestore_responses: filestore_responses)
+    else
+      CfdpTopic.write_indication("Transaction-Finished", transaction_id: transaction_id, condition_code: @condition_code, file_status: @file_status, delivery_code: @delivery_code)
+    end
   end
 
   def handle_pdu(pdu_hash)

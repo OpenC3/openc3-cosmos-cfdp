@@ -99,6 +99,39 @@ class CfdpReceiveTransaction
           delivery_code = "DATA_INCOMPLETE"
         end
 
+        # Handle Filestore Requests
+        filestore_success = true
+        filestore_responses = []
+        tlvs = @metadata_pdu_hash["TLVS"]
+        if tlvs
+          tlvs.each do |tlv|
+            case tlv['TLV_TYPE']
+            when 'FILESTORE_REQUEST'
+              if filestore_success
+                action_code = tlv["ACTION_CODE"]
+                first_file_name = tlv["FIRST_FILE_NAME"]
+                second_file_name = tlv["SECOND_FILE_NAME"]
+                status_code, filestore_message = CfdpMib.filestore_request(action_code, first_file_name, second_file_name)
+                filestore_response = {}
+                filestore_response['ACTION_CODE'] = action_code
+                filestore_response['STATUS_CODE'] = status_code
+                filestore_response['FIRST_FILE_NAME'] = first_file_name
+                filestore_response['SECOND_FILE_NAME'] = second_file_name
+                filestore_response['FILESTORE_MESSAGE'] = filestore_message
+                filestore_responses << filestore_response
+                filestore_success = false if status_code != 'SUCCESSFUL'
+              else
+                filestore_response = {}
+                filestore_response['ACTION_CODE'] = action_code
+                filestore_response['STATUS_CODE'] = "NOT_PERFORMED"
+                filestore_response['FIRST_FILE_NAME'] = first_file_name
+                filestore_response['SECOND_FILE_NAME'] = second_file_name
+                filestore_responses << filestore_response
+              end
+            end
+          end
+        end
+
         if @metadata_pdu_hash["CLOSURE_REQUESTED"] == "CLOSURE_REQUESTED"
           # Lookup outgoing PDU command
           destination_entity = CfdpMib.source_entity
@@ -116,7 +149,7 @@ class CfdpReceiveTransaction
             transmission_mode: @transmission_mode,
             delivery_code: delivery_code,
             file_status: file_status,
-            filestore_responses: [],
+            filestore_responses: filestore_responses,
             fault_location_entity_id: nil)
           cmd_params = {}
           cmd_params[item_name] = finished_pdu

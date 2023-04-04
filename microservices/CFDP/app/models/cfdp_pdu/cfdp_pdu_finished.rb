@@ -68,11 +68,11 @@ class CfdpPdu < OpenC3::Packet
     structures << s
 
     filestore_responses.each do |filestore_response|
-      action_code = filestore_response['action_code']
-      status_code = filestore_response['status_code']
-      first_file_name = filestore_response['first_file_name']
-      second_file_name = filestore_response['second_file_name']
-      filestore_message = filestore_response['filestore_message']
+      action_code = filestore_response['ACTION_CODE']
+      status_code = filestore_response['STATUS_CODE']
+      first_file_name = filestore_response['FIRST_FILE_NAME']
+      second_file_name = filestore_response['SECOND_FILE_NAME']
+      filestore_message = filestore_response['FILESTORE_MESSAGE']
       s, s2, s3, status_code_item = define_filestore_response_tlv()
       add_status_code_states(action_code: action_code, status_code_item: status_code_item)
       s.write("TLV_TYPE", 0x01)

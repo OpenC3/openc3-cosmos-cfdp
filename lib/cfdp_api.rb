@@ -85,7 +85,7 @@ end
 # api.example_method
 #
 class CfdpApi < OpenC3::JsonApi
-  def put(destination_entity_id:, source_file_name:, destination_file_name:, closure_requested: nil, scope: $openc3_scope)
+  def put(destination_entity_id:, source_file_name:, destination_file_name:, closure_requested: nil, filestore_requests: [], scope: $openc3_scope)
     begin
       endpoint = "/put"
       data = {
@@ -93,6 +93,7 @@ class CfdpApi < OpenC3::JsonApi
         "source_file_name" => source_file_name,
         "destination_file_name" => destination_file_name,
         "closure_requested" => closure_requested,
+        "filestore_requests" => filestore_requests
       }
       response = _request('post', endpoint, data: data, scope: scope)
       if response.nil? || response.code != 200

@@ -217,10 +217,12 @@ class CfdpPdu < OpenC3::Packet
   # Table 5-18
   def self.add_status_code_states(action_code:, status_code_item:)
     if String === action_code
-      status_code_item.states = FILESTORE_RESPONSE_STATUS_CODES[action_code]
+      states = FILESTORE_RESPONSE_STATUS_CODES[action_code]
     else
-      status_code_item.states = FILESTORE_RESPONSE_STATUS_CODES[ACTION_CODES.key(action_code)]
+      states = FILESTORE_RESPONSE_STATUS_CODES[ACTION_CODES.key(action_code)]
     end
+    states = UNKNOWN_STATUS_CODES unless states
+    status_code_item.states = states
   end
 
   # Section 5.4.3

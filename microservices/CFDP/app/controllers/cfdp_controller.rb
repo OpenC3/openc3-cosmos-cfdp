@@ -26,7 +26,9 @@ class CfdpController < ApplicationController
         transaction.put(
           destination_entity_id: params[:destination_entity_id],
           source_file_name: params[:source_file_name],
-          destination_file_name: params[:destination_file_name]
+          destination_file_name: params[:destination_file_name],
+          closure_requested: params[:closure_requested],
+          filestore_requests: params[:filestore_requests]
         )
       rescue => err
         OpenC3::Logger.error(err.formatted, scope: ENV['OPENC3_SCOPE'])
