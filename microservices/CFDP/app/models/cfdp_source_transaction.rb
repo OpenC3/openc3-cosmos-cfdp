@@ -86,7 +86,7 @@ class CfdpSourceTransaction < CfdpTransaction
     filestore_requests.each do |fsr|
       tlv = {}
       tlv["TLV_TYPE"] = "FILESTORE_REQUEST"
-      tlv['ACTION_CODE'] = fsr[0].to_s.upcase
+      tlv["ACTION_CODE"] = fsr[0].to_s.upcase
       tlv["FIRST_FILE_NAME"] = fsr[1]
       tlv["SECOND_FILE_NAME"] = fsr[2] if fsr[2]
       options << tlv
@@ -108,7 +108,7 @@ class CfdpSourceTransaction < CfdpTransaction
     cmd_params[item_name] = metadata_pdu
     cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
 
-    checksum = get_checksum(destination_entity)
+    checksum = get_checksum(destination_entity['default_checksum_type'])
 
     # Send File Data PDUs
     offset = 0
@@ -157,7 +157,6 @@ class CfdpSourceTransaction < CfdpTransaction
     # Wait for Finished if Closure Requested
     if closure_requested == "CLOSURE_REQUESTED"
       start_time = Time.now
-      puts "start:#{start_time} limit:#{source_entity['check_limit']}"
       while (Time.now - start_time) < source_entity['check_limit']
         sleep(1)
         break if @finished_pdu_hash

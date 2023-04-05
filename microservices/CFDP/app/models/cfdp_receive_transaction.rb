@@ -59,8 +59,7 @@ class CfdpReceiveTransaction < CfdpTransaction
     @segments = {}
     @condition_code = "NO_ERROR"
     @eof_pdu_hash = nil
-    @checksum_type = @metadata_pdu_hash["CHECKSUM_TYPE"]
-    @checksum = get_checksum(@checksum_type)
+    @checksum = get_checksum(@metadata_pdu_hash["CHECKSUM_TYPE"])
     CfdpMib.transactions[@id] = self
   end
 
@@ -145,7 +144,6 @@ class CfdpReceiveTransaction < CfdpTransaction
             source_entity: source_entity,
             transaction_seq_num: @metadata_pdu_hash["SEQUENCE_NUMBER"],
             destination_entity: destination_entity,
-            file_size: @file_size,
             condition_code: @condition_code,
             segmentation_control: "NOT_PRESERVED",
             transmission_mode: @transmission_mode,

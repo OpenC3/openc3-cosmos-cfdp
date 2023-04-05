@@ -53,8 +53,7 @@ class CfdpTransaction
     @freeze = false
   end
 
-  def get_checksum(entity)
-    checksum_type = entity['default_checksum_type']
+  def get_checksum(checksum_type)
     if checksum_type == 15
       return NullChecksum.new
     else

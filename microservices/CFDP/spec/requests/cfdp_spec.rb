@@ -223,7 +223,6 @@ module OpenC3
           source_entity: CfdpMib.entity(@source_entity_id),
           transaction_seq_num: 1,
           destination_entity: CfdpMib.entity(@destination_entity_id),
-          file_size: 8,
           condition_code: "NO_ERROR",
           delivery_code: "DATA_INCOMPLETE", # Just to verify it changes
           file_status: "FILESTORE_SUCCESS")
@@ -317,15 +316,19 @@ module OpenC3
         expect(error_message).to include("Unknown transaction")
       end
 
-      it "receives data" do
+      it "receives data with filestore requests / responses" do
         setup(source_id: 12, destination_id: 33)
         CfdpMib.set_entity_value(@destination_entity_id, 'maximum_file_segment_length', 8)
 
         data = ('a'..'z').to_a.shuffle[0,8].join
-        File.write(File.join(SPEC_DIR, 'test.txt'), data)
+        File.write(File.join(SPEC_DIR, 'source.txt'), data)
         post "/cfdp/put", :params => {
           scope: "DEFAULT", destination_entity_id: @destination_entity_id,
-          source_file_name: 'test.txt', destination_file_name: 'test.txt'
+          source_file_name: 'source.txt', destination_file_name: 'dest.txt',
+          filestore_requests: [
+            ['REPLACE_FILE', 'existing.txt', 'create.txt'],
+            ['DELETE_FILE', 'delete.txt']
+          ]
         }
         expect(response).to have_http_status(200)
         sleep 0.1
