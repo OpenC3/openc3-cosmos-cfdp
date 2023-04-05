@@ -70,7 +70,15 @@ class CfdpReceiveTransaction < CfdpTransaction
 
   def check_complete
     return false unless @eof_pdu_hash
-    return true if @eof_pdu_hash["CONDITION_CODE"] != "NO_ERROR" # Canceled
+    if @eof_pdu_hash["CONDITION_CODE"] != "NO_ERROR" # Canceled
+      @status = "CANCELED"
+      @condition_code = @eof_pdu_hash["CONDITION_CODE"]
+      file_status = "FILE_DISCARDED"
+      delivery_code = "DATA_INCOMPLETE"
+      @tmp_file.unlink if @tmp_file
+      CfdpTopic.write_indication("Transaction-Finished", transaction_id: @id, condition_code: @condition_code, file_status: file_status, status_report: @status, delivery_code: delivery_code)
+      return true
+    end
     offset = 0
     while offset
       next_offset = @segments[offset]
@@ -79,7 +87,7 @@ class CfdpReceiveTransaction < CfdpTransaction
         if @checksum.check(@eof_pdu_hash['FILE_CHECKSUM'])
           # Move file to final destination
           @tmp_file.close
-          success = CfdpMib.put_destination_file(@destination_file_name, @tmp_file)
+          success = CfdpMib.put_destination_file(@destination_file_name, @tmp_file) # Unlink handled by CfdpMib
           if success
             file_status = "FILESTORE_SUCCESS"
           else
@@ -150,6 +158,14 @@ class CfdpReceiveTransaction < CfdpTransaction
           cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
         end
 
+        @status = "FINISHED" unless @status == "CANCELED"
+
+        if filestore_responses.length > 0
+          CfdpTopic.write_indication("Transaction-Finished", transaction_id: @id, condition_code: @condition_code, file_status: file_status, delivery_code: delivery_code, status_report: @status, filestore_responses: filestore_responses)
+        else
+          CfdpTopic.write_indication("Transaction-Finished", transaction_id: @id, condition_code: @condition_code, file_status: file_status, status_report: @status, delivery_code: delivery_code)
+        end
+
         return true
       end
       if offset != next_offset
@@ -185,8 +201,10 @@ class CfdpReceiveTransaction < CfdpTransaction
       @tmp_file ||= Tempfile.new('cfdp')
       offset = pdu_hash['OFFSET']
       file_data = pdu_hash['FILE_DATA']
-      if !@segments[offset] or segments[offset] != (offset + file_data.length)
-        if (offset + file_data.length) > @file_size
+      progress = offset + file_data.length
+      @progress = progress if progress > @progress
+      if !@segments[offset] or segments[offset] != progress
+        if progress > @file_size
           @condition_code = "FILE_SIZE_ERROR"
         else
           @checksum.add(offset, file_data)

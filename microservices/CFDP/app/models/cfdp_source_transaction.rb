@@ -129,6 +129,7 @@ class CfdpSourceTransaction < CfdpTransaction
       cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
       checksum.add(offset, file_data)
       offset += file_data.length
+      @progress = offset
     end
 
     # Send EOF PDU
@@ -188,10 +189,12 @@ class CfdpSourceTransaction < CfdpTransaction
       end
     end
 
+    @status = "FINISHED" unless @status == "CANCELED"
+
     if filestore_responses.length > 0
-      CfdpTopic.write_indication("Transaction-Finished", transaction_id: transaction_id, condition_code: @condition_code, file_status: @file_status, delivery_code: @delivery_code, filestore_responses: filestore_responses)
+      CfdpTopic.write_indication("Transaction-Finished", transaction_id: transaction_id, condition_code: @condition_code, file_status: @file_status, delivery_code: @delivery_code, status_report: @status, filestore_responses: filestore_responses)
     else
-      CfdpTopic.write_indication("Transaction-Finished", transaction_id: transaction_id, condition_code: @condition_code, file_status: @file_status, delivery_code: @delivery_code)
+      CfdpTopic.write_indication("Transaction-Finished", transaction_id: transaction_id, condition_code: @condition_code, file_status: @file_status, status_report: @status, delivery_code: @delivery_code)
     end
   end
 
