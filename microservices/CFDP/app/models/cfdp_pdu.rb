@@ -137,9 +137,10 @@ class CfdpPdu < OpenC3::Packet
     pdu.write("TYPE", type)
     pdu.write("DIRECTION", "TOWARD_FILE_RECEIVER")
     if transmission_mode
+      transmission_mode = transmission_mode.upcase
       pdu.write("TRANSMISSION_MODE", transmission_mode)
     else
-      pdu.write("TRANSMISSION_MODE", destination_entity['default_transmission_mode'])
+      pdu.write("TRANSMISSION_MODE", destination_entity['default_transmission_mode'].upcase)
     end
     if destination_entity['crcs_required']
       pdu.write("CRC_FLAG", "CRC_PRESENT")

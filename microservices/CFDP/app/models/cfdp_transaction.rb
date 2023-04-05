@@ -13,21 +13,25 @@ class CfdpTransaction
   attr_reader :id
   attr_reader :frozen
   attr_reader :status
+  attr_reader :progress
 
   def initialize
     @frozen = false
     @status = "ACTIVE" # ACTIVE, FINISHED, CANCELED, SUSPENDED
+    @progress = 0
   end
 
   def suspend
     if @status == "ACTIVE"
       @status = "SUSPENDED"
+      CfdpTopic.write_indication("Suspended", transaction_id: transaction_id, condition_code: @condition_code)
     end
   end
 
   def resume
     if @status = "SUSPENDED"
       @status = "ACTIVE"
+      CfdpTopic.write_indication("Resumed", transaction_id: transaction_id, progress: @progress)
     end
   end
 
@@ -35,6 +39,10 @@ class CfdpTransaction
     if @status != "FINISHED"
       @status = "CANCELED"
     end
+  end
+
+  def report
+    CfdpTopic.write_indication("Report", transaction_id: @id, status_report: @status)
   end
 
   def freeze
