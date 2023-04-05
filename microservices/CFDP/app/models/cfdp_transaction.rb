@@ -53,19 +53,23 @@ class CfdpTransaction
     @freeze = false
   end
 
-  def get_checksum(entity)
-    checksum_type = entity['default_checksum_type']
+  def get_checksum(entity_or_checksum_type)
+    if Hash === entity_or_checksum_type
+      checksum_type = entity['default_checksum_type']
+    else
+      checksum_type = entity_or_checksum_type
+    end
     case checksum_type
+    when 0 # Modular Checksum
+      return CfdpChecksum.new
     when 1 # Proximity-1 CRC-32 - Poly: 0x00A00805 - Reference CCSDS-211.2-B-3 - Unsure of correct xor/reflect
       return CrcChecksum.new(0x00A00805, 0x00000000, false, false)
     when 2 # CRC-32C - Poly: 0x1EDC6F41 - Reference RFC4960
       return CrcChecksum.new(0x1EDC6F41, 0xFFFFFFFF, true, true)
     when 3 # CRC-32 - Poly: 0x04C11DB7 - Reference Ethernet Frame Check Sequence
       return CrcChecksum.new(0x04C11DB7, 0xFFFFFFFF, true, true)
-    when 15 # Null Checksum
+    else # 15 or else - Null Checksum
       return NullChecksum.new
-    else # 0 or else - Modular Checksum
-      return CfdpChecksum.new
     end
   end
 end
