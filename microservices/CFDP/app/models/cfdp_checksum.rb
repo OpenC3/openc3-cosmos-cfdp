@@ -19,11 +19,12 @@ class CfdpChecksum
     return @checksum
   end
 
-  def checksum
+  # Expected to be calculated as we go using add, so file unused
+  def checksum(file)
     return @checksum & 0xFFFFFFFF
   end
 
-  def check(other_checksum)
-    checksum() == other_checksum
+  def check(file, other_checksum)
+    checksum(file) == other_checksum
   end
 end

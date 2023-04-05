@@ -84,7 +84,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       next_offset = @segments[offset]
       if next_offset == @file_size
         # Complete
-        if @checksum.check(@eof_pdu_hash['FILE_CHECKSUM'])
+        if @checksum.check(@tmp_file, @eof_pdu_hash['FILE_CHECKSUM'])
           # Move file to final destination
           @tmp_file.close
           success = CfdpMib.put_destination_file(@destination_file_name, @tmp_file) # Unlink handled by CfdpMib

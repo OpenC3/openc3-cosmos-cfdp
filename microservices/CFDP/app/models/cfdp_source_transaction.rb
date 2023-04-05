@@ -139,7 +139,7 @@ class CfdpSourceTransaction < CfdpTransaction
       transaction_seq_num: transaction_seq_num,
       destination_entity: destination_entity,
       file_size: file_size,
-      file_checksum: checksum.checksum,
+      file_checksum: checksum.checksum(source_file),
       condition_code: @condition_code,
       segmentation_control: segmentation_control,
       transmission_mode: transmission_mode,
@@ -147,6 +147,9 @@ class CfdpSourceTransaction < CfdpTransaction
     cmd_params = {}
     cmd_params[item_name] = eof_pdu
     cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+
+    # Complete use of source file
+    CfdpMib.complete_source_file(source_file)
 
     # Issue EOF-Sent.indication
     CfdpTopic.write_indication("EOF-Sent", transaction_id: transaction_id)
