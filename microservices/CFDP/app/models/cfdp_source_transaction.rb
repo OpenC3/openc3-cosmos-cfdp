@@ -154,7 +154,7 @@ class CfdpSourceTransaction < CfdpTransaction
         transaction_seq_num: transaction_seq_num,
         destination_entity: destination_entity,
         file_size: file_size,
-        file_checksum: checksum.checksum(source_file),
+        file_checksum: checksum.checksum(source_file, false),
         condition_code: @condition_code,
         segmentation_control: segmentation_control,
         transmission_mode: transmission_mode,
