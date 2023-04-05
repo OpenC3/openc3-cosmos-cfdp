@@ -9,13 +9,13 @@
 class CfdpPdu < OpenC3::Packet
   def self.decom_nak_pdu_contents(pdu, pdu_hash, variable_data)
     s, s2 = pdu.define_nak_pdu_contents()
-    s.buffer = variable_data
+    s.buffer = variable_data[0..(s.defined_length - 1)]
     pdu_hash["START_OF_SCOPE"] = s.read("START_OF_SCOPE")
     pdu_hash["END_OF_SCOPE"] = s.read("END_OF_SCOPE")
     pdu_hash["SEGMENT_REQUESTS"] = []
     variable_data = variable_data[s.defined_length..-1]
     while variable_data and variable_data.length > 0
-      s2.buffer = variable_data
+      s2.buffer = variable_data[0..(s2.defined_length - 1)]
       pdu_hash["SEGMENT_REQUESTS"] << {}
       pdu_hash["SEGMENT_REQUESTS"][-1]["START_OFFSET"] = s2.read("START_OFFSET")
       pdu_hash["SEGMENT_REQUESTS"][-1]["END_OFFSET"] = s2.read("END_OFFSET")
@@ -36,7 +36,7 @@ class CfdpPdu < OpenC3::Packet
 
     pdu = build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, transmission_mode: transmission_mode, file_size: file_size, segmentation_control: segmentation_control)
     pdu_header_part_1_length = pdu.length # Measured here before writing variable data
-    pdu_header = pdu.build_variable_header(source_entity_id: source_entity['id'], transaction_seq_num: transaction_seq_num, destination_entity_id: destination_entity['id'], directive_code: "PROMPT")
+    pdu_header = pdu.build_variable_header(source_entity_id: source_entity['id'], transaction_seq_num: transaction_seq_num, destination_entity_id: destination_entity['id'], directive_code: "NAK")
     pdu_header_part_2_length = pdu_header.length
     pdu_contents = pdu.build_nak_pdu_contents(start_of_scope: start_of_scope, end_of_scope: end_of_scope, segment_requests: segment_requests)
     pdu.write("VARIABLE_DATA", pdu_header + pdu_contents)

@@ -49,7 +49,7 @@ class CfdpPdu < OpenC3::Packet
   end
 
   def build_keep_alive_pdu_contents(progress:)
-    s = define_prompt_pdu_contents()
+    s = define_keep_alive_pdu_contents()
     s.write("PROGRESS", progress)
     return s.buffer(false)
   end
