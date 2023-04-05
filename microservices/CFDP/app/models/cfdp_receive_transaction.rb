@@ -15,7 +15,7 @@ class CfdpReceiveTransaction < CfdpTransaction
     @tmp_file = nil
     @segments = {}
     @eof_pdu_hash = nil
-    @checksum = NullChecksum.new
+    @checksum = CfdpNullChecksum.new
     @full_checksum_needed = false
     @file_size = nil
     CfdpMib.transactions[@id] = self
@@ -186,7 +186,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       unless @checksum
         # Use Null checksum if checksum type not available
         @condition_code = "UNSUPPORTED_CHECKSUM_TYPE"
-        @checksum = NullChecksum.new
+        @checksum = CfdpNullChecksum.new
       end
 
     when "EOF"

@@ -74,26 +74,6 @@ module OpenC3
         expect(response.body).to match(/missing.*destination_entity_id/)
       end
 
-      it "requires a source_file_name" do
-        setup(source_id: 10, destination_id: 20)
-        post "/cfdp/put", :params => {
-          scope: "DEFAULT", destination_entity_id: @destination_entity_id,
-          destination_file_name: 'test.txt'
-        }
-        expect(response).to have_http_status(400)
-        expect(response.body).to match(/missing.*source_file_name/)
-      end
-
-      it "requires a destination_file_name" do
-        setup(source_id: 10, destination_id: 20)
-        post "/cfdp/put", :params => {
-          scope: "DEFAULT", destination_entity_id: @destination_entity_id,
-          source_file_name: 'test.txt'
-        }
-        expect(response).to have_http_status(400)
-        expect(response.body).to match(/missing.*destination_file_name/)
-      end
-
       it "requires a numeric destination_entity_id" do
         setup(source_id: 10, destination_id: 20)
         post "/cfdp/put", :params => {

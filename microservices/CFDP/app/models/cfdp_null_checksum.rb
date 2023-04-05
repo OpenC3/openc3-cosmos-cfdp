@@ -1,4 +1,4 @@
-def CfdpNullChecksum
+class CfdpNullChecksum
   def add(offset, data)
     return 0
   end

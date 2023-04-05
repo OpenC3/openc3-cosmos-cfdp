@@ -1,6 +1,6 @@
 require 'openc3/utilities/crc'
 
-class CrcChecksum
+class CfdpCrcChecksum
   def initialize(poly, seed, xor, reflect)
     @crc = OpenC3::Crc32.new(poly, seed, xor, reflect)
     @checksum = 0
