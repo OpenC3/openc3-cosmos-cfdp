@@ -19,7 +19,7 @@ class CfdpController < ApplicationController
   #   [filestore requests])
   def put
     return unless authorization('cmd')
-    params.require([:destination_entity_id, :source_file_name, :destination_file_name])
+    params.require([:destination_entity_id])
     transaction = CfdpSourceTransaction.new
     Thread.new do
       begin

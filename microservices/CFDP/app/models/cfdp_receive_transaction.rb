@@ -188,18 +188,12 @@ class CfdpReceiveTransaction < CfdpTransaction
       check_complete()
       CfdpTopic.write_indication("EOF-Recv", transaction_id: @id)
 
-    when "FINISHED"
+    when "METADATA", "NAK", "FINISHED", "KEEP_ALIVE"
+      # Unexpected - Ignore
 
     when "ACK"
 
-    when "METADATA"
-      raise "METADATA unexpected by handle_pdu"
-
-    when "NAK"
-
     when "PROMPT"
-
-    when "KEEP_ALIVE"
 
     else # File Data
       @tmp_file ||= Tempfile.new('cfdp')
