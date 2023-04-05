@@ -57,9 +57,13 @@ class CfdpReceiveTransaction < CfdpTransaction
 
     @tmp_file = nil
     @segments = {}
-    @condition_code = "NO_ERROR"
     @eof_pdu_hash = nil
     @checksum = get_checksum(@metadata_pdu_hash["CHECKSUM_TYPE"])
+    unless @checksum
+      # Use Null checksum if checksum type not available
+      @condition_code = "UNSUPPORTED_CHECKSUM_TYPE"
+      @checksum = NullChecksum.new
+    end
     CfdpMib.transactions[@id] = self
   end
 
@@ -83,7 +87,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       next_offset = @segments[offset]
       if next_offset == @file_size
         # Complete
-        if @checksum.check(@eof_pdu_hash['FILE_CHECKSUM'])
+        if @checksum.check(@tmp_file, @eof_pdu_hash['FILE_CHECKSUM'])
           # Move file to final destination
           @tmp_file.close
           success = CfdpMib.put_destination_file(@destination_file_name, @tmp_file) # Unlink handled by CfdpMib

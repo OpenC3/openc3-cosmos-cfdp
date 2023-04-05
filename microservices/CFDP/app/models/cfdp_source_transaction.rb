@@ -109,6 +109,11 @@ class CfdpSourceTransaction < CfdpTransaction
     cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
 
     checksum = get_checksum(destination_entity['default_checksum_type'])
+    unless checksum
+      # Unsupported algorithm - Use modular instead
+      @condition_code = "UNSUPPORTED_CHECKSUM_TYPE"
+      checksum = CfdpChecksum.new
+    end
 
     # Send File Data PDUs
     offset = 0
@@ -133,13 +138,12 @@ class CfdpSourceTransaction < CfdpTransaction
     end
 
     # Send EOF PDU
-    @condition_code = "NO_ERROR"
     eof_pdu = CfdpPdu.build_eof_pdu(
       source_entity: source_entity,
       transaction_seq_num: transaction_seq_num,
       destination_entity: destination_entity,
       file_size: file_size,
-      file_checksum: checksum.checksum,
+      file_checksum: checksum.checksum(source_file),
       condition_code: @condition_code,
       segmentation_control: segmentation_control,
       transmission_mode: transmission_mode,
@@ -147,6 +151,9 @@ class CfdpSourceTransaction < CfdpTransaction
     cmd_params = {}
     cmd_params[item_name] = eof_pdu
     cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+
+    # Complete use of source file
+    CfdpMib.complete_source_file(source_file)
 
     # Issue EOF-Sent.indication
     CfdpTopic.write_indication("EOF-Sent", transaction_id: transaction_id)

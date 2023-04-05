@@ -184,7 +184,7 @@ class CfdpPdu < OpenC3::Packet
   end
 
   def self.checksum_type_implemented(checksum_type)
-    if [0,15].include?(checksum_type)
+    if [0,1,2,3,15].include?(checksum_type)
       return true
     else
       return false

@@ -19,6 +19,7 @@ class CfdpTransaction
     @frozen = false
     @status = "ACTIVE" # ACTIVE, FINISHED, CANCELED, SUSPENDED
     @progress = 0
+    @condition_code = "NO_ERROR"
   end
 
   def suspend
@@ -54,10 +55,19 @@ class CfdpTransaction
   end
 
   def get_checksum(checksum_type)
-    if checksum_type == 15
-      return NullChecksum.new
-    else
+    case checksum_type
+    when 0 # Modular Checksum
       return CfdpChecksum.new
+    when 1 # Proximity-1 CRC-32 - Poly: 0x00A00805 - Reference CCSDS-211.2-B-3 - Unsure of correct xor/reflect
+      return CrcChecksum.new(0x00A00805, 0x00000000, false, false)
+    when 2 # CRC-32C - Poly: 0x1EDC6F41 - Reference RFC4960
+      return CrcChecksum.new(0x1EDC6F41, 0xFFFFFFFF, true, true)
+    when 3 # CRC-32 - Poly: 0x04C11DB7 - Reference Ethernet Frame Check Sequence
+      return CrcChecksum.new(0x04C11DB7, 0xFFFFFFFF, true, true)
+    when 15
+      return NullChecksum.new
+    else # Unsupported
+      return nil
     end
   end
 end

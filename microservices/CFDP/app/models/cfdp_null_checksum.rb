@@ -3,11 +3,11 @@ def CfdpNullChecksum
     return 0
   end
 
-  def checksum
+  def checksum(file)
     return 0
   end
 
-  def check
+  def check(file, other_checkum)
     true
   end
 end

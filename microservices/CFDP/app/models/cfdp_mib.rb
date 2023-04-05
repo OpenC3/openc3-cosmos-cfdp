@@ -157,6 +157,11 @@ class CfdpMib
     file = File.open(file_name, 'rb')
   end
 
+  def self.complete_source_file(file)
+    # TODO: Handle bucket
+    file.close
+  end
+
   def self.put_destination_file(destination_filename, tmp_file)
     # TODO: Handle bucket
     file_name = File.join(@@root_path, destination_filename)
