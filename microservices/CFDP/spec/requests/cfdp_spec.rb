@@ -80,7 +80,6 @@ module OpenC3
           scope: "DEFAULT", destination_entity_id: "HI",
           source_file_name: 'test.txt', destination_file_name: 'test.txt'
         }
-        # TODO: This fails with 200 ... how to send 400 in the thread rescue?
         expect(response).to have_http_status(400)
       end
 
@@ -269,13 +268,16 @@ module OpenC3
         expect(thread.alive?).to be true
 
         cmd_params = {}
-        cmd_params["PDU"] = CfdpPdu.build_file_data_pdu(
+        cmd_params["PDU"] = CfdpPdu.build_eof_pdu(
           source_entity: CfdpMib.entity(@source_entity_id),
           transaction_seq_num: 1,
           destination_entity: CfdpMib.entity(@destination_entity_id),
           file_size: 8,
-          offset: 0,
-          file_data: "\x00")
+          file_checksum: 0,
+          condition_code: "NO_ERROR",
+          segmentation_control: "NOT_PRESERVED",
+          transmission_mode: nil,
+          canceling_entity_id: nil)
         msg_hash = {
           :time => Time.now.to_nsec_from_epoch,
           :stored => 'false',

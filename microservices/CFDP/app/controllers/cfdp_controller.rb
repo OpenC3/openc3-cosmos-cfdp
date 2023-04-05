@@ -20,6 +20,11 @@ class CfdpController < ApplicationController
   def put
     return unless authorization('cmd')
     params.require([:destination_entity_id])
+    if params[:destination_entity_id].to_i.to_s != params[:destination_entity_id].to_s
+      render :json => { :status => 'error', :message => "destination_entity_id must be numeric" }, :status => 400
+      return
+    end
+
     transaction = CfdpSourceTransaction.new
     Thread.new do
       begin
