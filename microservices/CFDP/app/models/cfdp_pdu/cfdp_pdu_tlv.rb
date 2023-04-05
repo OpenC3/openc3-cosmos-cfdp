@@ -10,10 +10,10 @@ class CfdpPdu < OpenC3::Packet
   def self.decom_tlv(pdu, pdu_hash, variable_data)
     if variable_data.length >= 2 # Need at least 2 bytes
       s = OpenC3::Packet.new(nil, nil, :BIG_ENDIAN)
-      s.append_item("TLV_TYPE", 8, :UINT)
-      s.states = TLV_TYPES
+      item = s.append_item("TLV_TYPE", 8, :UINT)
+      item.states = TLV_TYPES
       s.append_item("TLV_LENGTH", 8, :UINT)
-      s.buffer = variable_data
+      s.buffer = variable_data[0..(s.defined_length - 1)]
       type = s.read("TLV_TYPE")
       length = s.read("TLV_LENGTH")
       if length > 0
@@ -55,13 +55,13 @@ class CfdpPdu < OpenC3::Packet
             second_file_name_length = s2.read("SECOND_FILE_NAME_LENGTH")
             s2.buffer = tlv_data[0..(1 + second_file_name_length - 1)]
             tlv_data = tlv_data[(1 + second_file_name_length)..-1]
-            tlv["SECOND_FILE_NAME"] = s.read("SECOND_FILE_NAME")
+            tlv["SECOND_FILE_NAME"] = s2.read("SECOND_FILE_NAME")
             if tlv_data.length > 0
               s3.buffer = tlv_data
               filestore_message_length = s3.read("FILESTORE_MESSAGE_LENGTH")
               s3.buffer = tlv_data[0..(1 + filestore_message_length - 1)]
               tlv_data = tlv_data[(1 + filestore_message_length)..-1]
-              tlv["FILESTORE_MESSAGE"] = s.read("FILESTORE_MESSAGE")
+              tlv["FILESTORE_MESSAGE"] = s3.read("FILESTORE_MESSAGE")
             end
           end
 

@@ -9,7 +9,7 @@
 class CfdpPdu < OpenC3::Packet
   def self.decom_eof_pdu_contents(pdu, pdu_hash, variable_data)
     s = pdu.define_eof_pdu_contents()
-    s.buffer = variable_data
+    s.buffer = variable_data[0..(s.defined_length - 1)]
     pdu_hash["CONDITION_CODE"] = s.read("CONDITION_CODE")
     pdu_hash["FILE_CHECKSUM"] = s.read("FILE_CHECKSUM")
     pdu_hash["FILE_SIZE"] = s.read("FILE_SIZE")
@@ -41,7 +41,7 @@ class CfdpPdu < OpenC3::Packet
       crc16 = OpenC3::Crc16.new
       pdu.write("CRC", crc16.calc(pdu.buffer(false)[0..-3]))
     end
-    return pdu
+    return pdu.buffer(false)
   end
 
   def define_eof_pdu_contents

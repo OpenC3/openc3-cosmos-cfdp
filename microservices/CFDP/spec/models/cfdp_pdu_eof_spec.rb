@@ -32,7 +32,7 @@ RSpec.describe CfdpPdu, type: :model do
   # Validate Table 5-6: End-of-File PDU Contents
   describe "build_eof_pdu" do
     it "builds a EOF PDU with no error" do
-      pdu = CfdpPdu.build_eof_pdu(
+      buffer = CfdpPdu.build_eof_pdu(
         source_entity: CfdpMib.entity(@source_entity_id),
         transaction_seq_num: 1,
         destination_entity: CfdpMib.entity(@destination_entity_id),
@@ -42,7 +42,6 @@ RSpec.describe CfdpPdu, type: :model do
         segmentation_control: "NOT_PRESERVED",
         transmission_mode: nil,
         canceling_entity_id: nil)
-      buffer = pdu.buffer(false)
       # puts buffer.formatted
       expect(buffer.length).to eql 19
 
@@ -60,16 +59,16 @@ RSpec.describe CfdpPdu, type: :model do
       expect(buffer[13..16].unpack('N')[0]).to eql 0xBA5EBA11
 
       hash = {}
-      # pdu = CfdpPdu.new(crcs_required: false)
-      # pdu.define_variable_header
-      CfdpPdu.decom_eof_pdu_contents(pdu, hash, buffer)
+      # decom takes just the EOF specific part of the buffer
+      # so start at offset 8 and ignore the 2 checksum bytes
+      CfdpPdu.decom_eof_pdu_contents(CfdpPdu.new(crcs_required: false), hash, buffer[8..-3])
       expect(hash['CONDITION_CODE']).to eql "NO_ERROR"
       expect(hash['FILE_CHECKSUM']).to eql 0xDEADBEEF
       expect(hash['FILE_SIZE']).to eql 0xBA5EBA11
     end
 
     it "builds a EOF PDU with large file size" do
-      pdu = CfdpPdu.build_eof_pdu(
+      buffer = CfdpPdu.build_eof_pdu(
         source_entity: CfdpMib.entity(@source_entity_id),
         transaction_seq_num: 1,
         destination_entity: CfdpMib.entity(@destination_entity_id),
@@ -79,7 +78,6 @@ RSpec.describe CfdpPdu, type: :model do
         segmentation_control: "NOT_PRESERVED",
         transmission_mode: nil,
         canceling_entity_id: nil)
-      buffer = pdu.buffer(false)
       # puts buffer.formatted
       expect(buffer.length).to eql 23
 
@@ -95,10 +93,21 @@ RSpec.describe CfdpPdu, type: :model do
       expect(buffer[9..12].unpack('N')[0]).to eql 0xDEADBEEF
       # File Size
       expect(buffer[13..16].unpack('N')[0]).to eql 1
+
+      hash = {}
+      # decom takes just the EOF specific part of the buffer
+      # so start at offset 8 and ignore the 2 checksum bytes
+      pdu = CfdpPdu.new(crcs_required: false)
+      # Set the LARGE_FILE flag so we properly decom
+      pdu.write("LARGE_FILE_FLAG", "LARGE_FILE")
+      CfdpPdu.decom_eof_pdu_contents(pdu, hash, buffer[8..-3])
+      expect(hash['CONDITION_CODE']).to eql "NO_ERROR"
+      expect(hash['FILE_CHECKSUM']).to eql 0xDEADBEEF
+      expect(hash['FILE_SIZE']).to eql 0x100000000
     end
 
     it "builds a EOF PDU with cancellation status" do
-      pdu = CfdpPdu.build_eof_pdu(
+      buffer = CfdpPdu.build_eof_pdu(
         source_entity: CfdpMib.entity(@source_entity_id),
         transaction_seq_num: 1,
         destination_entity: CfdpMib.entity(@destination_entity_id),
@@ -108,7 +117,6 @@ RSpec.describe CfdpPdu, type: :model do
         segmentation_control: "NOT_PRESERVED",
         transmission_mode: nil,
         canceling_entity_id: 0x5)
-      buffer = pdu.buffer(false)
       # puts buffer.formatted
       expect(buffer.length).to eql 22
 
@@ -128,6 +136,16 @@ RSpec.describe CfdpPdu, type: :model do
       expect(buffer[17].unpack('C')[0]).to eql 0x06
       expect(buffer[18].unpack('C')[0]).to eql 1
       expect(buffer[19].unpack('C')[0]).to eql 0x5
+
+      hash = {}
+      # decom takes just the EOF specific part of the buffer
+      # so start at offset 8 and ignore the 2 checksum bytes
+      CfdpPdu.decom_eof_pdu_contents(CfdpPdu.new(crcs_required: false), hash, buffer[8..-3])
+      expect(hash['CONDITION_CODE']).to eql 'CANCEL_REQUEST_RECEIVED'
+      expect(hash['FILE_CHECKSUM']).to eql 0xDEADBEEF
+      expect(hash['FILE_SIZE']).to eql 0xBA5EBA11
+      expect(hash['TLVS'][0]['TYPE']).to eql 'ENTITY_ID'
+      expect(hash['TLVS'][0]['ENTITY_ID']).to eql 5
     end
   end
 end

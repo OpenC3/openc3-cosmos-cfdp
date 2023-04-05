@@ -9,7 +9,7 @@
 class CfdpPdu < OpenC3::Packet
   def self.decom_finished_pdu_contents(pdu, pdu_hash, variable_data)
     s = pdu.define_finished_pdu_contents
-    s.buffer = variable_data
+    s.buffer = variable_data[0..(s.defined_length - 1)]
     pdu_hash["CONDITION_CODE"] = s.read("CONDITION_CODE")
     pdu_hash["DELIVERY_CODE"] = s.read("DELIVERY_CODE")
     pdu_hash["FILE_STATUS"] = s.read("FILE_STATUS")
@@ -73,8 +73,8 @@ class CfdpPdu < OpenC3::Packet
       first_file_name = filestore_response['FIRST_FILE_NAME']
       second_file_name = filestore_response['SECOND_FILE_NAME']
       filestore_message = filestore_response['FILESTORE_MESSAGE']
-      s, s2, s3, status_code_item = define_filestore_response_tlv()
-      add_status_code_states(action_code: action_code, status_code_item: status_code_item)
+      s, s2, s3, status_code_item = CfdpPdu.define_filestore_response_tlv()
+      CfdpPdu.add_status_code_states(action_code: action_code, status_code_item: status_code_item)
       s.write("TLV_TYPE", 0x01)
       s.write("TLV_LENGTH", 4 + first_file_name.to_s.length + second_file_name.to_s.length + filestore_message.to_s.length)
       s.write("ACTION_CODE", action_code)
