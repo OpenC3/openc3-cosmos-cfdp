@@ -29,14 +29,13 @@ RSpec.describe CfdpPdu, type: :model do
     CfdpMib.setup
   end
 
-  # Validate Table 5-6: End-of-File PDU Contents
+  # Validate Table 5-7: Finished PDU Contents
   describe "build_finished_pdu" do
     it "builds a Finished PDU with no responses" do
       buffer = CfdpPdu.build_finished_pdu(
         source_entity: CfdpMib.entity(@source_entity_id),
         transaction_seq_num: 1,
         destination_entity: CfdpMib.entity(@destination_entity_id),
-        file_size: 0xBA5EBA11,
         condition_code: "NO_ERROR", # 0
         segmentation_control: "NOT_PRESERVED",
         transmission_mode: nil,
@@ -73,7 +72,6 @@ RSpec.describe CfdpPdu, type: :model do
         source_entity: CfdpMib.entity(@source_entity_id),
         transaction_seq_num: 1,
         destination_entity: CfdpMib.entity(@destination_entity_id),
-        file_size: 0xBA5EBA11,
         condition_code: "NO_ERROR", # 0
         segmentation_control: "NOT_PRESERVED",
         transmission_mode: nil,
@@ -141,7 +139,6 @@ RSpec.describe CfdpPdu, type: :model do
         source_entity: CfdpMib.entity(@source_entity_id),
         transaction_seq_num: 1,
         destination_entity: CfdpMib.entity(@destination_entity_id),
-        file_size: 0xBA5EBA11,
         condition_code: "INACTIVITY_DETECTED", # 8
         segmentation_control: "NOT_PRESERVED",
         transmission_mode: nil,

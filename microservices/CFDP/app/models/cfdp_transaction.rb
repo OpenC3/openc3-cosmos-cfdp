@@ -29,7 +29,7 @@ class CfdpTransaction
   end
 
   def resume
-    if @status = "SUSPENDED"
+    if @status == "SUSPENDED"
       @status = "ACTIVE"
       CfdpTopic.write_indication("Resumed", transaction_id: transaction_id, progress: @progress)
     end

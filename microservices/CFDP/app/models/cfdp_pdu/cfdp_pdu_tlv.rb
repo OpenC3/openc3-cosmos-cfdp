@@ -37,7 +37,7 @@ class CfdpPdu < OpenC3::Packet
             s2.buffer = tlv_data
             second_file_name_length = s2.read("SECOND_FILE_NAME_LENGTH")
             s2.buffer = tlv_data[0..(1 + second_file_name_length - 1)]
-            tlv["SECOND_FILE_NAME"] = s.read("SECOND_FILE_NAME")
+            tlv["SECOND_FILE_NAME"] = s2.read("SECOND_FILE_NAME")
           end
 
         when "FILESTORE_RESPONSE"
@@ -114,7 +114,6 @@ class CfdpPdu < OpenC3::Packet
       s.write("SPARE", 0)
       s.write("FIRST_FILE_NAME_LENGTH", first_file_name.length)
       s.write("FIRST_FILE_NAME", first_file_name)
-      s2 = OpenC3::Structure.new(:BIG_ENDIAN)
       s2.write("SECOND_FILE_NAME_LENGTH", second_file_name.length)
       s2.write("SECOND_FILE_NAME", second_file_name)
       return s.buffer(false) + s2.buffer(false)
@@ -132,10 +131,8 @@ class CfdpPdu < OpenC3::Packet
       s.write("STATUS_CODE", tlv['STATUS_CODE'])
       s.write("FIRST_FILE_NAME_LENGTH", first_file_name.length)
       s.write("FIRST_FILE_NAME", first_file_name)
-      s2 = OpenC3::Structure.new(:BIG_ENDIAN)
       s2.write("SECOND_FILE_NAME_LENGTH", second_file_name.length)
       s2.write("SECOND_FILE_NAME", second_file_name)
-      s3 = OpenC3::Structure.new(:BIG_ENDIAN)
       s3.write("FILESTORE_MESSAGE_LENGTH", filestore_message.length)
       s3.write("FILESTORE_MESSAGE", filestore_message)
       return s.buffer(false) + s2.buffer(false) + s3.buffer(false)
@@ -242,10 +239,10 @@ class CfdpPdu < OpenC3::Packet
     item = s.append_item("TLV_TYPE", 8, :UINT) # 0x04
     item.states = TLV_TYPES
     s.append_item("TLV_LENGTH", 8, :UINT)
-    s.append_item("CONDITION_CODE", 4, :UINT)
-    s.states = CONDITION_CODES
-    s.append_item("HANDLER_CODE", 4, :UINT)
-    s.states = HANDLER_CODES
+    item = s.append_item("CONDITION_CODE", 4, :UINT)
+    item.states = CONDITION_CODES
+    item = s.append_item("HANDLER_CODE", 4, :UINT)
+    item.states = HANDLER_CODES
     return s
   end
 
