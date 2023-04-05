@@ -152,7 +152,7 @@ class CfdpSourceTransaction
       transmission_mode: transmission_mode,
       canceling_entity_id: nil)
     cmd_params = {}
-    cmd_params[item_name] = eof_pdu
+    cmd_params[item_name] = eof_pdu.buffer(false)
     cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
 
     # Issue EOF-Sent.indication

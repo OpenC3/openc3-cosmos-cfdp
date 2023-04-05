@@ -16,6 +16,7 @@ class CfdpPdu < OpenC3::Packet
     "NAK" => 8,
     "PROMPT" => 9,
     "KEEP_ALIVE" => 0x0C
+    # 0D-FF are Reserved
   }
 
   # Table 5-5: Condition Codes

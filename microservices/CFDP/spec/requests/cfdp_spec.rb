@@ -1,9 +1,22 @@
+# encoding: ascii-8bit
+
+# Copyright 2023 OpenC3, Inc.
+# All Rights Reserved.
+#
+# This file may only be used under the terms of a commercial license
+# if purchased from OpenC3, Inc.
+
 require 'rails_helper'
 require 'openc3/script'
 require 'openc3/api/api'
 require 'openc3/models/microservice_model'
 require 'openc3/utilities/store_autoload'
 require 'openc3/topics/command_topic'
+
+OpenC3.disable_warnings do
+  # Load the json_rpc.rb to ensure it overrides anything Rails is doing with as_json
+  load 'openc3/io/json_rpc.rb'
+end
 
 module OpenC3
   RSpec.describe "cfdp", type: :request do
@@ -241,7 +254,7 @@ module OpenC3
 
       it "handles timing out waiting for a closure" do
         setup(source_id: 10, destination_id: 20)
-        CfdpMib.set_entity_value(@source_entity_id, 'check_limit', 0.5)
+        CfdpMib.set_entity_value(@source_entity_id, 'check_limit', 0.2)
 
         data = ('a'..'z').to_a.shuffle[0,8].join
         File.write(File.join(SPEC_DIR, 'test.txt'), data)
@@ -252,7 +265,7 @@ module OpenC3
         }
         expect(response).to have_http_status(200)
         FileUtils.rm(File.join(SPEC_DIR, 'test.txt'))
-        sleep 1 # Allow the timer to expire
+        sleep 1.5 # Allow the timer to expire
 
         get "/cfdp/indications", :params => { scope: "DEFAULT" }
         expect(response).to have_http_status(200)

@@ -91,7 +91,7 @@ class CfdpPdu < OpenC3::Packet
     end
     if fault_location_entity_id
       entity_id_length = read("ENTITY_ID_LENGTH") + 1
-      s = define_entity_id_tlv(entity_id_length: entity_id_length)
+      s = CfdpPdu.define_entity_id_tlv(entity_id_length: entity_id_length)
       s.write("TLV_TYPE", 0x06)
       s.write("TLV_LENGTH", entity_id_length)
       s.write("ENTITY_ID", fault_location_entity_id)

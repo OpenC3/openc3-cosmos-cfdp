@@ -41,7 +41,7 @@ class CfdpPdu < OpenC3::Packet
       crc16 = OpenC3::Crc16.new
       pdu.write("CRC", crc16.calc(pdu.buffer(false)[0..-3]))
     end
-    return pdu.buffer(false)
+    return pdu
   end
 
   def define_eof_pdu_contents
@@ -67,7 +67,7 @@ class CfdpPdu < OpenC3::Packet
     s.write("FILE_SIZE", file_size)
     if canceling_entity_id
       entity_id_length = read("ENTITY_ID_LENGTH") + 1
-      s2 = define_entity_id_tlv(entity_id_length: entity_id_length)
+      s2 = CfdpPdu.define_entity_id_tlv(entity_id_length: entity_id_length)
       s2.write("TLV_TYPE", 0x06)
       s2.write("TLV_LENGTH", entity_id_length)
       s2.write("ENTITY_ID", canceling_entity_id)
