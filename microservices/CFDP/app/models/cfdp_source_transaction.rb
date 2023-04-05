@@ -1,17 +1,9 @@
-require_relative 'cfdp_model'
-require_relative 'cfdp_receive_transaction'
-require_relative 'cfdp_mib'
-require_relative 'cfdp_topic'
-require_relative 'cfdp_pdu'
-require_relative 'cfdp_checksum'
-require_relative 'cfdp_null_checksum'
+require_relative 'cfdp_transaction'
 
-class CfdpSourceTransaction
-  include OpenC3::Api
-
-  attr_reader :id
+class CfdpSourceTransaction < CfdpTransaction
 
   def initialize(source_entity: nil)
+    super()
     @source_entity = CfdpMib.source_entity unless source_entity
     raise "No source entity defined" unless @source_entity
     @transaction_seq_num = CfdpModel.get_next_transaction_seq_num
@@ -222,17 +214,6 @@ class CfdpSourceTransaction
 
     else # File Data
 
-    end
-  end
-
-  # private
-
-  def get_checksum(entity)
-    checksum_type = entity['default_checksum_type']
-    if checksum_type == 15
-      return NullChecksum.new
-    else
-      return CfdpChecksum.new
     end
   end
 end

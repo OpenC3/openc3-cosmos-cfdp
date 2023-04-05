@@ -7,6 +7,10 @@ Rails.application.routes.draw do
   prefix = prefix[1..-1] if prefix[0] == '/'
   scope prefix do
     post "/put" => "cfdp#put"
+    post "/cancel" => "cfdp#cancel"
+    post "/suspend" => "cfdp#suspend"
+    post "/resume" => "cfdp#resume"
+    post "/report" => "cfdp#report"
     get "/indications/:transaction_id" => "cfdp#indications"
     get "/indications" => "cfdp#indications"
   end
