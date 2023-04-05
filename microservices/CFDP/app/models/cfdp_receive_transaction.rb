@@ -61,6 +61,11 @@ class CfdpReceiveTransaction < CfdpTransaction
     @eof_pdu_hash = nil
     @checksum_type = @metadata_pdu_hash["CHECKSUM_TYPE"]
     @checksum = get_checksum(@checksum_type)
+    unless @checksum
+      # TODO: Fault
+      # Use Null checksum if checksum type not available
+      @checksum = NullChecksum.new
+    end
     CfdpMib.transactions[@id] = self
   end
 

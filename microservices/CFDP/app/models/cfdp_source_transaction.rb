@@ -108,7 +108,12 @@ class CfdpSourceTransaction < CfdpTransaction
     cmd_params[item_name] = metadata_pdu
     cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
 
-    checksum = get_checksum(destination_entity)
+    checksum = get_checksum(destination_entity['default_checksum_type'])
+    unless checksum
+      # Unsupported algorithm - Use modular instead
+      # TODO: Checksum Fault
+      checksum = CfdpChecksum.new
+    end
 
     # Send File Data PDUs
     offset = 0

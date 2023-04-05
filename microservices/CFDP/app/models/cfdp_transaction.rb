@@ -53,12 +53,7 @@ class CfdpTransaction
     @freeze = false
   end
 
-  def get_checksum(entity_or_checksum_type)
-    if Hash === entity_or_checksum_type
-      checksum_type = entity['default_checksum_type']
-    else
-      checksum_type = entity_or_checksum_type
-    end
+  def get_checksum(checksum_type)
     case checksum_type
     when 0 # Modular Checksum
       return CfdpChecksum.new
@@ -68,8 +63,10 @@ class CfdpTransaction
       return CrcChecksum.new(0x1EDC6F41, 0xFFFFFFFF, true, true)
     when 3 # CRC-32 - Poly: 0x04C11DB7 - Reference Ethernet Frame Check Sequence
       return CrcChecksum.new(0x04C11DB7, 0xFFFFFFFF, true, true)
-    else # 15 or else - Null Checksum
+    when 15
       return NullChecksum.new
+    else # Unsupported
+      return nil
     end
   end
 end
