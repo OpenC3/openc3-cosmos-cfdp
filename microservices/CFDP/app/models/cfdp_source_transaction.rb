@@ -111,7 +111,7 @@ class CfdpSourceTransaction < CfdpTransaction
     checksum = get_checksum(destination_entity['default_checksum_type'])
     unless checksum
       # Unsupported algorithm - Use modular instead
-      # TODO: Checksum Fault
+      @condition_code = "UNSUPPORTED_CHECKSUM_TYPE"
       checksum = CfdpChecksum.new
     end
 
@@ -138,7 +138,6 @@ class CfdpSourceTransaction < CfdpTransaction
     end
 
     # Send EOF PDU
-    @condition_code = "NO_ERROR"
     eof_pdu = CfdpPdu.build_eof_pdu(
       source_entity: source_entity,
       transaction_seq_num: transaction_seq_num,

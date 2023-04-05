@@ -19,6 +19,7 @@ class CfdpTransaction
     @frozen = false
     @status = "ACTIVE" # ACTIVE, FINISHED, CANCELED, SUSPENDED
     @progress = 0
+    @condition_code = "NO_ERROR"
   end
 
   def suspend
