@@ -26,7 +26,7 @@ class CfdpTransaction
   end
 
   def resume
-    if @status = "SUSPENDED"
+    if @status == "SUSPENDED"
       @status = "ACTIVE"
     end
   end
