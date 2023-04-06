@@ -2,69 +2,24 @@ require_relative 'cfdp_transaction'
 
 class CfdpReceiveTransaction < CfdpTransaction
 
-  def initialize(metadata_pdu_hash)
+  def initialize(pdu_hash)
     super()
-    @metadata_pdu_hash = metadata_pdu_hash
-    @id = self.class.build_transaction_id(metadata_pdu_hash["SOURCE_ENTITY_ID"], metadata_pdu_hash["SEQUENCE_NUMBER"])
-    @transmission_mode = metadata_pdu_hash["TRANSMISSION_MODE"]
+    @id = self.class.build_transaction_id(pdu_hash["SOURCE_ENTITY_ID"], pdu_hash["SEQUENCE_NUMBER"])
+    @transmission_mode = pdu_hash["TRANSMISSION_MODE"]
     @messages_to_user = []
     @flow_label = nil
     @fault_handler_overrides = {}
     @filestore_requests = []
-    kw_args = {}
-    tlvs = metadata_pdu_hash['TLVS']
-    if tlvs
-      tlvs.each do |tlv|
-        case tlv['TYPE']
-        when "FILESTORE_REQUEST"
-          filestore_request = {}
-          filestore_request["ACTION_CODE"] = tlv["ACTION_CODE"]
-          filestore_request["FIRST_FILE_NAME"] = tlv["FIRST_FILE_NAME"]
-          filestore_request["SECOND_FILE_NAME"] = tlv["SECOND_FILE_NAME"]
-          @filestore_requests << filestore_request
-
-        when "MESSAGE_TO_USER"
-          @messages_to_user << tlv["MESSAGE_TO_USER"]
-          kw_args[:messages_to_user] = @messages_to_user
-
-        when "FAULT_HANDLER_OVERRIDE"
-          @fault_handler_overrides[tlv["CONDITION_CODE"]] = tlv["HANDLER_CODE"]
-
-        when "FLOW_LABEL"
-          @flow_label = tlv["FLOW_LABEL"]
-        end
-      end
-    end
-    kw_args[:transaction_id] = @id
-    kw_args[:source_entity_id] = @metadata_pdu_hash['SOURCE_ENTITY_ID']
-
-    @file_size = @metadata_pdu_hash['FILE_SIZE']
-    kw_args[:file_size] = @file_size
-
     @source_file_name = nil
-    if @metadata_pdu_hash['SOURCE_FILE_NAME'] and @metadata_pdu_hash['SOURCE_FILE_NAME'].length > 0
-      @source_file_name = @metadata_pdu_hash['SOURCE_FILE_NAME']
-      kw_args[:source_file_name] = @source_file_name
-    end
-
     @destination_file_name = nil
-    if @metadata_pdu_hash['DESTINATION_FILE_NAME'] and @metadata_pdu_hash['DESTINATION_FILE_NAME'].length > 0
-      @destination_file_name = @metadata_pdu_hash['DESTINATION_FILE_NAME']
-      kw_args[:destination_file_name] = @destination_file_name
-    end
-
-    CfdpTopic.write_indication("Metadata-Recv", **kw_args)
-
     @tmp_file = nil
     @segments = {}
     @eof_pdu_hash = nil
-    @checksum = get_checksum(@metadata_pdu_hash["CHECKSUM_TYPE"])
-    unless @checksum
-      # Use Null checksum if checksum type not available
-      @condition_code = "UNSUPPORTED_CHECKSUM_TYPE"
-      @checksum = NullChecksum.new
-    end
+    @checksum = CfdpNullChecksum.new
+    @full_checksum_needed = false
+    @file_size = nil
     CfdpMib.transactions[@id] = self
+    handle_pdu(pdu_hash)
   end
 
   def self.build_transaction_id(source_entity_id, transaction_seq_num)
@@ -72,13 +27,14 @@ class CfdpReceiveTransaction < CfdpTransaction
   end
 
   def check_complete
-    return false unless @eof_pdu_hash
+    return false unless @metadata_pdu_hash and @eof_pdu_hash
     if @eof_pdu_hash["CONDITION_CODE"] != "NO_ERROR" # Canceled
       @status = "CANCELED"
       @condition_code = @eof_pdu_hash["CONDITION_CODE"]
       file_status = "FILE_DISCARDED"
       delivery_code = "DATA_INCOMPLETE"
       @tmp_file.unlink if @tmp_file
+      @tmp_file = nil
       CfdpTopic.write_indication("Transaction-Finished", transaction_id: @id, condition_code: @condition_code, file_status: file_status, status_report: @status, delivery_code: delivery_code)
       return true
     end
@@ -87,7 +43,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       next_offset = @segments[offset]
       if next_offset == @file_size
         # Complete
-        if @checksum.check(@tmp_file, @eof_pdu_hash['FILE_CHECKSUM'])
+        if @checksum.check(@tmp_file, @eof_pdu_hash['FILE_CHECKSUM'], @full_checksum_needed)
           # Move file to final destination
           @tmp_file.close
           success = CfdpMib.put_destination_file(@destination_file_name, @tmp_file) # Unlink handled by CfdpMib
@@ -103,6 +59,7 @@ class CfdpReceiveTransaction < CfdpTransaction
           @condition_code = "FILE_CHECKSUM_FAILURE"
           delivery_code = "DATA_INCOMPLETE"
         end
+        @tmp_file = nil
 
         # Handle Filestore Requests
         filestore_success = true
@@ -185,23 +142,68 @@ class CfdpReceiveTransaction < CfdpTransaction
 
   def handle_pdu(pdu_hash)
     case pdu_hash["DIRECTIVE_CODE"]
+    when "METADATA"
+      @metadata_pdu_hash = pdu_hash
+      kw_args = {}
+      tlvs = pdu_hash['TLVS']
+      if tlvs
+        tlvs.each do |tlv|
+          case tlv["TYPE"]
+          when "FILESTORE_REQUEST"
+            filestore_request = {}
+            filestore_request["ACTION_CODE"] = tlv["ACTION_CODE"]
+            filestore_request["FIRST_FILE_NAME"] = tlv["FIRST_FILE_NAME"]
+            filestore_request["SECOND_FILE_NAME"] = tlv["SECOND_FILE_NAME"]
+            @filestore_requests << filestore_request
+
+          when "MESSAGE_TO_USER"
+            @messages_to_user << tlv["MESSAGE_TO_USER"]
+            kw_args[:messages_to_user] = @messages_to_user
+
+          when "FAULT_HANDLER_OVERRIDE"
+            @fault_handler_overrides[tlv["CONDITION_CODE"]] = tlv["HANDLER_CODE"]
+
+          when "FLOW_LABEL"
+            @flow_label = tlv["FLOW_LABEL"]
+          end
+        end
+      end
+      kw_args[:transaction_id] = @id
+      kw_args[:source_entity_id] = @metadata_pdu_hash['SOURCE_ENTITY_ID']
+
+      @file_size = @metadata_pdu_hash['FILE_SIZE']
+      kw_args[:file_size] = @file_size
+
+      if @metadata_pdu_hash['SOURCE_FILE_NAME'] and @metadata_pdu_hash['SOURCE_FILE_NAME'].length > 0
+        @source_file_name = @metadata_pdu_hash['SOURCE_FILE_NAME']
+        kw_args[:source_file_name] = @source_file_name
+      end
+
+      if @metadata_pdu_hash['DESTINATION_FILE_NAME'] and @metadata_pdu_hash['DESTINATION_FILE_NAME'].length > 0
+        @destination_file_name = @metadata_pdu_hash['DESTINATION_FILE_NAME']
+        kw_args[:destination_file_name] = @destination_file_name
+      end
+
+      CfdpTopic.write_indication("Metadata-Recv", **kw_args)
+
+      @checksum = get_checksum(@metadata_pdu_hash["CHECKSUM_TYPE"])
+      unless @checksum
+        # Use Null checksum if checksum type not available
+        @condition_code = "UNSUPPORTED_CHECKSUM_TYPE"
+        @checksum = CfdpNullChecksum.new
+      end
+
     when "EOF"
       @eof_pdu_hash = pdu_hash
       check_complete()
       CfdpTopic.write_indication("EOF-Recv", transaction_id: @id)
 
-    when "FINISHED"
+    when "NAK", "FINISHED", "KEEP_ALIVE"
+      # Unexpected - Ignore
 
     when "ACK"
 
-    when "METADATA"
-      raise "METADATA unexpected by handle_pdu"
-
-    when "NAK"
-
     when "PROMPT"
-
-    when "KEEP_ALIVE"
 
     else # File Data
       @tmp_file ||= Tempfile.new('cfdp')
@@ -210,9 +212,10 @@ class CfdpReceiveTransaction < CfdpTransaction
       progress = offset + file_data.length
       @progress = progress if progress > @progress
       if !@segments[offset] or segments[offset] != progress
-        if progress > @file_size
+        if @file_size and progress > @file_size
           @condition_code = "FILE_SIZE_ERROR"
         else
+          @full_checksum_needed = true unless @metadata_pdu_hash
           @checksum.add(offset, file_data)
           @segments[offset] = offset + file_data.length
           @tmp_file.seek(offset, IO::SEEK_SET)

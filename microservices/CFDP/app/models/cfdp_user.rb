@@ -41,7 +41,7 @@ class CfdpUser
               transaction = CfdpMib.transactions[transaction_id]
               if transaction
                 transaction.handle_pdu(pdu_hash)
-              elsif pdu_hash["DIRECTIVE_CODE"] == "METADATA"
+              elsif pdu_hash["DIRECTIVE_CODE"] == "METADATA" or pdu_hash["DIRECTIVE_CODE"].nil?
                 transaction = CfdpReceiveTransaction.new(pdu_hash)
               else
                 raise "Unknown transaction: #{transaction_id}, #{pdu_hash}"

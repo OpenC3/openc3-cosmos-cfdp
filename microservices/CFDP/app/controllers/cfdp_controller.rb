@@ -19,7 +19,12 @@ class CfdpController < ApplicationController
   #   [filestore requests])
   def put
     return unless authorization('cmd')
-    params.require([:destination_entity_id, :source_file_name, :destination_file_name])
+    params.require([:destination_entity_id])
+    if params[:destination_entity_id].to_i.to_s != params[:destination_entity_id].to_s
+      render :json => { :status => 'error', :message => "destination_entity_id must be numeric" }, :status => 400
+      return
+    end
+
     transaction = CfdpSourceTransaction.new
     Thread.new do
       begin
