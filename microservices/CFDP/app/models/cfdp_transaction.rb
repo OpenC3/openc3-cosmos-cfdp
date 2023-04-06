@@ -54,6 +54,10 @@ class CfdpTransaction
     @freeze = false
   end
 
+  def update
+    # Default do nothing
+  end
+
   def get_checksum(checksum_type)
     case checksum_type
     when 0 # Modular Checksum

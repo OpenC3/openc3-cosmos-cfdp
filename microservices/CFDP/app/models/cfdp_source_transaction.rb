@@ -100,7 +100,6 @@ class CfdpSourceTransaction < CfdpTransaction
       tlv["SECOND_FILE_NAME"] = fsr[2] if fsr[2]
       options << tlv
     end
-    filestore_responses = []
 
     # Send Metadata PDU
     metadata_pdu = CfdpPdu.build_metadata_pdu(
@@ -187,20 +186,25 @@ class CfdpSourceTransaction < CfdpTransaction
           @condition_code = "CHECK_LIMIT_REACHED"
         end
       end
+    end
 
-      if @finished_pdu_hash
-        tlvs = @finished_pdu_hash["TLVS"]
-        if tlvs
-          tlvs.each do |tlv|
-            case tlv['TLV_TYPE']
-            when 'FILESTORE_RESPONSE'
-              filestore_response['ACTION_CODE'] = action_code
-              filestore_response['STATUS_CODE'] = status_code
-              filestore_response['FIRST_FILE_NAME'] = first_file_name
-              filestore_response['SECOND_FILE_NAME'] = second_file_name
-              filestore_response['FILESTORE_MESSAGE'] = filestore_message
-              filestore_responses << tlv.except('TLV_TYPE')
-            end
+    notice_of_completion()
+  end
+
+  def notice_of_completion
+    filestore_responses = []
+    if @finished_pdu_hash
+      tlvs = @finished_pdu_hash["TLVS"]
+      if tlvs
+        tlvs.each do |tlv|
+          case tlv['TLV_TYPE']
+          when 'FILESTORE_RESPONSE'
+            filestore_response['ACTION_CODE'] = action_code
+            filestore_response['STATUS_CODE'] = status_code
+            filestore_response['FIRST_FILE_NAME'] = first_file_name
+            filestore_response['SECOND_FILE_NAME'] = second_file_name
+            filestore_response['FILESTORE_MESSAGE'] = filestore_message
+            filestore_responses << tlv.except('TLV_TYPE')
           end
         end
       end
@@ -209,9 +213,9 @@ class CfdpSourceTransaction < CfdpTransaction
     @status = "FINISHED" unless @status == "CANCELED"
 
     if filestore_responses.length > 0
-      CfdpTopic.write_indication("Transaction-Finished", transaction_id: transaction_id, condition_code: @condition_code, file_status: @file_status, delivery_code: @delivery_code, status_report: @status, filestore_responses: filestore_responses)
+      CfdpTopic.write_indication("Transaction-Finished", transaction_id: @id, condition_code: @condition_code, file_status: @file_status, delivery_code: @delivery_code, status_report: @status, filestore_responses: filestore_responses)
     else
-      CfdpTopic.write_indication("Transaction-Finished", transaction_id: transaction_id, condition_code: @condition_code, file_status: @file_status, status_report: @status, delivery_code: @delivery_code)
+      CfdpTopic.write_indication("Transaction-Finished", transaction_id: @id, condition_code: @condition_code, file_status: @file_status, status_report: @status, delivery_code: @delivery_code)
     end
   end
 
