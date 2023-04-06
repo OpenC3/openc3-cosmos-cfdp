@@ -59,20 +59,14 @@ module OpenC3
 
       it "requires a destination_entity_id" do
         setup(source_id: 10, destination_id: 20)
-        post "/cfdp/put", :params => {
-          scope: "DEFAULT",
-          source_file_name: 'test.txt', destination_file_name: 'test.txt'
-        }
+        post "/cfdp/put", :params => { scope: "DEFAULT" }
         expect(response).to have_http_status(400)
         expect(response.body).to match(/missing.*destination_entity_id/)
       end
 
       it "requires a numeric destination_entity_id" do
         setup(source_id: 10, destination_id: 20)
-        post "/cfdp/put", :params => {
-          scope: "DEFAULT", destination_entity_id: "HI",
-          source_file_name: 'test.txt', destination_file_name: 'test.txt'
-        }
+        post "/cfdp/put", :params => { scope: "DEFAULT", destination_entity_id: "HI" }
         expect(response).to have_http_status(400)
       end
 
@@ -81,19 +75,18 @@ module OpenC3
         CfdpMib.set_entity_value(@destination_entity_id, 'maximum_file_segment_length', 8)
 
         data = ('a'..'z').to_a.shuffle[0,8].join
-        File.write(File.join(SPEC_DIR, 'test.txt'), data)
+        File.write(File.join(SPEC_DIR, 'test1.txt'), data)
         post "/cfdp/put", :params => {
           scope: "DEFAULT", destination_entity_id: @destination_entity_id,
-          source_file_name: 'test.txt', destination_file_name: 'test.txt'
+          source_file_name: 'test1.txt', destination_file_name: 'test2.txt'
         }
         expect(response).to have_http_status(200)
         sleep 0.1
-        FileUtils.rm(File.join(SPEC_DIR, 'test.txt'))
+        FileUtils.rm(File.join(SPEC_DIR, 'test1.txt'))
 
         get "/cfdp/indications", :params => { scope: "DEFAULT" }
         expect(response).to have_http_status(200)
         json = JSON.parse(response.body)
-        # pp json['indications']
         expect(json['indications'].length).to eql 3
         id = json['indications'][0]['transaction_id']
         expect(id).to include(@source_entity_id.to_s)
@@ -126,14 +119,14 @@ module OpenC3
         CfdpMib.set_entity_value(@destination_entity_id, 'maximum_file_segment_length', 8)
 
         data = ('a'..'z').to_a.shuffle[0,9].join
-        File.write(File.join(SPEC_DIR, 'test.txt'), data)
+        File.write(File.join(SPEC_DIR, 'test1.txt'), data)
         post "/cfdp/put", :params => {
           scope: "DEFAULT", destination_entity_id: @destination_entity_id,
-          source_file_name: 'test.txt', destination_file_name: 'test.txt'
+          source_file_name: 'test1.txt', destination_file_name: 'test2.txt'
         }
         expect(response).to have_http_status(200)
         sleep 0.1
-        FileUtils.rm(File.join(SPEC_DIR, 'test.txt'))
+        FileUtils.rm(File.join(SPEC_DIR, 'test1.txt'))
 
         get "/cfdp/indications", :params => { scope: "DEFAULT" }
         expect(response).to have_http_status(200)
@@ -319,23 +312,23 @@ module OpenC3
         sleep 0.1
       end
 
-      it "receives data with filestore requests / responses" do
+      it "executes copy with filestore requests" do
         setup(source_id: 12, destination_id: 33)
         CfdpMib.set_entity_value(@destination_entity_id, 'maximum_file_segment_length', 8)
 
         data = ('a'..'z').to_a.shuffle[0,8].join
         File.write(File.join(SPEC_DIR, 'source.txt'), data)
+        File.write(File.join(SPEC_DIR, 'new_file.txt'), data) # will be replaced
         post "/cfdp/put", :params => {
           scope: "DEFAULT", destination_entity_id: @destination_entity_id,
           source_file_name: 'source.txt', destination_file_name: 'dest.txt',
           filestore_requests: [
-            ['REPLACE_FILE', 'existing.txt', 'create.txt'],
-            ['DELETE_FILE', 'delete.txt']
+            ['REPLACE_FILE', 'new_file.txt', 'dest.txt'],
+            ['DELETE_FILE', 'new_file.txt']
           ]
         }, as: :json
         expect(response).to have_http_status(200)
         sleep 0.1
-        FileUtils.rm(File.join(SPEC_DIR, 'source.txt'))
 
         # Clear the tx transactions to simulate the receive side on the same system
         keys = CfdpMib.transactions.keys
@@ -362,14 +355,102 @@ module OpenC3
         @user.stop
         sleep 0.1
 
+        # The files should not exist due to the filestore requests
+        expect(File.exist?(File.join(SPEC_DIR, 'dest.txt'))).to be false
+        expect(File.exist?(File.join(SPEC_DIR, 'new_file.txt'))).to be false
+        FileUtils.rm(File.join(SPEC_DIR, 'source.txt')) # This still exists
+
         expect(@rx_pdus.length).to eql 1
         expect(@rx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
         expect(@rx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
         # We're the source_entity_id as well as the destination in this case
         expect(@rx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @source_entity_id
+        expect(@rx_pdus[0]['TRANSMISSION_MODE']).to eql 'UNACKNOWLEDGED'
         expect(@rx_pdus[0]['DIRECTIVE_CODE']).to eql 'FINISHED'
         expect(@rx_pdus[0]['DELIVERY_CODE']).to eql 'DATA_COMPLETE'
+        expect(@rx_pdus[0]['CONDITION_CODE']).to eql 'NO_ERROR'
         expect(@rx_pdus[0]['FILE_STATUS']).to eql 'FILESTORE_SUCCESS'
+        tlv = @rx_pdus[0]['TLVS'][0]
+        expect(tlv['TYPE']).to eql 'FILESTORE_RESPONSE'
+        expect(tlv['ACTION_CODE']).to eql 'REPLACE_FILE'
+        expect(tlv['STATUS_CODE']).to eql 'SUCCESSFUL'
+        expect(tlv['FIRST_FILE_NAME']).to eql 'new_file.txt'
+        expect(tlv['SECOND_FILE_NAME']).to eql 'dest.txt'
+        tlv = @rx_pdus[0]['TLVS'][1]
+        expect(tlv['TYPE']).to eql 'FILESTORE_RESPONSE'
+        expect(tlv['ACTION_CODE']).to eql 'DELETE_FILE'
+        expect(tlv['STATUS_CODE']).to eql 'SUCCESSFUL'
+        expect(tlv['FIRST_FILE_NAME']).to eql 'new_file.txt'
+      end
+
+      it "executes filestore requests without copy" do
+        setup(source_id: 10, destination_id: 20)
+        CfdpMib.set_entity_value(@destination_entity_id, 'maximum_file_segment_length', 8)
+
+        post "/cfdp/put", :params => {
+          scope: "DEFAULT", destination_entity_id: @destination_entity_id,
+          filestore_requests: [
+            ['CREATE_DIRECTORY', 'test_dir'],
+            ['CREATE_FILE', 'test_dir/new_file.txt'],
+          ]
+        }, as: :json
+        expect(response).to have_http_status(200)
+        sleep 0.1
+
+        # Clear the tx transactions to simulate the receive side on the same system
+        keys = CfdpMib.transactions.keys
+        keys.each do |key|
+          CfdpMib.transactions.delete(key)
+        end
+
+        @user = CfdpUser.new
+        @user.start
+        sleep 0.1 # Allow user thread to start
+
+        @packets.each do |target_name, cmd_name, cmd_params|
+          msg_hash = {
+            :time => Time.now.to_nsec_from_epoch,
+            :stored => 'false',
+            :target_name => target_name,
+            :packet_name => cmd_name,
+            :received_count => 1,
+            :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
+          }
+          Topic.write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
+        end
+        sleep 0.1
+
+        # Simlulate the EOF PDU
+        cmd_params = {}
+        cmd_params["PDU"] = CfdpPdu.build_eof_pdu(
+          source_entity: CfdpMib.entity(@source_entity_id),
+          transaction_seq_num: 1,
+          destination_entity: CfdpMib.entity(@destination_entity_id),
+          file_size: 0,
+          file_checksum: 0,
+          condition_code: "NO_ERROR",
+          segmentation_control: "NOT_PRESERVED",
+          transmission_mode: nil,
+          canceling_entity_id: nil)
+        msg_hash = {
+          :time => Time.now.to_nsec_from_epoch,
+          :stored => 'false',
+          :target_name => "CFDPTEST",
+          :packet_name => "CFDP_PDU",
+          :received_count => 1,
+          :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
+        }
+        Topic.write_topic("DEFAULT__DECOM__{CFDPTEST}__CFDP_PDU", msg_hash, nil)
+        sleep 0.1
+        @user.stop
+        sleep 0.1
+
+        get "/cfdp/indications", :params => { scope: "DEFAULT" }
+        expect(response).to have_http_status(200)
+        json = JSON.parse(response.body)
+        pp json
+        # The first 2 indications are from the transmit request .. the next 3 are receive
+        expect(json['indications'].length).to eql 5
       end
     end
   end
