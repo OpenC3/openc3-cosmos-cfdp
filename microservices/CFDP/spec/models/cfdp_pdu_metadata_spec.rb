@@ -87,13 +87,18 @@ RSpec.describe CfdpPdu, type: :model do
         destination_file_name: "test",
         closure_requested: 0,
         options: [{
-          "TLV_TYPE" => "FILESTORE_REQUEST",
-          "ACTION_CODE" => "DENY_DIRECTORY", # 8
-          "FIRST_FILE_NAME" => "filename",
-          "SECOND_FILE_NAME" => "test",
+          "TYPE" => "FILESTORE_REQUEST",
+          "ACTION_CODE" => "DELETE_FILE", # 1
+          "FIRST_FILE_NAME" => "first",
+        },
+        {
+          "TYPE" => "FILESTORE_REQUEST",
+          "ACTION_CODE" => "RENAME_FILE", # 2
+          "FIRST_FILE_NAME" => "begin",
+          "SECOND_FILE_NAME" => "end",
         }])
       # puts buffer.formatted
-      expect(buffer.length).to eql 46
+      expect(buffer.length).to eql 51
 
       # By default the first 7 bytes are the header
       # This assumes 1 byte per entity ID and sequence number
@@ -115,18 +120,29 @@ RSpec.describe CfdpPdu, type: :model do
       # Option TLV Type
       expect(buffer[27].unpack('C')[0]).to eql 0 # 5.4.1.1 Filestore Request
       # Option TLV Length
-      expect(buffer[28].unpack('C')[0]).to eql 15
+      expect(buffer[28].unpack('C')[0]).to eql 7 # Action code + length field + length
       # Option TLV Value
       # Action Code
-      expect(buffer[29].unpack('C')[0] >> 4).to eql 8
+      expect(buffer[29].unpack('C')[0] >> 4).to eql 1
       # First filename length
-      expect(buffer[30].unpack('C')[0]).to eql 8
+      expect(buffer[30].unpack('C')[0]).to eql 5
       # First filename
-      expect(buffer[31..38].unpack('A*')[0]).to eql 'filename'
+      expect(buffer[31..35].unpack('A*')[0]).to eql 'first'
+      # Option TLV Type
+      expect(buffer[36].unpack('C')[0]).to eql 0 # 5.4.1.1 Filestore Request
+      # Option TLV Length
+      expect(buffer[37].unpack('C')[0]).to eql 11
+      # Option TLV Value
+      # Action Code
+      expect(buffer[38].unpack('C')[0] >> 4).to eql 2
+      # First filename length
+      expect(buffer[39].unpack('C')[0]).to eql 5
+      # First filename
+      expect(buffer[40..44].unpack('A*')[0]).to eql 'begin'
       # Second filename length
-      expect(buffer[39].unpack('C')[0]).to eql 4
+      expect(buffer[45].unpack('C')[0]).to eql 3
       # Second filename
-      expect(buffer[40..43].unpack('A*')[0]).to eql 'test'
+      expect(buffer[46..48].unpack('A*')[0]).to eql 'end'
 
       hash = {}
       # decom takes just the Metadata specific part of the buffer
@@ -139,9 +155,13 @@ RSpec.describe CfdpPdu, type: :model do
       expect(hash['DESTINATION_FILE_NAME']).to eql 'test'
       tlv = hash['TLVS'][0]
       expect(tlv['TYPE']).to eql 'FILESTORE_REQUEST'
-      expect(tlv['ACTION_CODE']).to eql 'DENY_DIRECTORY'
-      expect(tlv['FIRST_FILE_NAME']).to eql 'filename'
-      expect(tlv['SECOND_FILE_NAME']).to eql 'test'
+      expect(tlv['ACTION_CODE']).to eql 'DELETE_FILE'
+      expect(tlv['FIRST_FILE_NAME']).to eql 'first'
+      tlv = hash['TLVS'][1]
+      expect(tlv['TYPE']).to eql 'FILESTORE_REQUEST'
+      expect(tlv['ACTION_CODE']).to eql 'RENAME_FILE'
+      expect(tlv['FIRST_FILE_NAME']).to eql 'begin'
+      expect(tlv['SECOND_FILE_NAME']).to eql 'end'
     end
 
     it "builds a Metadata PDU with option: message to user" do
@@ -156,7 +176,7 @@ RSpec.describe CfdpPdu, type: :model do
         destination_file_name: "test",
         closure_requested: 0,
         options: [{
-          "TLV_TYPE" => "MESSAGE_TO_USER",
+          "TYPE" => "MESSAGE_TO_USER",
           "MESSAGE_TO_USER" => "Hello"
         }])
       # puts buffer.formatted
@@ -212,7 +232,7 @@ RSpec.describe CfdpPdu, type: :model do
         destination_file_name: "test",
         closure_requested: 0,
         options: [{
-          "TLV_TYPE" => "FAULT_HANDLER_OVERRIDE",
+          "TYPE" => "FAULT_HANDLER_OVERRIDE",
           "CONDITION_CODE" => "INVALID_TRANSMISSION_MODE", # 3
           "HANDLER_CODE" => "ABONDON_TRANSACTION", # 4
         }])
@@ -271,7 +291,7 @@ RSpec.describe CfdpPdu, type: :model do
         destination_file_name: "test",
         closure_requested: 0,
         options: [{
-          "TLV_TYPE" => "FLOW_LABEL",
+          "TYPE" => "FLOW_LABEL",
           "FLOW_LABEL" => "flow"
         }])
       # puts buffer.formatted

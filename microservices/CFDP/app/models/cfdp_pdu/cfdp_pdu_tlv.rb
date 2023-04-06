@@ -18,7 +18,7 @@ class CfdpPdu < OpenC3::Packet
       length = s.read("TLV_LENGTH")
       if length > 0
         tlv_data = variable_data[0..(length + 1)]
-        variable_data = variable_data[(length + 1)..-1]
+        variable_data = variable_data[(length + 2)..-1]
         tlv = {}
         tlv["TYPE"] = type
         pdu_hash["TLVS"] ||= []
@@ -101,22 +101,31 @@ class CfdpPdu < OpenC3::Packet
   end
 
   def self.build_tlv(tlv, entity_id_length: nil)
-    type = tlv["TLV_TYPE"]
+    type = tlv["TYPE"]
     case type
     when "FILESTORE_REQUEST"
       first_file_name = tlv["FIRST_FILE_NAME"].to_s
-      second_file_name = tlv["SECOND_FILE_NAME"].to_s
+      second_file_name = nil
+      length = 2 + first_file_name.length # type + length field + length
+      if tlv.key?("SECOND_FILE_NAME")
+        second_file_name = tlv["SECOND_FILE_NAME"].to_s
+        length += 1 + second_file_name.length # length field + length
+      end
 
       s, s2 = define_filestore_request_tlv()
       s.write("TLV_TYPE", "FILESTORE_REQUEST")
-      s.write("TLV_LENGTH", 3 + first_file_name.length + second_file_name.length)
+      s.write("TLV_LENGTH", length)
       s.write("ACTION_CODE", tlv['ACTION_CODE'])
       s.write("SPARE", 0)
       s.write("FIRST_FILE_NAME_LENGTH", first_file_name.length)
       s.write("FIRST_FILE_NAME", first_file_name)
-      s2.write("SECOND_FILE_NAME_LENGTH", second_file_name.length)
-      s2.write("SECOND_FILE_NAME", second_file_name)
-      return s.buffer(false) + s2.buffer(false)
+      if second_file_name
+        s2.write("SECOND_FILE_NAME_LENGTH", second_file_name.length)
+        s2.write("SECOND_FILE_NAME", second_file_name)
+        return s.buffer(false) + s2.buffer(false)
+      else
+        return s.buffer(false)
+      end
 
     when "FILESTORE_RESPONSE"
       first_file_name = tlv["FIRST_FILE_NAME"].to_s

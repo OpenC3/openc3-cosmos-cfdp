@@ -94,7 +94,7 @@ class CfdpSourceTransaction < CfdpTransaction
     filestore_requests = [] unless filestore_requests
     filestore_requests.each do |fsr|
       tlv = {}
-      tlv["TLV_TYPE"] = "FILESTORE_REQUEST"
+      tlv["TYPE"] = "FILESTORE_REQUEST"
       tlv["ACTION_CODE"] = fsr[0].to_s.upcase
       tlv["FIRST_FILE_NAME"] = fsr[1]
       tlv["SECOND_FILE_NAME"] = fsr[2] if fsr[2]
@@ -197,25 +197,24 @@ class CfdpSourceTransaction < CfdpTransaction
       tlvs = @finished_pdu_hash["TLVS"]
       if tlvs
         tlvs.each do |tlv|
-          case tlv['TLV_TYPE']
+          case tlv['TYPE']
           when 'FILESTORE_RESPONSE'
-            filestore_response['ACTION_CODE'] = action_code
-            filestore_response['STATUS_CODE'] = status_code
-            filestore_response['FIRST_FILE_NAME'] = first_file_name
-            filestore_response['SECOND_FILE_NAME'] = second_file_name
-            filestore_response['FILESTORE_MESSAGE'] = filestore_message
-            filestore_responses << tlv.except('TLV_TYPE')
+            filestore_responses << tlv.except('TYPE')
           end
         end
       end
     end
-
     @status = "FINISHED" unless @status == "CANCELED"
 
     if filestore_responses.length > 0
-      CfdpTopic.write_indication("Transaction-Finished", transaction_id: @id, condition_code: @condition_code, file_status: @file_status, delivery_code: @delivery_code, status_report: @status, filestore_responses: filestore_responses)
+      CfdpTopic.write_indication("Transaction-Finished",
+        transaction_id: @id, condition_code: @condition_code,
+        file_status: @file_status, delivery_code: @delivery_code, status_report: @status,
+        filestore_responses: filestore_responses)
     else
-      CfdpTopic.write_indication("Transaction-Finished", transaction_id: @id, condition_code: @condition_code, file_status: @file_status, status_report: @status, delivery_code: @delivery_code)
+      CfdpTopic.write_indication("Transaction-Finished",
+        transaction_id: @id, condition_code: @condition_code,
+        file_status: @file_status, status_report: @status, delivery_code: @delivery_code)
     end
   end
 
