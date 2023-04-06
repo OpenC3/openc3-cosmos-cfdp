@@ -25,13 +25,6 @@ module OpenC3
         mock_redis()
       end
 
-      after(:each) do
-        if @user
-          @user.stop
-          sleep 0.1
-        end
-      end
-
       def setup(source_id:, destination_id:)
         @source_entity_id = source_id
         @destination_entity_id = destination_id
@@ -225,7 +218,22 @@ module OpenC3
           destination_entity: CfdpMib.entity(@destination_entity_id),
           condition_code: "NO_ERROR",
           delivery_code: "DATA_INCOMPLETE", # Just to verify it changes
-          file_status: "FILESTORE_SUCCESS")
+          file_status: "FILESTORE_SUCCESS",
+          # Filestore Responses only make sense when requesting a closure
+          filestore_responses: [
+            {
+              'ACTION_CODE' => 'DELETE_FILE',
+              'STATUS_CODE' => 'NOT_PERFORMED',
+              'FIRST_FILE_NAME' => 'filename',
+            },
+            {
+              'ACTION_CODE' => 'RENAME_FILE',
+              'STATUS_CODE' => 'SUCCESSFUL',
+              'FIRST_FILE_NAME' => 'begin',
+              'SECOND_FILE_NAME' => 'end',
+            }
+          ]
+        )
         msg_hash = {
           :time => Time.now.to_nsec_from_epoch,
           :stored => 'false',
@@ -235,6 +243,8 @@ module OpenC3
           :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
         }
         Topic.write_topic("DEFAULT__DECOM__{CFDPTEST}__CFDP_PDU", msg_hash, nil)
+        sleep 1.1 # Allow wait timeout
+        @user.stop
         sleep 0.1
 
         get "/cfdp/indications", :params => { scope: "DEFAULT" }
@@ -249,6 +259,17 @@ module OpenC3
         expect(json['indications'][2]['condition_code']).to eql 'NO_ERROR'
         expect(json['indications'][2]['delivery_code']).to eql 'DATA_INCOMPLETE'
         expect(json['indications'][2]['file_status']).to eql 'FILESTORE_SUCCESS'
+        # TODO: This isn't formatted correctly
+        pp json['indications'][2]['filestore_responses']
+        fsr = json['indications'][2]['filestore_responses'][0]
+        expect(fsr['ACTION_CODE']).to eql 'DELETE_FILE'
+        expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
+        expect(fsr['FIRST_FILE_NAME']).to eql 'filename'
+        fsr = json['indications'][2]['filestore_responses'][1]
+        expect(fsr['ACTION_CODE']).to eql 'RENAME_FILE'
+        expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+        expect(fsr['FIRST_FILE_NAME']).to eql 'begin'
+        expect(fsr['SECOND_FILE_NAME']).to eql 'end'
       end
 
       it "handles timing out waiting for a closure" do
@@ -314,6 +335,8 @@ module OpenC3
         # Thread is still running even after the bad transaction
         expect(thread.alive?).to be true
         expect(error_message).to include("Unknown transaction")
+        @user.stop
+        sleep 0.1
       end
 
       it "receives data with filestore requests / responses" do
@@ -329,10 +352,10 @@ module OpenC3
             ['REPLACE_FILE', 'existing.txt', 'create.txt'],
             ['DELETE_FILE', 'delete.txt']
           ]
-        }
+        }, as: :json
         expect(response).to have_http_status(200)
         sleep 0.1
-        FileUtils.rm(File.join(SPEC_DIR, 'test.txt'))
+        FileUtils.rm(File.join(SPEC_DIR, 'source.txt'))
 
         # Clear the tx transactions to simulate the receive side on the same system
         keys = CfdpMib.transactions.keys
@@ -355,6 +378,8 @@ module OpenC3
           }
           Topic.write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
         end
+        sleep 0.1
+        @user.stop
         sleep 0.1
 
         expect(@rx_pdus.length).to eql 1
