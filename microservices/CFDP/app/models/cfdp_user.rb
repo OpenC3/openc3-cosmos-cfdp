@@ -50,7 +50,7 @@ class CfdpUser
               OpenC3::Logger.error(err.formatted, scope: ENV['OPENC3_SCOPE'])
             end
           end
-          CfdpMib.transactions.each do |transaction|
+          CfdpMib.transactions.each do |transaction_id, transaction|
             transaction.update
           end
         end
