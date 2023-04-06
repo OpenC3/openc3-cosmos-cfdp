@@ -238,8 +238,6 @@ module OpenC3
         expect(json['indications'][2]['condition_code']).to eql 'NO_ERROR'
         expect(json['indications'][2]['delivery_code']).to eql 'DATA_INCOMPLETE'
         expect(json['indications'][2]['file_status']).to eql 'FILESTORE_SUCCESS'
-        # TODO: This isn't formatted correctly
-        pp json['indications'][2]['filestore_responses']
         fsr = json['indications'][2]['filestore_responses'][0]
         expect(fsr['ACTION_CODE']).to eql 'DELETE_FILE'
         expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'

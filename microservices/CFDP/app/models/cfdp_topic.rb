@@ -11,6 +11,9 @@ class CfdpTopic < OpenC3::Topic
     kw_args.each do |key, value|
       msg_hash[key] = value
     end
+    if msg_hash[:filestore_responses]
+      msg_hash[:filestore_responses] = JSON.generate(msg_hash[:filestore_responses].as_json(allow_nan: true))
+    end
     OpenC3::Topic.write_topic("#{ENV['OPENC3_MICROSERVICE_NAME']}__CFDP", msg_hash, '*', 1000)
   end
 
@@ -24,6 +27,9 @@ class CfdpTopic < OpenC3::Topic
       data.each do |id, msg_hash|
         continuation = id
         if !transaction_id or (transaction_id and msg_hash['transaction_id'] == transaction_id)
+          if msg_hash["filestore_responses"]
+            msg_hash["filestore_responses"] = JSON.parse(msg_hash["filestore_responses"], :allow_nan => true, :create_additions => true)
+          end
           indications << msg_hash
         end
       end
