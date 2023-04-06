@@ -86,6 +86,7 @@ class CfdpSourceTransaction < CfdpTransaction
       file_size = source_file.size
       read_size = destination_entity['maximum_file_segment_length']
     else
+      source_file = nil
       file_size = 0
     end
 
@@ -117,7 +118,7 @@ class CfdpSourceTransaction < CfdpTransaction
     cmd_params[item_name] = metadata_pdu
     cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
 
-    if source_file_name and destination_file_name
+    if source_file
       checksum = get_checksum(destination_entity['default_checksum_type'])
       unless checksum
         # Unsupported algorithm - Use modular instead
@@ -146,45 +147,50 @@ class CfdpSourceTransaction < CfdpTransaction
         offset += file_data.length
         @progress = offset
       end
+    end
 
-      # Send EOF PDU
-      eof_pdu = CfdpPdu.build_eof_pdu(
-        source_entity: source_entity,
-        transaction_seq_num: transaction_seq_num,
-        destination_entity: destination_entity,
-        file_size: file_size,
-        file_checksum: checksum.checksum(source_file, false),
-        condition_code: @condition_code,
-        segmentation_control: segmentation_control,
-        transmission_mode: transmission_mode,
-        canceling_entity_id: nil)
-      cmd_params = {}
-      cmd_params[item_name] = eof_pdu
-      cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+    # Send EOF PDU
+    if source_file
+      file_checksum = checksum.checksum(source_file, false)
+    else
+      file_checksum = 0
+    end
+    eof_pdu = CfdpPdu.build_eof_pdu(
+      source_entity: source_entity,
+      transaction_seq_num: transaction_seq_num,
+      destination_entity: destination_entity,
+      file_size: file_size,
+      file_checksum: file_checksum,
+      condition_code: @condition_code,
+      segmentation_control: segmentation_control,
+      transmission_mode: transmission_mode,
+      canceling_entity_id: nil)
+    cmd_params = {}
+    cmd_params[item_name] = eof_pdu
+    cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
 
-      # Complete use of source file
-      CfdpMib.complete_source_file(source_file)
+    # Complete use of source file
+    CfdpMib.complete_source_file(source_file) if source_file
 
-      # Issue EOF-Sent.indication
-      CfdpTopic.write_indication("EOF-Sent", transaction_id: transaction_id)
+    # Issue EOF-Sent.indication
+    CfdpTopic.write_indication("EOF-Sent", transaction_id: transaction_id)
 
-      @file_status = "UNREPORTED"
-      @delivery_code = "DATA_COMPLETE"
+    @file_status = "UNREPORTED"
+    @delivery_code = "DATA_COMPLETE"
 
-      # Wait for Finished if Closure Requested
-      if closure_requested == "CLOSURE_REQUESTED"
-        start_time = Time.now
-        while (Time.now - start_time) < source_entity['check_limit']
-          sleep(1)
-          break if @finished_pdu_hash
-        end
-        if @finished_pdu_hash
-          @file_status = @finished_pdu_hash['FILE_STATUS']
-          @delivery_code = @finished_pdu_hash['DELIVERY_CODE']
-          @condition_code = @finished_pdu_hash['CONDITION_CODE']
-        else
-          @condition_code = "CHECK_LIMIT_REACHED"
-        end
+    # Wait for Finished if Closure Requested
+    if closure_requested == "CLOSURE_REQUESTED"
+      start_time = Time.now
+      while (Time.now - start_time) < source_entity['check_limit']
+        sleep(1)
+        break if @finished_pdu_hash
+      end
+      if @finished_pdu_hash
+        @file_status = @finished_pdu_hash['FILE_STATUS']
+        @delivery_code = @finished_pdu_hash['DELIVERY_CODE']
+        @condition_code = @finished_pdu_hash['CONDITION_CODE']
+      else
+        @condition_code = "CHECK_LIMIT_REACHED"
       end
     end
 

@@ -19,6 +19,8 @@ class CfdpReceiveTransaction < CfdpTransaction
     @checksum = CfdpNullChecksum.new
     @full_checksum_needed = false
     @file_size = nil
+    @file_status = "UNREPORTED"
+    @delivery_code = "DATA_COMPLETE"
     @filestore_responses = []
     @check_timeout = nil
     CfdpMib.transactions[@id] = self
@@ -41,64 +43,69 @@ class CfdpReceiveTransaction < CfdpTransaction
       notice_of_completion()
       return true
     end
-    if complete_file_received?
-      # Complete
-      if @checksum.check(@tmp_file, @eof_pdu_hash['FILE_CHECKSUM'], @full_checksum_needed)
-        # Move file to final destination
-        @tmp_file.close
-        success = CfdpMib.put_destination_file(@destination_file_name, @tmp_file) # Unlink handled by CfdpMib
-        if success
-          @file_status = "FILESTORE_SUCCESS"
-        else
-          @file_status = "FILESTORE_REJECTION"
-          @condition_code = "FILESTORE_REJECTION"
-        end
-        @delivery_code = "DATA_COMPLETE"
-      else
-        @tmp_file.unlink
-        @file_status = "FILE_DISCARDED"
-        @condition_code = "FILE_CHECKSUM_FAILURE"
-        @delivery_code = "DATA_INCOMPLETE"
-        # TODO: Handle different fault handlers here
-      end
-      @tmp_file = nil
 
-      # Handle Filestore Requests
-      filestore_success = true
-      tlvs = @metadata_pdu_hash["TLVS"]
-      if tlvs
-        tlvs.each do |tlv|
-          case tlv['TYPE']
-          when 'FILESTORE_REQUEST'
-            action_code = tlv["ACTION_CODE"]
-            first_file_name = tlv["FIRST_FILE_NAME"]
-            second_file_name = tlv["SECOND_FILE_NAME"]
-            if filestore_success
-              status_code, filestore_message = CfdpMib.filestore_request(action_code, first_file_name, second_file_name)
-              filestore_response = {}
-              filestore_response['ACTION_CODE'] = action_code
-              filestore_response['STATUS_CODE'] = status_code
-              filestore_response['FIRST_FILE_NAME'] = first_file_name
-              filestore_response['SECOND_FILE_NAME'] = second_file_name
-              filestore_response['FILESTORE_MESSAGE'] = filestore_message
-              @filestore_responses << filestore_response
-              filestore_success = false if status_code != 'SUCCESSFUL'
-            else
-              filestore_response = {}
-              filestore_response['ACTION_CODE'] = action_code
-              filestore_response['STATUS_CODE'] = "NOT_PERFORMED"
-              filestore_response['FIRST_FILE_NAME'] = first_file_name
-              filestore_response['SECOND_FILE_NAME'] = second_file_name
-              @filestore_responses << filestore_response
-            end
+    if @source_file_name and @destination_file_name
+      if complete_file_received?
+        # Complete
+        if @checksum.check(@tmp_file, @eof_pdu_hash['FILE_CHECKSUM'], @full_checksum_needed)
+          # Move file to final destination
+          @tmp_file.close
+          success = CfdpMib.put_destination_file(@destination_file_name, @tmp_file) # Unlink handled by CfdpMib
+          if success
+            @file_status = "FILESTORE_SUCCESS"
+          else
+            @file_status = "FILESTORE_REJECTION"
+            @condition_code = "FILESTORE_REJECTION"
+          end
+          @delivery_code = "DATA_COMPLETE"
+        else
+          @tmp_file.unlink
+          @file_status = "FILE_DISCARDED"
+          @condition_code = "FILE_CHECKSUM_FAILURE"
+          @delivery_code = "DATA_INCOMPLETE"
+          # TODO: Handle different fault handlers here
+        end
+        @tmp_file = nil
+      else
+        # Still waiting on file data
+        return false
+      end
+    end
+
+    # Handle Filestore Requests
+    filestore_success = true
+    tlvs = @metadata_pdu_hash["TLVS"]
+    if tlvs
+      tlvs.each do |tlv|
+        case tlv['TYPE']
+        when 'FILESTORE_REQUEST'
+          action_code = tlv["ACTION_CODE"]
+          first_file_name = tlv["FIRST_FILE_NAME"]
+          second_file_name = tlv["SECOND_FILE_NAME"]
+          if filestore_success
+            status_code, filestore_message = CfdpMib.filestore_request(action_code, first_file_name, second_file_name)
+            filestore_response = {}
+            filestore_response['ACTION_CODE'] = action_code
+            filestore_response['STATUS_CODE'] = status_code
+            filestore_response['FIRST_FILE_NAME'] = first_file_name
+            filestore_response['SECOND_FILE_NAME'] = second_file_name
+            filestore_response['FILESTORE_MESSAGE'] = filestore_message
+            @filestore_responses << filestore_response
+            filestore_success = false if status_code != 'SUCCESSFUL'
+          else
+            filestore_response = {}
+            filestore_response['ACTION_CODE'] = action_code
+            filestore_response['STATUS_CODE'] = "NOT_PERFORMED"
+            filestore_response['FIRST_FILE_NAME'] = first_file_name
+            filestore_response['SECOND_FILE_NAME'] = second_file_name
+            @filestore_responses << filestore_response
           end
         end
       end
-
-      notice_of_completion()
-      return true
     end
-    return false
+
+    notice_of_completion()
+    return true
   end
 
   def notice_of_completion
@@ -201,11 +208,13 @@ class CfdpReceiveTransaction < CfdpTransaction
       @file_size = @metadata_pdu_hash['FILE_SIZE']
       kw_args[:file_size] = @file_size
 
+      @source_file_name = nil
       if @metadata_pdu_hash['SOURCE_FILE_NAME'] and @metadata_pdu_hash['SOURCE_FILE_NAME'].length > 0
         @source_file_name = @metadata_pdu_hash['SOURCE_FILE_NAME']
         kw_args[:source_file_name] = @source_file_name
       end
 
+      @destination_file_name = nil
       if @metadata_pdu_hash['DESTINATION_FILE_NAME'] and @metadata_pdu_hash['DESTINATION_FILE_NAME'].length > 0
         @destination_file_name = @metadata_pdu_hash['DESTINATION_FILE_NAME']
         kw_args[:destination_file_name] = @destination_file_name
