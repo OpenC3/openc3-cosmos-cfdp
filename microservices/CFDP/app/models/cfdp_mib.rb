@@ -226,8 +226,9 @@ class CfdpMib
         elsif not File.exist?(second_file_name)
           status_code = "FILE_2_DOES_NOT_EXIST"
         else
-          FileUtils.rm(first_file_name)
-          FileUtils.mv(second_file_name, first_file_name)
+          File.open(first_file_name, 'wb') do |file|
+            file.write(File.read(second_file_name))
+          end
           status_code = "SUCCESSFUL"
         end
 
