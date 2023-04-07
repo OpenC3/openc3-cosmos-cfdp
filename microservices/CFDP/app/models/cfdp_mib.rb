@@ -23,6 +23,7 @@
 # End of reception opportunity
 
 require 'openc3/models/microservice_model'
+require 'openc3/utilities/bucket'
 require 'tempfile'
 require 'fileutils'
 
@@ -152,25 +153,33 @@ class CfdpMib
   end
 
   def self.get_source_file(source_file_name)
-    # TODO: Handle bucket
     file_name = File.join(@@root_path, source_file_name)
-    file = File.open(file_name, 'rb')
+    if self.bucket
+      file = Tempfile.new
+      OpenC3::Bucket.getClient().get_object(bucket: self.bucket, key: file_name, path: file.path)
+    else
+      file = File.open(file_name, 'rb')
+    end
+    file
   end
 
   def self.complete_source_file(file)
-    # TODO: Handle bucket
     file.close
+    FileUtils.rm file.path
   end
 
   def self.put_destination_file(destination_filename, tmp_file)
-    # TODO: Handle bucket
     file_name = File.join(@@root_path, destination_filename)
-    tmp_file.persist(file_name)
+    if self.bucket
+      OpenC3::Bucket.getClient().put_object(bucket: self.bucket, key: file_name, body: tmp_file.open.read)
+    else
+      file_name = File.join(@@root_path, destination_filename)
+      tmp_file.persist(file_name)
+    end
+    tmp_file.unlink
   end
 
   def self.filestore_request(action_code, first_file_name, second_file_name)
-    # TODO: Handle bucket
-
     # Apply root path
     first_file_name = File.join(@@root_path, first_file_name.to_s)
     second_file_name = File.join(@@root_path, second_file_name.to_s)
@@ -187,7 +196,11 @@ class CfdpMib
     begin
       case action_code
       when "CREATE_FILE"
-        FileUtils.touch(first_file_name)
+        if self.bucket
+          OpenC3::Bucket.getClient().put_object(bucket: self.bucket, key: first_file_name, body: '')
+        else
+          FileUtils.touch(first_file_name)
+        end
         status_code = "SUCCESSFUL"
 
       when "DELETE_FILE"

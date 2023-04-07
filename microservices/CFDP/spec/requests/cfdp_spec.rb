@@ -375,9 +375,25 @@ module OpenC3
       end
 
       describe "filestore requests" do
+        if ENV['BUCKET']
+          before(:all) do |example|
+            @bucket = OpenC3::Bucket.getClient.create("bucket#{rand(1000)}")
+            @root_path = '/path'
+          end
+          after(:all) do
+            OpenC3::Bucket.getClient.delete(@bucket) if @bucket
+          end
+        else
+          before(:all) do |example|
+            @root_path = SPEC_DIR
+          end
+        end
+
         def filestore_request(requests)
           setup(source_id: 10, destination_id: 20)
           CfdpMib.set_entity_value(@destination_entity_id, 'maximum_file_segment_length', 8)
+          CfdpMib.root_path = @root_path
+          CfdpMib.bucket = @bucket if @bucket
 
           post "/cfdp/put", :params => {
             scope: "DEFAULT", destination_entity_id: @destination_entity_id,
@@ -419,9 +435,9 @@ module OpenC3
 
         it "create file" do
           filestore_request( [
-            ['CREATE_FILE', 'create_file.txt'],
-            ['CREATE_FILE', '/root/nope'],
-            ['CREATE_FILE', 'another_file.txt'],
+            ['CREATE_FILE', "create_file.txt"],
+            ['CREATE_FILE', "../../nope"], # Outside of the root path
+            ['CREATE_FILE', "another_file.txt"],
           ]) do |indication|
             expect(indication['indication_type']).to eql 'Transaction-Finished'
             expect(indication['condition_code']).to eql 'NO_ERROR'
@@ -435,14 +451,18 @@ module OpenC3
             fsr = indication['filestore_responses'][1]
             expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
             expect(fsr['STATUS_CODE']).to eql 'NOT_ALLOWED'
-            expect(fsr['FIRST_FILE_NAME']).to eql '/root/nope'
+            expect(fsr['FIRST_FILE_NAME']).to eql '../../nope'
             fsr = indication['filestore_responses'][2]
             expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
             # Once there is a failure no more are performed per 4.9.5
             expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
             expect(fsr['FIRST_FILE_NAME']).to eql 'another_file.txt'
           end
-          FileUtils.rm File.join(SPEC_DIR, 'create_file.txt') # cleanup
+          if @bucket
+            OpenC3::Bucket.getClient.delete_object(bucket: @bucket, key: "#{@root_path}/create_file.txt")
+          else
+            FileUtils.rm File.join(SPEC_DIR, 'create_file.txt') # cleanup
+          end
         end
 
         it "delete file" do
