@@ -82,7 +82,6 @@ module OpenC3
         }
         expect(response).to have_http_status(200)
         sleep 0.1
-        FileUtils.rm(File.join(SPEC_DIR, 'test1.txt'))
 
         get "/cfdp/indications", :params => { scope: "DEFAULT" }
         expect(response).to have_http_status(200)
@@ -126,7 +125,6 @@ module OpenC3
         }
         expect(response).to have_http_status(200)
         sleep 0.1
-        FileUtils.rm(File.join(SPEC_DIR, 'test1.txt'))
 
         get "/cfdp/indications", :params => { scope: "DEFAULT" }
         expect(response).to have_http_status(200)
@@ -176,7 +174,6 @@ module OpenC3
         }
         expect(response).to have_http_status(200)
         sleep 0.1
-        FileUtils.rm(File.join(SPEC_DIR, 'test.txt'))
 
         @user = CfdpUser.new
         @user.start
@@ -268,7 +265,6 @@ module OpenC3
         expect(json['indications'][2]['condition_code']).to eql 'CHECK_LIMIT_REACHED'
         expect(json['indications'][2]['delivery_code']).to eql 'DATA_COMPLETE'
         expect(json['indications'][2]['file_status']).to eql 'UNREPORTED'
-        FileUtils.rm(File.join(SPEC_DIR, 'test.txt'))
       end
 
       it "handles bad transaction IDs" do
@@ -355,7 +351,7 @@ module OpenC3
 
         # The files should not exist due to the filestore requests
         expect(File.exist?(File.join(SPEC_DIR, 'dest.txt'))).to be false
-        FileUtils.rm(File.join(SPEC_DIR, 'source.txt')) # This still exists
+        # FileUtils.rm(File.join(SPEC_DIR, 'source.txt')) # This still exists
 
         expect(@rx_pdus.length).to eql 1
         expect(@rx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
@@ -374,17 +370,47 @@ module OpenC3
         expect(tlv['FIRST_FILE_NAME']).to eql 'dest.txt'
       end
 
-      describe "filestore requests" do
-        if ENV['BUCKET']
-          before(:all) do |example|
-            @bucket = OpenC3::Bucket.getClient.create("bucket#{rand(1000)}")
-            @root_path = '/path'
-          end
-          after(:all) do
-            OpenC3::Bucket.getClient.delete(@bucket) if @bucket
+      %w(local bucket).each do |type|
+        context "with #{type} filestore requests" do
+        if type == 'bucket'
+          # Enable if there's an actual MINIO service avaiable to talk to
+          # To enable access to MINIO for testing change the compose.yaml file and add
+          # the following to services: open3-minio:
+          #   ports:
+          #     - "127.0.0.1:9000:9000"
+          if ENV['MINIO']
+            puts "MINIO!!!"
+            before(:all) do
+              @bucket = OpenC3::Bucket.getClient.create("bucket#{rand(1000)}")
+              puts "all bucket:#{@bucket}"
+              @root_path = 'path'
+            end
+            after(:all) do
+              OpenC3::Bucket.getClient.delete(@bucket) if @bucket
+            end
+          else
+            before(:each) do
+              @client = double("getClient").as_null_object
+              allow(@client).to receive(:exist?).and_return(true)
+              allow(@client).to receive(:get_object) do |bucket:, key:, path:|
+                File.write(path, File.read(key))
+              end
+              allow(@client).to receive(:put_object) do |bucket:, key:, body:|
+                File.write(key, body)
+              end
+              allow(@client).to receive(:check_object) do |bucket:, key:|
+                File.exist?(key)
+              end
+              allow(@client).to receive(:delete_object) do |bucket:, key:|
+                FileUtils.rm(key)
+              end
+              allow(OpenC3::Bucket).to receive(:getClient).and_return(@client)
+              @root_path = SPEC_DIR
+              @bucket = 'config'
+            end
           end
         else
-          before(:all) do |example|
+          before(:each) do
             @root_path = SPEC_DIR
           end
         end
@@ -393,7 +419,12 @@ module OpenC3
           setup(source_id: 10, destination_id: 20)
           CfdpMib.set_entity_value(@destination_entity_id, 'maximum_file_segment_length', 8)
           CfdpMib.root_path = @root_path
-          CfdpMib.bucket = @bucket if @bucket
+          puts "fsr bucket:#{@bucket} path:#{@root_path}"
+          if @bucket
+            CfdpMib.bucket = @bucket
+          else
+            CfdpMib.bucket = nil
+          end
 
           post "/cfdp/put", :params => {
             scope: "DEFAULT", destination_entity_id: @destination_entity_id,
@@ -458,11 +489,7 @@ module OpenC3
             expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
             expect(fsr['FIRST_FILE_NAME']).to eql 'another_file.txt'
           end
-          if @bucket
-            OpenC3::Bucket.getClient.delete_object(bucket: @bucket, key: "#{@root_path}/create_file.txt")
-          else
-            FileUtils.rm File.join(SPEC_DIR, 'create_file.txt') # cleanup
-          end
+          FileUtils.rm File.join(SPEC_DIR, 'create_file.txt') # cleanup
         end
 
         it "delete file" do
@@ -530,6 +557,7 @@ module OpenC3
             expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
             expect(fsr['FIRST_FILE_NAME']).to eql 'another'
           end
+          expect(File.exist?(File.join(SPEC_DIR, 'rename_file.txt'))).to be false
           expect(File.exist?(File.join(SPEC_DIR, 'new_file.txt'))).to be true
           FileUtils.rm File.join(SPEC_DIR, 'new_file.txt')
         end
@@ -682,16 +710,26 @@ module OpenC3
             expect(fsr['FIRST_FILE_NAME']).to eql 'new_dir'
             fsr = indication['filestore_responses'][1]
             expect(fsr['ACTION_CODE']).to eql 'CREATE_DIRECTORY'
-            expect(fsr['STATUS_CODE']).to eql 'CANNOT_BE_CREATED' # already exists
+            if type == 'bucket'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+            else
+              expect(fsr['STATUS_CODE']).to eql 'CANNOT_BE_CREATED' # already exists
+            end
             expect(fsr['FIRST_FILE_NAME']).to eql 'new_dir'
             fsr = indication['filestore_responses'][2]
             expect(fsr['ACTION_CODE']).to eql 'CREATE_DIRECTORY'
-            # Once there is a failure no more are performed per 4.9.5
-            expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
+            if type == 'bucket'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+            else
+              # Once there is a failure no more are performed per 4.9.5
+              expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
+            end
             expect(fsr['FIRST_FILE_NAME']).to eql 'another_dir'
           end
-          expect(File.directory?(File.join(SPEC_DIR, 'new_dir'))).to be true
-          FileUtils.rmdir File.join(SPEC_DIR, 'new_dir')
+          if type != 'bucket'
+            expect(File.directory?(File.join(SPEC_DIR, 'new_dir'))).to be true
+            FileUtils.rmdir File.join(SPEC_DIR, 'new_dir')
+          end
         end
 
         it "remove directory" do
@@ -716,12 +754,20 @@ module OpenC3
             expect(fsr['FIRST_FILE_NAME']).to eql 'rm_dir'
             fsr = indication['filestore_responses'][2]
             expect(fsr['ACTION_CODE']).to eql 'REMOVE_DIRECTORY'
-            expect(fsr['STATUS_CODE']).to eql 'DOES_NOT_EXIST'
+            if type == 'bucket'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+            else
+              expect(fsr['STATUS_CODE']).to eql 'DOES_NOT_EXIST'
+            end
             expect(fsr['FIRST_FILE_NAME']).to eql 'rm_dir'
             fsr = indication['filestore_responses'][3]
             expect(fsr['ACTION_CODE']).to eql 'REMOVE_DIRECTORY'
-            # Once there is a failure no more are performed per 4.9.5
-            expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
+            if type == 'bucket'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+            else
+              # Once there is a failure no more are performed per 4.9.5
+              expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
+            end
             expect(fsr['FIRST_FILE_NAME']).to eql 'another_dir'
           end
         end
@@ -773,11 +819,17 @@ module OpenC3
             expect(fsr['FIRST_FILE_NAME']).to eql 'deny_dir'
             fsr = indication['filestore_responses'][2]
             expect(fsr['ACTION_CODE']).to eql 'DENY_DIRECTORY'
-            expect(fsr['STATUS_CODE']).to eql 'NOT_ALLOWED'
             expect(fsr['FIRST_FILE_NAME']).to eql 'another_dir'
-            expect(fsr['FILESTORE_MESSAGE']).to include("not empty")
+            if type == 'bucket'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+            else
+              expect(fsr['STATUS_CODE']).to eql 'NOT_ALLOWED'
+              expect(fsr['FILESTORE_MESSAGE']).to include("not empty")
+            end
           end
+          FileUtils.rm_rf(File.join(SPEC_DIR, 'deny_dir')) if type == 'bucket'
           FileUtils.rm_rf(File.join(SPEC_DIR, 'another_dir'))
+        end
         end
       end
     end
