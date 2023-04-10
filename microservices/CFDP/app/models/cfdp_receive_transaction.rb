@@ -400,6 +400,7 @@ class CfdpReceiveTransaction < CfdpTransaction
         cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
       end
 
+      # Note: This also handles canceled
       complete = check_complete()
       unless complete
         @check_timeout = Time.now + CfdpMib.source_entity['check_limit']

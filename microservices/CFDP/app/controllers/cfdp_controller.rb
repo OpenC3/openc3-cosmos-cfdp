@@ -49,9 +49,10 @@ class CfdpController < ApplicationController
   def cancel
     return unless authorization('cmd')
     params.require([:transaction_id])
+    entity_id = params[:entity_id]
     transaction = CfdpMib.transactions[params[:transaction_id]]
     if transaction
-      transaction.cancel
+      transaction.cancel(entity_id)
       render json: transaction.id
     else
       render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }, :status => 404

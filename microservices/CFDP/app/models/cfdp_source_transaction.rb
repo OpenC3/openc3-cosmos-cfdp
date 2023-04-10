@@ -136,6 +136,7 @@ class CfdpSourceTransaction < CfdpTransaction
       # Send File Data PDUs
       offset = 0
       while true
+        break if @status == "CANCELED"
         file_data = source_file.read(read_size)
         break if file_data.nil? or file_data.length <= 0
         file_data_pdu = CfdpPdu.build_file_data_pdu(
@@ -162,6 +163,9 @@ class CfdpSourceTransaction < CfdpTransaction
     else
       file_checksum = 0
     end
+    if @canceling_entity_id
+      @condition_code = "CANCEL_REQUEST_RECEIVED"
+    end
     eof_pdu = CfdpPdu.build_eof_pdu(
       source_entity: @source_entity,
       transaction_seq_num: @transaction_seq_num,
@@ -171,7 +175,7 @@ class CfdpSourceTransaction < CfdpTransaction
       condition_code: @condition_code,
       segmentation_control: @segmentation_control,
       transmission_mode: @transmission_mode,
-      canceling_entity_id: nil)
+      canceling_entity_id: @canceling_entity_id)
     cmd_params = {}
     cmd_params[item_name] = eof_pdu
     cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
@@ -192,9 +196,9 @@ class CfdpSourceTransaction < CfdpTransaction
       if @finished_pdu_hash
         @file_status = @finished_pdu_hash['FILE_STATUS']
         @delivery_code = @finished_pdu_hash['DELIVERY_CODE']
-        @condition_code = @finished_pdu_hash['CONDITION_CODE']
+        @condition_code = @finished_pdu_hash['CONDITION_CODE'] unless @canceling_entity_id
       else
-        @condition_code = "CHECK_LIMIT_REACHED"
+        @condition_code = "CHECK_LIMIT_REACHED" unless @canceling_entity_id
       end
     end
 
@@ -238,6 +242,11 @@ class CfdpSourceTransaction < CfdpTransaction
 
     when "FINISHED"
       @finished_pdu_hash = pdu_hash
+
+      if @finished_pdu_hash["CONDITION_CODE"] == "CANCEL_REQUEST_RECEIVED" and @status != "CANCELED"
+        cancel(@destination_entity.id)
+      end
+
       if @transmission_mode == "ACKNOWLEDGED"
         target_name, packet_name, item_name = @destination_entity["cmd_info"]
         # Ack Finished PDU
@@ -263,7 +272,10 @@ class CfdpSourceTransaction < CfdpTransaction
       handle_nak(pdu_hash)
 
     when "KEEP_ALIVE"
-
+      @keep_alive_pdu_hash = pdu_hash
+      if (@progress - @keep_alive_pdu_hash['PROGRESS']) > @destination_entity['keep_alive_discrepancy_limit']
+        # TODO: Optionally issue keep alive fault
+      end
     else # File Data
       # Unexpected - Ignore
     end
