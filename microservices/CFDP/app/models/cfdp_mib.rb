@@ -23,6 +23,7 @@
 # End of reception opportunity
 
 require 'openc3/models/microservice_model'
+require 'openc3/utilities/bucket'
 require 'tempfile'
 require 'fileutils'
 
@@ -152,25 +153,33 @@ class CfdpMib
   end
 
   def self.get_source_file(source_file_name)
-    # TODO: Handle bucket
     file_name = File.join(@@root_path, source_file_name)
-    file = File.open(file_name, 'rb')
+    if self.bucket
+      file = Tempfile.new
+      OpenC3::Bucket.getClient().get_object(bucket: self.bucket, key: file_name, path: file.path)
+    else
+      file = File.open(file_name, 'rb')
+    end
+    file
   end
 
   def self.complete_source_file(file)
-    # TODO: Handle bucket
     file.close
+    FileUtils.rm file.path
   end
 
   def self.put_destination_file(destination_filename, tmp_file)
-    # TODO: Handle bucket
     file_name = File.join(@@root_path, destination_filename)
-    tmp_file.persist(file_name)
+    if self.bucket
+      OpenC3::Bucket.getClient().put_object(bucket: self.bucket, key: file_name, body: tmp_file.open.read)
+    else
+      file_name = File.join(@@root_path, destination_filename)
+      tmp_file.persist(file_name)
+    end
+    tmp_file.unlink
   end
 
   def self.filestore_request(action_code, first_file_name, second_file_name)
-    # TODO: Handle bucket
-
     # Apply root path
     first_file_name = File.join(@@root_path, first_file_name.to_s)
     second_file_name = File.join(@@root_path, second_file_name.to_s)
@@ -187,76 +196,166 @@ class CfdpMib
     begin
       case action_code
       when "CREATE_FILE"
-        FileUtils.touch(first_file_name)
+        puts "bucket:#{self.bucket}"
+        if self.bucket
+          puts "key:#{first_file_name}"
+          OpenC3::Bucket.getClient().put_object(bucket: self.bucket, key: first_file_name, body: '')
+        else
+          FileUtils.touch(first_file_name)
+        end
         status_code = "SUCCESSFUL"
 
       when "DELETE_FILE"
-        if File.exist?(first_file_name)
-          FileUtils.rm(first_file_name)
-          status_code = "SUCCESSFUL"
+        if self.bucket
+          client = OpenC3::Bucket.getClient()
+          if client.check_object(bucket: self.bucket, key: first_file_name)
+            client.delete_object(bucket: self.bucket, key: first_file_name)
+            status_code = "SUCCESSFUL"
+          else
+            status_code = "FILE_DOES_NOT_EXIST"
+          end
         else
-          status_code = "FILE_DOES_NOT_EXIST"
+          if File.exist?(first_file_name)
+            FileUtils.rm(first_file_name)
+            status_code = "SUCCESSFUL"
+          else
+            status_code = "FILE_DOES_NOT_EXIST"
+          end
         end
 
       when "RENAME_FILE"
-        if File.exist?(second_file_name)
-          status_code = "NEW_FILE_ALREADY_EXISTS"
-        elsif not File.exist?(first_file_name)
-          status_code = "OLD_FILE_DOES_NOT_EXIST"
+        if self.bucket
+          client = OpenC3::Bucket.getClient()
+          if client.check_object(bucket: self.bucket, key: second_file_name)
+            status_code = "NEW_FILE_ALREADY_EXISTS"
+          elsif not client.check_object(bucket: self.bucket, key: first_file_name)
+            status_code = "OLD_FILE_DOES_NOT_EXIST"
+          else
+            temp = Tempfile.new
+            client.get_object(bucket: self.bucket, key: first_file_name, path: temp.path)
+            client.put_object(bucket: self.bucket, key: second_file_name, body: temp.read)
+            client.delete_object(bucket: self.bucket, key: first_file_name)
+            temp.unlink
+            status_code = "SUCCESSFUL"
+          end
         else
-          FileUtils.mv(first_file_name, second_file_name)
-          status_code = "SUCCESSFUL"
+          if File.exist?(second_file_name)
+            status_code = "NEW_FILE_ALREADY_EXISTS"
+          elsif not File.exist?(first_file_name)
+            status_code = "OLD_FILE_DOES_NOT_EXIST"
+          else
+            FileUtils.mv(first_file_name, second_file_name)
+            status_code = "SUCCESSFUL"
+          end
         end
 
       when "APPEND_FILE"
-        if not File.exist?(first_file_name)
-          status_code = "FILE_1_DOES_NOT_EXIST"
-        elsif not File.exist?(second_file_name)
-          status_code = "FILE_2_DOES_NOT_EXIST"
-        else
-          File.open(first_file_name, 'ab') do |file|
-            file.write(File.read(second_file_name))
+        if self.bucket
+          client = OpenC3::Bucket.getClient()
+          if not client.check_object(bucket: self.bucket, key: first_file_name)
+            status_code = "FILE_1_DOES_NOT_EXIST"
+          elsif not client.check_object(bucket: self.bucket, key: second_file_name)
+            status_code = "FILE_2_DOES_NOT_EXIST"
+          else
+            temp1 = Tempfile.new
+            temp2 = Tempfile.new
+            client.get_object(bucket: self.bucket, key: first_file_name, path: temp1.path)
+            client.get_object(bucket: self.bucket, key: second_file_name, path: temp2.path)
+            client.put_object(bucket: self.bucket, key: first_file_name, body: temp1.read + temp2.read)
+            temp1.unlink
+            temp2.unlink
+            status_code = "SUCCESSFUL"
           end
-          status_code = "SUCCESSFUL"
+        else
+          if not File.exist?(first_file_name)
+            status_code = "FILE_1_DOES_NOT_EXIST"
+          elsif not File.exist?(second_file_name)
+            status_code = "FILE_2_DOES_NOT_EXIST"
+          else
+            File.open(first_file_name, 'ab') do |file|
+              file.write(File.read(second_file_name))
+            end
+            status_code = "SUCCESSFUL"
+          end
         end
 
       when "REPLACE_FILE"
-        if not File.exist?(first_file_name)
-          status_code = "FILE_1_DOES_NOT_EXIST"
-        elsif not File.exist?(second_file_name)
-          status_code = "FILE_2_DOES_NOT_EXIST"
+        if self.bucket
+          client = OpenC3::Bucket.getClient()
+          if not client.check_object(bucket: self.bucket, key: first_file_name)
+            status_code = "FILE_1_DOES_NOT_EXIST"
+          elsif not client.check_object(bucket: self.bucket, key: second_file_name)
+            status_code = "FILE_2_DOES_NOT_EXIST"
+          else
+            temp = Tempfile.new
+            client.get_object(bucket: self.bucket, key: second_file_name, path: temp.path)
+            client.put_object(bucket: self.bucket, key: first_file_name, body: temp.read)
+            temp.unlink
+            status_code = "SUCCESSFUL"
+          end
         else
-          FileUtils.rm(first_file_name)
-          FileUtils.mv(second_file_name, first_file_name)
-          status_code = "SUCCESSFUL"
+          if not File.exist?(first_file_name)
+            status_code = "FILE_1_DOES_NOT_EXIST"
+          elsif not File.exist?(second_file_name)
+            status_code = "FILE_2_DOES_NOT_EXIST"
+          else
+            File.open(first_file_name, 'wb') do |file|
+              file.write(File.read(second_file_name))
+            end
+            status_code = "SUCCESSFUL"
+          end
         end
 
       when "CREATE_DIRECTORY"
-        FileUtils.mkdir(first_file_name)
+        # Creating a directory in a bucket doesn't make sense so it's a noop
+        FileUtils.mkdir(first_file_name) unless self.bucket
         status_code = "SUCCESSFUL"
 
       when "REMOVE_DIRECTORY"
-        if not Dir.exist?(first_file_name)
-          status_code = "DOES_NOT_EXIST"
-        else
-          FileUtils.rmdir(first_file_name)
+        if self.bucket
+          # Stand alone directories don't make sense in buckets because
+          # it's only files which are stored and the path is a string.
+          # Thus we'll just always return SUCCESSFUL.
           status_code = "SUCCESSFUL"
+        else
+          if not Dir.exist?(first_file_name)
+            status_code = "DOES_NOT_EXIST"
+          else
+            FileUtils.rmdir(first_file_name)
+            status_code = "SUCCESSFUL"
+          end
         end
 
       when "DENY_FILE"
-        if File.exist?(first_file_name)
-          FileUtils.rm(first_file_name)
+        if self.bucket
+          begin
+            OpenC3::Bucket.getClient().delete_object(bucket: self.bucket, key: first_file_name)
+          rescue
+            # Don't care if the file doesn't exist
+          end
           status_code = "SUCCESSFUL"
         else
-          status_code = "SUCCESSFUL"
+          if File.exist?(first_file_name)
+            FileUtils.rm(first_file_name)
+            status_code = "SUCCESSFUL"
+          else
+            status_code = "SUCCESSFUL"
+          end
         end
 
       when "DENY_DIRECTORY"
-        if not Dir.exist?(first_file_name)
+        if self.bucket
+          # Stand alone directories don't make sense in buckets because
+          # it's only files which are stored and the path is a string.
+          # Thus we'll just always return SUCCESSFUL.
           status_code = "SUCCESSFUL"
         else
-          FileUtils.rmdir(first_file_name)
-          status_code = "SUCCESSFUL"
+          if not Dir.exist?(first_file_name)
+            status_code = "SUCCESSFUL"
+          else
+            FileUtils.rmdir(first_file_name)
+            status_code = "SUCCESSFUL"
+          end
         end
 
       else
