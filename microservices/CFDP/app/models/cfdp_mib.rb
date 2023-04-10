@@ -180,23 +180,16 @@ class CfdpMib
   end
 
   def self.filestore_request(action_code, first_file_name, second_file_name)
-    # Don't allow path traversals
-    if first_file_name.include?('..') or (second_file_name && second_file_name.include?('..'))
-      return "NOT_ALLOWED", "Dangerous filename"
-    end
-
     # Apply root path
     first_file_name = File.join(@@root_path, first_file_name.to_s)
-    second_file_name = File.join(@@root_path, second_file_name.to_s)
+    second_file_name = File.join(@@root_path, second_file_name.to_s) if second_file_name
 
-    # # Handle file path safety
-    # first_file_name = File.absolute_path(first_file_name)
-    # second_file_name = File.absolute_path(second_file_name)
-    # if first_file_name.index(@@root_path) != 0 or second_file_name.index(@@root_path) != 0
-    #   puts "NOT_ALLOWED"
-    #   puts "first:#{first_file_name} second:#{second_file_name}"
-    #   return "NOT_ALLOWED", "Dangerous filename"
-    # end
+    # Handle file path safety
+    first_file_name = File.absolute_path(first_file_name)
+    second_file_name = File.absolute_path(second_file_name) if second_file_name
+    if first_file_name.index(@@root_path) != 0 || (second_file_name && second_file_name.index(@@root_path) != 0)
+      return "NOT_ALLOWED", "Dangerous filename"
+    end
 
     status_code = nil
     filestore_message = nil
