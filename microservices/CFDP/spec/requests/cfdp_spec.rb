@@ -372,464 +372,536 @@ module OpenC3
 
       %w(local bucket).each do |type|
         context "with #{type} filestore requests" do
-        if type == 'bucket'
-          # Enable if there's an actual MINIO service avaiable to talk to
-          # To enable access to MINIO for testing change the compose.yaml file and add
-          # the following to services: open3-minio:
-          #   ports:
-          #     - "127.0.0.1:9000:9000"
-          if ENV['MINIO']
-            puts "MINIO!!!"
-            before(:all) do
-              @bucket = OpenC3::Bucket.getClient.create("bucket#{rand(1000)}")
-              puts "all bucket:#{@bucket}"
-              @root_path = 'path'
-            end
-            after(:all) do
-              OpenC3::Bucket.getClient.delete(@bucket) if @bucket
+          if type == 'bucket'
+            # Enable if there's an actual MINIO service avaiable to talk to
+            # To enable access to MINIO for testing change the compose.yaml file and add
+            # the following to services: open3-minio:
+            #   ports:
+            #     - "127.0.0.1:9000:9000"
+            if ENV['MINIO']
+              before(:all) do
+                @bucket = OpenC3::Bucket.getClient.create("bucket#{rand(1000)}")
+                @root_path = 'path'
+              end
+              after(:all) do
+                OpenC3::Bucket.getClient.delete(@bucket) if @bucket
+              end
+            else
+              # Simulate the bucket by stubbing out the bucket client
+              before(:each) do
+                @client = double("getClient").as_null_object
+                allow(@client).to receive(:exist?).and_return(true)
+                allow(@client).to receive(:get_object) do |bucket:, key:, path:|
+                  File.write(path, File.read(key))
+                end
+                allow(@client).to receive(:put_object) do |bucket:, key:, body:|
+                  File.write(key, body)
+                end
+                allow(@client).to receive(:check_object) do |bucket:, key:|
+                  File.exist?(key)
+                end
+                allow(@client).to receive(:delete_object) do |bucket:, key:|
+                  FileUtils.rm(key)
+                end
+                allow(OpenC3::Bucket).to receive(:getClient).and_return(@client)
+                @root_path = SPEC_DIR
+                @bucket = 'config'
+              end
             end
           else
             before(:each) do
-              @client = double("getClient").as_null_object
-              allow(@client).to receive(:exist?).and_return(true)
-              allow(@client).to receive(:get_object) do |bucket:, key:, path:|
-                File.write(path, File.read(key))
-              end
-              allow(@client).to receive(:put_object) do |bucket:, key:, body:|
-                File.write(key, body)
-              end
-              allow(@client).to receive(:check_object) do |bucket:, key:|
-                File.exist?(key)
-              end
-              allow(@client).to receive(:delete_object) do |bucket:, key:|
-                FileUtils.rm(key)
-              end
-              allow(OpenC3::Bucket).to receive(:getClient).and_return(@client)
               @root_path = SPEC_DIR
-              @bucket = 'config'
             end
           end
-        else
-          before(:each) do
-            @root_path = SPEC_DIR
-          end
-        end
 
-        def filestore_request(requests)
-          setup(source_id: 10, destination_id: 20)
-          CfdpMib.set_entity_value(@destination_entity_id, 'maximum_file_segment_length', 8)
-          CfdpMib.root_path = @root_path
-          puts "fsr bucket:#{@bucket} path:#{@root_path}"
-          if @bucket
-            CfdpMib.bucket = @bucket
-          else
-            CfdpMib.bucket = nil
-          end
-
-          post "/cfdp/put", :params => {
-            scope: "DEFAULT", destination_entity_id: @destination_entity_id,
-            filestore_requests: requests
-          }, as: :json
-          expect(response).to have_http_status(200)
-          sleep 0.1
-
-          # Clear the tx transactions to simulate the receive side on the same system
-          keys = CfdpMib.transactions.keys
-          keys.each do |key|
-            CfdpMib.transactions.delete(key)
-          end
-
-          @user = CfdpUser.new
-          @user.start
-          sleep 0.1 # Allow user thread to start
-
-          @packets.each do |target_name, cmd_name, cmd_params|
-            msg_hash = {
-              :time => Time.now.to_nsec_from_epoch,
-              :stored => 'false',
-              :target_name => target_name,
-              :packet_name => cmd_name,
-              :received_count => 1,
-              :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
-            }
-            Topic.write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
-          end
-          sleep 0.1
-          @user.stop
-          sleep 0.1
-
-          get "/cfdp/indications", :params => { scope: "DEFAULT" }
-          expect(response).to have_http_status(200)
-          json = JSON.parse(response.body)
-          yield json['indications'][-1] # Just the last Transaction-Finished
-        end
-
-        it "create file" do
-          filestore_request( [
-            ['CREATE_FILE', "create_file.txt"],
-            ['CREATE_FILE', "../../nope"], # Outside of the root path
-            ['CREATE_FILE', "another_file.txt"],
-          ]) do |indication|
-            expect(indication['indication_type']).to eql 'Transaction-Finished'
-            expect(indication['condition_code']).to eql 'NO_ERROR'
-            expect(indication['file_status']).to eql 'UNREPORTED'
-            expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
-            expect(indication['status_report']).to eql 'FINISHED'
-            fsr = indication['filestore_responses'][0]
-            expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'create_file.txt'
-            fsr = indication['filestore_responses'][1]
-            expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'NOT_ALLOWED'
-            expect(fsr['FIRST_FILE_NAME']).to eql '../../nope'
-            fsr = indication['filestore_responses'][2]
-            expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
-            # Once there is a failure no more are performed per 4.9.5
-            expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'another_file.txt'
-          end
-          FileUtils.rm File.join(SPEC_DIR, 'create_file.txt') # cleanup
-        end
-
-        it "delete file" do
-          filestore_request( [
-            ['CREATE_FILE', 'delete_file.txt'],
-            ['DELETE_FILE', 'delete_file.txt'],
-            ['DELETE_FILE', 'nope'],
-            ['DELETE_FILE', 'another'],
-          ]) do |indication|
-            expect(indication['indication_type']).to eql 'Transaction-Finished'
-            expect(indication['condition_code']).to eql 'NO_ERROR'
-            expect(indication['file_status']).to eql 'UNREPORTED'
-            expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
-            expect(indication['status_report']).to eql 'FINISHED'
-            fsr = indication['filestore_responses'][0]
-            expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'delete_file.txt'
-            fsr = indication['filestore_responses'][1]
-            expect(fsr['ACTION_CODE']).to eql 'DELETE_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'delete_file.txt'
-            fsr = indication['filestore_responses'][2]
-            expect(fsr['ACTION_CODE']).to eql 'DELETE_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'FILE_DOES_NOT_EXIST'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'nope'
-            fsr = indication['filestore_responses'][3]
-            expect(fsr['ACTION_CODE']).to eql 'DELETE_FILE'
-            # Once there is a failure no more are performed per 4.9.5
-            expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'another'
-          end
-          expect(File.exist?(File.join(SPEC_DIR, 'delete_file.txt'))).to be false
-        end
-
-        it "rename file" do
-          filestore_request( [
-            ['CREATE_FILE', 'rename_file.txt'],
-            ['RENAME_FILE', 'rename_file.txt', 'new_file.txt'],
-            ['RENAME_FILE', 'nope', 'whatever'],
-            ['RENAME_FILE', 'another'],
-          ]) do |indication|
-            expect(indication['indication_type']).to eql 'Transaction-Finished'
-            expect(indication['condition_code']).to eql 'NO_ERROR'
-            expect(indication['file_status']).to eql 'UNREPORTED'
-            expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
-            expect(indication['status_report']).to eql 'FINISHED'
-            fsr = indication['filestore_responses'][0]
-            expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'rename_file.txt'
-            fsr = indication['filestore_responses'][1]
-            expect(fsr['ACTION_CODE']).to eql 'RENAME_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'rename_file.txt'
-            expect(fsr['SECOND_FILE_NAME']).to eql 'new_file.txt'
-            fsr = indication['filestore_responses'][2]
-            expect(fsr['ACTION_CODE']).to eql 'RENAME_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'OLD_FILE_DOES_NOT_EXIST'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'nope'
-            expect(fsr['SECOND_FILE_NAME']).to eql 'whatever'
-            fsr = indication['filestore_responses'][3]
-            expect(fsr['ACTION_CODE']).to eql 'RENAME_FILE'
-            # Once there is a failure no more are performed per 4.9.5
-            expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'another'
-          end
-          expect(File.exist?(File.join(SPEC_DIR, 'rename_file.txt'))).to be false
-          expect(File.exist?(File.join(SPEC_DIR, 'new_file.txt'))).to be true
-          FileUtils.rm File.join(SPEC_DIR, 'new_file.txt')
-        end
-
-        it "rename file error" do
-          filestore_request( [
-            ['CREATE_FILE', 'rename_file.txt'],
-            ['RENAME_FILE', 'rename_file.txt', 'rename_file.txt'],
-          ]) do |indication|
-            expect(indication['indication_type']).to eql 'Transaction-Finished'
-            expect(indication['condition_code']).to eql 'NO_ERROR'
-            expect(indication['file_status']).to eql 'UNREPORTED'
-            expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
-            expect(indication['status_report']).to eql 'FINISHED'
-            fsr = indication['filestore_responses'][0]
-            expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'rename_file.txt'
-            fsr = indication['filestore_responses'][1]
-            expect(fsr['ACTION_CODE']).to eql 'RENAME_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'NEW_FILE_ALREADY_EXISTS'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'rename_file.txt'
-            expect(fsr['SECOND_FILE_NAME']).to eql 'rename_file.txt'
-          end
-          expect(File.exist?(File.join(SPEC_DIR, 'rename_file.txt'))).to be true
-          FileUtils.rm File.join(SPEC_DIR, 'rename_file.txt')
-        end
-
-        it "append file" do
-          File.write(File.join(SPEC_DIR, 'first.txt'), 'FIRST')
-          File.write(File.join(SPEC_DIR, 'second.txt'), 'SECOND')
-          filestore_request( [
-            ['APPEND_FILE', 'first.txt', 'second.txt'],
-            ['APPEND_FILE', 'nope', 'second.txt'],
-            ['APPEND_FILE', 'another'],
-          ]) do |indication|
-            expect(indication['indication_type']).to eql 'Transaction-Finished'
-            expect(indication['condition_code']).to eql 'NO_ERROR'
-            expect(indication['file_status']).to eql 'UNREPORTED'
-            expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
-            expect(indication['status_report']).to eql 'FINISHED'
-            fsr = indication['filestore_responses'][0]
-            expect(fsr['ACTION_CODE']).to eql 'APPEND_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'first.txt'
-            expect(fsr['SECOND_FILE_NAME']).to eql 'second.txt'
-            fsr = indication['filestore_responses'][1]
-            expect(fsr['ACTION_CODE']).to eql 'APPEND_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'FILE_1_DOES_NOT_EXIST'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'nope'
-            expect(fsr['SECOND_FILE_NAME']).to eql 'second.txt'
-            fsr = indication['filestore_responses'][2]
-            expect(fsr['ACTION_CODE']).to eql 'APPEND_FILE'
-            # Once there is a failure no more are performed per 4.9.5
-            expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'another'
-          end
-          expect(File.read(File.join(SPEC_DIR, 'first.txt'))).to eql 'FIRSTSECOND'
-          FileUtils.rm File.join(SPEC_DIR, 'first.txt')
-          FileUtils.rm File.join(SPEC_DIR, 'second.txt')
-        end
-
-        it "append file error" do
-          File.write(File.join(SPEC_DIR, 'first.txt'), 'FIRST')
-          filestore_request( [
-            ['APPEND_FILE', 'first.txt', 'second.txt'],
-          ]) do |indication|
-            expect(indication['indication_type']).to eql 'Transaction-Finished'
-            expect(indication['condition_code']).to eql 'NO_ERROR'
-            expect(indication['file_status']).to eql 'UNREPORTED'
-            expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
-            expect(indication['status_report']).to eql 'FINISHED'
-            fsr = indication['filestore_responses'][0]
-            expect(fsr['ACTION_CODE']).to eql 'APPEND_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'FILE_2_DOES_NOT_EXIST'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'first.txt'
-            expect(fsr['SECOND_FILE_NAME']).to eql 'second.txt'
-          end
-          FileUtils.rm File.join(SPEC_DIR, 'first.txt')
-        end
-
-        it "replace file" do
-          File.write(File.join(SPEC_DIR, 'orig.txt'), 'ORIG')
-          File.write(File.join(SPEC_DIR, 'replace.txt'), 'REPLACE')
-          filestore_request( [
-            ['REPLACE_FILE', 'orig.txt', 'replace.txt'],
-            ['REPLACE_FILE', 'nope', 'replace.txt'],
-            ['REPLACE_FILE', 'another'],
-          ]) do |indication|
-            expect(indication['indication_type']).to eql 'Transaction-Finished'
-            expect(indication['condition_code']).to eql 'NO_ERROR'
-            expect(indication['file_status']).to eql 'UNREPORTED'
-            expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
-            expect(indication['status_report']).to eql 'FINISHED'
-            fsr = indication['filestore_responses'][0]
-            expect(fsr['ACTION_CODE']).to eql 'REPLACE_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'orig.txt'
-            expect(fsr['SECOND_FILE_NAME']).to eql 'replace.txt'
-            fsr = indication['filestore_responses'][1]
-            expect(fsr['ACTION_CODE']).to eql 'REPLACE_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'FILE_1_DOES_NOT_EXIST'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'nope'
-            expect(fsr['SECOND_FILE_NAME']).to eql 'replace.txt'
-            fsr = indication['filestore_responses'][2]
-            expect(fsr['ACTION_CODE']).to eql 'REPLACE_FILE'
-            # Once there is a failure no more are performed per 4.9.5
-            expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'another'
-          end
-          expect(File.read(File.join(SPEC_DIR, 'orig.txt'))).to eql 'REPLACE'
-          expect(File.read(File.join(SPEC_DIR, 'replace.txt'))).to eql 'REPLACE' # Still exists
-          FileUtils.rm File.join(SPEC_DIR, 'orig.txt')
-          FileUtils.rm File.join(SPEC_DIR, 'replace.txt')
-        end
-
-        it "replace file error" do
-          File.write(File.join(SPEC_DIR, 'orig.txt'), 'ORIG')
-          filestore_request( [
-            ['REPLACE_FILE', 'orig.txt', 'replace.txt'],
-          ]) do |indication|
-            expect(indication['indication_type']).to eql 'Transaction-Finished'
-            expect(indication['condition_code']).to eql 'NO_ERROR'
-            expect(indication['file_status']).to eql 'UNREPORTED'
-            expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
-            expect(indication['status_report']).to eql 'FINISHED'
-            fsr = indication['filestore_responses'][0]
-            expect(fsr['ACTION_CODE']).to eql 'REPLACE_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'FILE_2_DOES_NOT_EXIST'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'orig.txt'
-            expect(fsr['SECOND_FILE_NAME']).to eql 'replace.txt'
-          end
-          FileUtils.rm File.join(SPEC_DIR, 'orig.txt')
-        end
-
-        it "create directory" do
-          filestore_request( [
-            ['CREATE_DIRECTORY', 'new_dir'],
-            ['CREATE_DIRECTORY', 'new_dir'],
-            ['CREATE_DIRECTORY', 'another_dir'],
-          ]) do |indication|
-            expect(indication['indication_type']).to eql 'Transaction-Finished'
-            expect(indication['condition_code']).to eql 'NO_ERROR'
-            expect(indication['file_status']).to eql 'UNREPORTED'
-            expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
-            expect(indication['status_report']).to eql 'FINISHED'
-            fsr = indication['filestore_responses'][0]
-            expect(fsr['ACTION_CODE']).to eql 'CREATE_DIRECTORY'
-            expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'new_dir'
-            fsr = indication['filestore_responses'][1]
-            expect(fsr['ACTION_CODE']).to eql 'CREATE_DIRECTORY'
-            if type == 'bucket'
-              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+          def filestore_request(requests)
+            setup(source_id: 10, destination_id: 20)
+            CfdpMib.set_entity_value(@destination_entity_id, 'maximum_file_segment_length', 8)
+            CfdpMib.root_path = @root_path
+            if @bucket
+              CfdpMib.bucket = @bucket
             else
-              expect(fsr['STATUS_CODE']).to eql 'CANNOT_BE_CREATED' # already exists
+              CfdpMib.bucket = nil
             end
-            expect(fsr['FIRST_FILE_NAME']).to eql 'new_dir'
-            fsr = indication['filestore_responses'][2]
-            expect(fsr['ACTION_CODE']).to eql 'CREATE_DIRECTORY'
-            if type == 'bucket'
-              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            else
-              # Once there is a failure no more are performed per 4.9.5
-              expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
-            end
-            expect(fsr['FIRST_FILE_NAME']).to eql 'another_dir'
-          end
-          if type != 'bucket'
-            expect(File.directory?(File.join(SPEC_DIR, 'new_dir'))).to be true
-            FileUtils.rmdir File.join(SPEC_DIR, 'new_dir')
-          end
-        end
 
-        it "remove directory" do
-          filestore_request( [
-            ['CREATE_DIRECTORY', 'rm_dir'],
-            ['REMOVE_DIRECTORY', 'rm_dir'],
-            ['REMOVE_DIRECTORY', 'rm_dir'], # No longer exists
-            ['REMOVE_DIRECTORY', 'another_dir'],
-          ]) do |indication|
-            expect(indication['indication_type']).to eql 'Transaction-Finished'
-            expect(indication['condition_code']).to eql 'NO_ERROR'
-            expect(indication['file_status']).to eql 'UNREPORTED'
-            expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
-            expect(indication['status_report']).to eql 'FINISHED'
-            fsr = indication['filestore_responses'][0]
-            expect(fsr['ACTION_CODE']).to eql 'CREATE_DIRECTORY'
-            expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'rm_dir'
-            fsr = indication['filestore_responses'][1]
-            expect(fsr['ACTION_CODE']).to eql 'REMOVE_DIRECTORY'
-            expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'rm_dir'
-            fsr = indication['filestore_responses'][2]
-            expect(fsr['ACTION_CODE']).to eql 'REMOVE_DIRECTORY'
-            if type == 'bucket'
-              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            else
-              expect(fsr['STATUS_CODE']).to eql 'DOES_NOT_EXIST'
-            end
-            expect(fsr['FIRST_FILE_NAME']).to eql 'rm_dir'
-            fsr = indication['filestore_responses'][3]
-            expect(fsr['ACTION_CODE']).to eql 'REMOVE_DIRECTORY'
-            if type == 'bucket'
-              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            else
-              # Once there is a failure no more are performed per 4.9.5
-              expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
-            end
-            expect(fsr['FIRST_FILE_NAME']).to eql 'another_dir'
-          end
-        end
+            post "/cfdp/put", :params => {
+              scope: "DEFAULT", destination_entity_id: @destination_entity_id,
+              filestore_requests: requests
+            }, as: :json
+            expect(response).to have_http_status(200)
+            sleep 0.1
 
-        it "deny file" do
-          File.write(File.join(SPEC_DIR, 'deny.txt'), 'DENY')
-          filestore_request( [
-            ['DENY_FILE', 'nope'],
-            ['DENY_FILE', 'deny.txt'],
-          ]) do |indication|
-            expect(indication['indication_type']).to eql 'Transaction-Finished'
-            expect(indication['condition_code']).to eql 'NO_ERROR'
-            expect(indication['file_status']).to eql 'UNREPORTED'
-            expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
-            expect(indication['status_report']).to eql 'FINISHED'
-            fsr = indication['filestore_responses'][0]
-            expect(fsr['ACTION_CODE']).to eql 'DENY_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'nope'
-            fsr = indication['filestore_responses'][1]
-            expect(fsr['ACTION_CODE']).to eql 'DENY_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'deny.txt'
-          end
-          expect(File.exist?(File.join(SPEC_DIR, 'deny.txt'))).to be false
-        end
+            # Clear the tx transactions to simulate the receive side on the same system
+            keys = CfdpMib.transactions.keys
+            keys.each do |key|
+              CfdpMib.transactions.delete(key)
+            end
 
-        it "deny directory" do
-          FileUtils.mkdir(File.join(SPEC_DIR, 'deny_dir'))
-          FileUtils.mkdir(File.join(SPEC_DIR, 'another_dir'))
-          File.write(File.join(SPEC_DIR, 'another_dir', 'file.txt'), 'BLAH')
-          filestore_request( [
-            ['DENY_DIRECTORY', 'nope'],
-            ['DENY_DIRECTORY', 'deny_dir'],
-            ['DENY_DIRECTORY', 'another_dir'],
-          ]) do |indication|
-            expect(indication['indication_type']).to eql 'Transaction-Finished'
-            expect(indication['condition_code']).to eql 'NO_ERROR'
-            expect(indication['file_status']).to eql 'UNREPORTED'
-            expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
-            expect(indication['status_report']).to eql 'FINISHED'
-            fsr = indication['filestore_responses'][0]
-            expect(fsr['ACTION_CODE']).to eql 'DENY_DIRECTORY'
-            expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'nope'
-            fsr = indication['filestore_responses'][1]
-            expect(fsr['ACTION_CODE']).to eql 'DENY_DIRECTORY'
-            expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'deny_dir'
-            fsr = indication['filestore_responses'][2]
-            expect(fsr['ACTION_CODE']).to eql 'DENY_DIRECTORY'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'another_dir'
-            if type == 'bucket'
+            @user = CfdpUser.new
+            @user.start
+            sleep 0.1 # Allow user thread to start
+
+            @packets.each do |target_name, cmd_name, cmd_params|
+              msg_hash = {
+                :time => Time.now.to_nsec_from_epoch,
+                :stored => 'false',
+                :target_name => target_name,
+                :packet_name => cmd_name,
+                :received_count => 1,
+                :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
+              }
+              Topic.write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
+            end
+            sleep 0.1
+            @user.stop
+            sleep 0.1
+
+            get "/cfdp/indications", :params => { scope: "DEFAULT" }
+            expect(response).to have_http_status(200)
+            json = JSON.parse(response.body)
+            yield json['indications'][-1] # Just the last Transaction-Finished
+          end
+
+          it "create file" do
+            filestore_request( [
+              ['CREATE_FILE', "create_file.txt"],
+              ['CREATE_FILE', "../../nope"], # Outside of the root path
+              ['CREATE_FILE', "another_file.txt"],
+            ]) do |indication|
+              expect(indication['indication_type']).to eql 'Transaction-Finished'
+              expect(indication['condition_code']).to eql 'NO_ERROR'
+              expect(indication['file_status']).to eql 'UNREPORTED'
+              expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indication['status_report']).to eql 'FINISHED'
+              fsr = indication['filestore_responses'][0]
+              expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
               expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            else
+              expect(fsr['FIRST_FILE_NAME']).to eql 'create_file.txt'
+              fsr = indication['filestore_responses'][1]
+              expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
               expect(fsr['STATUS_CODE']).to eql 'NOT_ALLOWED'
-              expect(fsr['FILESTORE_MESSAGE']).to include("not empty")
+              expect(fsr['FIRST_FILE_NAME']).to eql '../../nope'
+              fsr = indication['filestore_responses'][2]
+              expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
+              # Once there is a failure no more are performed per 4.9.5
+              expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'another_file.txt'
+            end
+            if ENV['MINIO'] && type == 'bucket'
+              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: File.join(@root_path, 'create_file.txt'))
+            else
+              FileUtils.rm File.join(SPEC_DIR, 'create_file.txt') # cleanup
             end
           end
-          FileUtils.rm_rf(File.join(SPEC_DIR, 'deny_dir')) if type == 'bucket'
-          FileUtils.rm_rf(File.join(SPEC_DIR, 'another_dir'))
-        end
+
+          it "delete file" do
+            filestore_request( [
+              ['CREATE_FILE', 'delete_file.txt'],
+              ['DELETE_FILE', 'delete_file.txt'],
+              ['DELETE_FILE', 'nope'],
+              ['DELETE_FILE', 'another'],
+            ]) do |indication|
+              expect(indication['indication_type']).to eql 'Transaction-Finished'
+              expect(indication['condition_code']).to eql 'NO_ERROR'
+              expect(indication['file_status']).to eql 'UNREPORTED'
+              expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indication['status_report']).to eql 'FINISHED'
+              fsr = indication['filestore_responses'][0]
+              expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'delete_file.txt'
+              fsr = indication['filestore_responses'][1]
+              expect(fsr['ACTION_CODE']).to eql 'DELETE_FILE'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'delete_file.txt'
+              fsr = indication['filestore_responses'][2]
+              expect(fsr['ACTION_CODE']).to eql 'DELETE_FILE'
+              expect(fsr['STATUS_CODE']).to eql 'FILE_DOES_NOT_EXIST'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'nope'
+              fsr = indication['filestore_responses'][3]
+              expect(fsr['ACTION_CODE']).to eql 'DELETE_FILE'
+              # Once there is a failure no more are performed per 4.9.5
+              expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'another'
+            end
+            if ENV['MINIO'] && type == 'bucket'
+              expect(OpenC3::Bucket.getClient().check_object(bucket: @bucket, key: File.join(@root_path, 'delete_file.txt'))).to be false
+            else
+              expect(File.exist?(File.join(SPEC_DIR, 'delete_file.txt'))).to be false
+            end
+          end
+
+          it "rename file" do
+            filestore_request( [
+              ['CREATE_FILE', 'rename_file.txt'],
+              ['RENAME_FILE', 'rename_file.txt', 'new_file.txt'],
+              ['RENAME_FILE', 'nope', 'whatever'],
+              ['RENAME_FILE', 'another'],
+            ]) do |indication|
+              expect(indication['indication_type']).to eql 'Transaction-Finished'
+              expect(indication['condition_code']).to eql 'NO_ERROR'
+              expect(indication['file_status']).to eql 'UNREPORTED'
+              expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indication['status_report']).to eql 'FINISHED'
+              fsr = indication['filestore_responses'][0]
+              expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'rename_file.txt'
+              fsr = indication['filestore_responses'][1]
+              expect(fsr['ACTION_CODE']).to eql 'RENAME_FILE'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'rename_file.txt'
+              expect(fsr['SECOND_FILE_NAME']).to eql 'new_file.txt'
+              fsr = indication['filestore_responses'][2]
+              expect(fsr['ACTION_CODE']).to eql 'RENAME_FILE'
+              expect(fsr['STATUS_CODE']).to eql 'OLD_FILE_DOES_NOT_EXIST'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'nope'
+              expect(fsr['SECOND_FILE_NAME']).to eql 'whatever'
+              fsr = indication['filestore_responses'][3]
+              expect(fsr['ACTION_CODE']).to eql 'RENAME_FILE'
+              # Once there is a failure no more are performed per 4.9.5
+              expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'another'
+            end
+            if ENV['MINIO'] && type == 'bucket'
+              expect(OpenC3::Bucket.getClient().check_object(bucket: @bucket, key: File.join(@root_path, 'rename_file.txt'))).to be false
+              expect(OpenC3::Bucket.getClient().check_object(bucket: @bucket, key: File.join(@root_path, 'new_file.txt'))).to be true
+              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: File.join(@root_path, 'new_file.txt'))
+            else
+              expect(File.exist?(File.join(SPEC_DIR, 'rename_file.txt'))).to be false
+              expect(File.exist?(File.join(SPEC_DIR, 'new_file.txt'))).to be true
+              FileUtils.rm File.join(SPEC_DIR, 'new_file.txt')
+            end
+          end
+
+          it "rename file error" do
+            filestore_request( [
+              ['CREATE_FILE', 'rename_file.txt'],
+              ['RENAME_FILE', 'rename_file.txt', 'rename_file.txt'],
+            ]) do |indication|
+              expect(indication['indication_type']).to eql 'Transaction-Finished'
+              expect(indication['condition_code']).to eql 'NO_ERROR'
+              expect(indication['file_status']).to eql 'UNREPORTED'
+              expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indication['status_report']).to eql 'FINISHED'
+              fsr = indication['filestore_responses'][0]
+              expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'rename_file.txt'
+              fsr = indication['filestore_responses'][1]
+              expect(fsr['ACTION_CODE']).to eql 'RENAME_FILE'
+              expect(fsr['STATUS_CODE']).to eql 'NEW_FILE_ALREADY_EXISTS'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'rename_file.txt'
+              expect(fsr['SECOND_FILE_NAME']).to eql 'rename_file.txt'
+            end
+            if ENV['MINIO'] && type == 'bucket'
+              expect(OpenC3::Bucket.getClient().check_object(bucket: @bucket, key: File.join(@root_path, 'rename_file.txt'))).to be true
+              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: File.join(@root_path, 'rename_file.txt'))
+            else
+              expect(File.exist?(File.join(SPEC_DIR, 'rename_file.txt'))).to be true
+              FileUtils.rm File.join(SPEC_DIR, 'rename_file.txt')
+            end
+          end
+
+          it "append file" do
+            if ENV['MINIO'] && type == 'bucket'
+              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: File.join(@root_path, 'first.txt'), body: 'FIRST')
+              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: File.join(@root_path, 'second.txt'), body: 'SECOND')
+            else
+              File.write(File.join(SPEC_DIR, 'first.txt'), 'FIRST')
+              File.write(File.join(SPEC_DIR, 'second.txt'), 'SECOND')
+            end
+            filestore_request( [
+              ['APPEND_FILE', 'first.txt', 'second.txt'],
+              ['APPEND_FILE', 'nope', 'second.txt'],
+              ['APPEND_FILE', 'another'],
+            ]) do |indication|
+              expect(indication['indication_type']).to eql 'Transaction-Finished'
+              expect(indication['condition_code']).to eql 'NO_ERROR'
+              expect(indication['file_status']).to eql 'UNREPORTED'
+              expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indication['status_report']).to eql 'FINISHED'
+              fsr = indication['filestore_responses'][0]
+              expect(fsr['ACTION_CODE']).to eql 'APPEND_FILE'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'first.txt'
+              expect(fsr['SECOND_FILE_NAME']).to eql 'second.txt'
+              fsr = indication['filestore_responses'][1]
+              expect(fsr['ACTION_CODE']).to eql 'APPEND_FILE'
+              expect(fsr['STATUS_CODE']).to eql 'FILE_1_DOES_NOT_EXIST'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'nope'
+              expect(fsr['SECOND_FILE_NAME']).to eql 'second.txt'
+              fsr = indication['filestore_responses'][2]
+              expect(fsr['ACTION_CODE']).to eql 'APPEND_FILE'
+              # Once there is a failure no more are performed per 4.9.5
+              expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'another'
+            end
+            if ENV['MINIO'] && type == 'bucket'
+              file = Tempfile.new
+              OpenC3::Bucket.getClient().get_object(bucket: @bucket, key: File.join(@root_path, 'first.txt'), path: file.path)
+              expect(file.read).to eql 'FIRSTSECOND'
+              file.unlink
+              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: File.join(@root_path, 'first.txt'))
+              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: File.join(@root_path, 'second.txt'))
+            else
+              expect(File.read(File.join(SPEC_DIR, 'first.txt'))).to eql 'FIRSTSECOND'
+              FileUtils.rm File.join(SPEC_DIR, 'first.txt')
+              FileUtils.rm File.join(SPEC_DIR, 'second.txt')
+            end
+          end
+
+          it "append file error" do
+            if ENV['MINIO'] && type == 'bucket'
+              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: File.join(@root_path, 'first.txt'), body: 'FIRST')
+            else
+              File.write(File.join(SPEC_DIR, 'first.txt'), 'FIRST')
+            end
+            filestore_request( [
+              ['APPEND_FILE', 'first.txt', 'second.txt'],
+            ]) do |indication|
+              expect(indication['indication_type']).to eql 'Transaction-Finished'
+              expect(indication['condition_code']).to eql 'NO_ERROR'
+              expect(indication['file_status']).to eql 'UNREPORTED'
+              expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indication['status_report']).to eql 'FINISHED'
+              fsr = indication['filestore_responses'][0]
+              expect(fsr['ACTION_CODE']).to eql 'APPEND_FILE'
+              expect(fsr['STATUS_CODE']).to eql 'FILE_2_DOES_NOT_EXIST'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'first.txt'
+              expect(fsr['SECOND_FILE_NAME']).to eql 'second.txt'
+            end
+            if ENV['MINIO'] && type == 'bucket'
+              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: File.join(@root_path, 'first.txt'))
+            else
+              FileUtils.rm File.join(SPEC_DIR, 'first.txt')
+            end
+          end
+
+          it "replace file" do
+            if ENV['MINIO'] && type == 'bucket'
+              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: File.join(@root_path, 'orig.txt'), body: 'ORIG')
+              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: File.join(@root_path, 'replace.txt'), body: 'REPLACE')
+            else
+              File.write(File.join(SPEC_DIR, 'orig.txt'), 'ORIG')
+              File.write(File.join(SPEC_DIR, 'replace.txt'), 'REPLACE')
+            end
+            filestore_request( [
+              ['REPLACE_FILE', 'orig.txt', 'replace.txt'],
+              ['REPLACE_FILE', 'nope', 'replace.txt'],
+              ['REPLACE_FILE', 'another'],
+            ]) do |indication|
+              expect(indication['indication_type']).to eql 'Transaction-Finished'
+              expect(indication['condition_code']).to eql 'NO_ERROR'
+              expect(indication['file_status']).to eql 'UNREPORTED'
+              expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indication['status_report']).to eql 'FINISHED'
+              fsr = indication['filestore_responses'][0]
+              expect(fsr['ACTION_CODE']).to eql 'REPLACE_FILE'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'orig.txt'
+              expect(fsr['SECOND_FILE_NAME']).to eql 'replace.txt'
+              fsr = indication['filestore_responses'][1]
+              expect(fsr['ACTION_CODE']).to eql 'REPLACE_FILE'
+              expect(fsr['STATUS_CODE']).to eql 'FILE_1_DOES_NOT_EXIST'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'nope'
+              expect(fsr['SECOND_FILE_NAME']).to eql 'replace.txt'
+              fsr = indication['filestore_responses'][2]
+              expect(fsr['ACTION_CODE']).to eql 'REPLACE_FILE'
+              # Once there is a failure no more are performed per 4.9.5
+              expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'another'
+            end
+            if ENV['MINIO'] && type == 'bucket'
+              file = Tempfile.new
+              OpenC3::Bucket.getClient().get_object(bucket: @bucket, key: File.join(@root_path, 'orig.txt'), path: file.path)
+              expect(file.read).to eql 'REPLACE'
+              file.rewind
+              OpenC3::Bucket.getClient().get_object(bucket: @bucket, key: File.join(@root_path, 'replace.txt'), path: file.path)
+              expect(file.read).to eql 'REPLACE'
+              file.unlink
+              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: File.join(@root_path, 'orig.txt'))
+              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: File.join(@root_path, 'replace.txt'))
+            else
+              expect(File.read(File.join(SPEC_DIR, 'orig.txt'))).to eql 'REPLACE'
+              expect(File.read(File.join(SPEC_DIR, 'replace.txt'))).to eql 'REPLACE' # Still exists
+              FileUtils.rm File.join(SPEC_DIR, 'orig.txt')
+              FileUtils.rm File.join(SPEC_DIR, 'replace.txt')
+            end
+          end
+
+          it "replace file error" do
+            if ENV['MINIO'] && type == 'bucket'
+              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: File.join(@root_path, 'orig.txt'), body: 'ORIG')
+            else
+              File.write(File.join(SPEC_DIR, 'orig.txt'), 'ORIG')
+            end
+            filestore_request( [
+              ['REPLACE_FILE', 'orig.txt', 'replace.txt'],
+            ]) do |indication|
+              expect(indication['indication_type']).to eql 'Transaction-Finished'
+              expect(indication['condition_code']).to eql 'NO_ERROR'
+              expect(indication['file_status']).to eql 'UNREPORTED'
+              expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indication['status_report']).to eql 'FINISHED'
+              fsr = indication['filestore_responses'][0]
+              expect(fsr['ACTION_CODE']).to eql 'REPLACE_FILE'
+              expect(fsr['STATUS_CODE']).to eql 'FILE_2_DOES_NOT_EXIST'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'orig.txt'
+              expect(fsr['SECOND_FILE_NAME']).to eql 'replace.txt'
+            end
+            if ENV['MINIO'] && type == 'bucket'
+              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: File.join(@root_path, 'orig.txt'))
+            else
+              FileUtils.rm File.join(SPEC_DIR, 'orig.txt')
+            end
+          end
+
+          it "create directory" do
+            filestore_request( [
+              ['CREATE_DIRECTORY', 'new_dir'],
+              ['CREATE_DIRECTORY', 'new_dir'],
+              ['CREATE_DIRECTORY', 'another_dir'],
+            ]) do |indication|
+              expect(indication['indication_type']).to eql 'Transaction-Finished'
+              expect(indication['condition_code']).to eql 'NO_ERROR'
+              expect(indication['file_status']).to eql 'UNREPORTED'
+              expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indication['status_report']).to eql 'FINISHED'
+              fsr = indication['filestore_responses'][0]
+              expect(fsr['ACTION_CODE']).to eql 'CREATE_DIRECTORY'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'new_dir'
+              fsr = indication['filestore_responses'][1]
+              expect(fsr['ACTION_CODE']).to eql 'CREATE_DIRECTORY'
+              if type == 'bucket'
+                expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              else
+                expect(fsr['STATUS_CODE']).to eql 'CANNOT_BE_CREATED' # already exists
+              end
+              expect(fsr['FIRST_FILE_NAME']).to eql 'new_dir'
+              fsr = indication['filestore_responses'][2]
+              expect(fsr['ACTION_CODE']).to eql 'CREATE_DIRECTORY'
+              if type == 'bucket'
+                expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              else
+                # Once there is a failure no more are performed per 4.9.5
+                expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
+              end
+              expect(fsr['FIRST_FILE_NAME']).to eql 'another_dir'
+            end
+            if type != 'bucket'
+              expect(File.directory?(File.join(SPEC_DIR, 'new_dir'))).to be true
+              FileUtils.rmdir File.join(SPEC_DIR, 'new_dir')
+            end
+          end
+
+          it "remove directory" do
+            filestore_request( [
+              ['CREATE_DIRECTORY', 'rm_dir'],
+              ['REMOVE_DIRECTORY', 'rm_dir'],
+              ['REMOVE_DIRECTORY', 'rm_dir'], # No longer exists
+              ['REMOVE_DIRECTORY', 'another_dir'],
+            ]) do |indication|
+              expect(indication['indication_type']).to eql 'Transaction-Finished'
+              expect(indication['condition_code']).to eql 'NO_ERROR'
+              expect(indication['file_status']).to eql 'UNREPORTED'
+              expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indication['status_report']).to eql 'FINISHED'
+              fsr = indication['filestore_responses'][0]
+              expect(fsr['ACTION_CODE']).to eql 'CREATE_DIRECTORY'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'rm_dir'
+              fsr = indication['filestore_responses'][1]
+              expect(fsr['ACTION_CODE']).to eql 'REMOVE_DIRECTORY'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'rm_dir'
+              fsr = indication['filestore_responses'][2]
+              expect(fsr['ACTION_CODE']).to eql 'REMOVE_DIRECTORY'
+              if type == 'bucket'
+                expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              else
+                expect(fsr['STATUS_CODE']).to eql 'DOES_NOT_EXIST'
+              end
+              expect(fsr['FIRST_FILE_NAME']).to eql 'rm_dir'
+              fsr = indication['filestore_responses'][3]
+              expect(fsr['ACTION_CODE']).to eql 'REMOVE_DIRECTORY'
+              if type == 'bucket'
+                expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              else
+                # Once there is a failure no more are performed per 4.9.5
+                expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
+              end
+              expect(fsr['FIRST_FILE_NAME']).to eql 'another_dir'
+            end
+          end
+
+          it "deny file" do
+            if ENV['MINIO'] && type == 'bucket'
+              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: File.join(@root_path, 'deny.txt'), body: 'DENY')
+            else
+              File.write(File.join(SPEC_DIR, 'deny.txt'), 'DENY')
+            end
+            filestore_request( [
+              ['DENY_FILE', 'nope'],
+              ['DENY_FILE', 'deny.txt'],
+            ]) do |indication|
+              expect(indication['indication_type']).to eql 'Transaction-Finished'
+              expect(indication['condition_code']).to eql 'NO_ERROR'
+              expect(indication['file_status']).to eql 'UNREPORTED'
+              expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indication['status_report']).to eql 'FINISHED'
+              fsr = indication['filestore_responses'][0]
+              expect(fsr['ACTION_CODE']).to eql 'DENY_FILE'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'nope'
+              fsr = indication['filestore_responses'][1]
+              expect(fsr['ACTION_CODE']).to eql 'DENY_FILE'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'deny.txt'
+            end
+            if ENV['MINIO'] && type == 'bucket'
+              expect(OpenC3::Bucket.getClient().check_object(bucket: @bucket, key: File.join(@root_path, 'deny.txt'))).to be false
+            else
+              expect(File.exist?(File.join(SPEC_DIR, 'deny.txt'))).to be false
+            end
+          end
+
+          it "deny directory" do
+            FileUtils.mkdir(File.join(SPEC_DIR, 'deny_dir'))
+            FileUtils.mkdir(File.join(SPEC_DIR, 'another_dir'))
+            File.write(File.join(SPEC_DIR, 'another_dir', 'file.txt'), 'BLAH')
+            filestore_request( [
+              ['DENY_DIRECTORY', 'nope'],
+              ['DENY_DIRECTORY', 'deny_dir'],
+              ['DENY_DIRECTORY', 'another_dir'],
+            ]) do |indication|
+              expect(indication['indication_type']).to eql 'Transaction-Finished'
+              expect(indication['condition_code']).to eql 'NO_ERROR'
+              expect(indication['file_status']).to eql 'UNREPORTED'
+              expect(indication['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indication['status_report']).to eql 'FINISHED'
+              fsr = indication['filestore_responses'][0]
+              expect(fsr['ACTION_CODE']).to eql 'DENY_DIRECTORY'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'nope'
+              fsr = indication['filestore_responses'][1]
+              expect(fsr['ACTION_CODE']).to eql 'DENY_DIRECTORY'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'deny_dir'
+              fsr = indication['filestore_responses'][2]
+              expect(fsr['ACTION_CODE']).to eql 'DENY_DIRECTORY'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'another_dir'
+              if type == 'bucket'
+                expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              else
+                expect(fsr['STATUS_CODE']).to eql 'NOT_ALLOWED'
+                expect(fsr['FILESTORE_MESSAGE']).to include("not empty")
+              end
+            end
+            FileUtils.rm_rf(File.join(SPEC_DIR, 'deny_dir')) if type == 'bucket'
+            FileUtils.rm_rf(File.join(SPEC_DIR, 'another_dir'))
+          end
         end
       end
     end
