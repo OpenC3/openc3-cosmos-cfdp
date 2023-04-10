@@ -111,7 +111,7 @@ class CfdpMib
     entity['ack_timer_interval'] = 600
     entity['nak_timer_interval'] = 600
     entity['keep_alive_interval'] = 600
-    entity['immediate_nak_mode'] = false
+    entity['immediate_nak_mode'] = true
     entity['default_transmission_mode'] = 'UNACKNOWLEDGED'
     entity['transaction_closure_requested'] = "CLOSURE_REQUESTED"
     entity['check_limit'] = 300
@@ -119,7 +119,7 @@ class CfdpMib
     entity['incomplete_file_disposition'] = "DISCARD"
     entity['crcs_required'] = true
     entity['maximum_file_segment_length'] = 1024
-    entity['keep_alive_discrepancy_limit'] = 16
+    entity['keep_alive_discrepancy_limit'] = entity['maximum_file_segment_length'] * 1000
     entity['ack_timer_expiration_limit'] = 1
     entity['nak_timer_expiration_limit'] = 1
     entity['transaction_inactivity_limit'] = 1

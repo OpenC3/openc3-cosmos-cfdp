@@ -5,6 +5,7 @@ class CfdpReceiveTransaction < CfdpTransaction
   def initialize(pdu_hash)
     super()
     @id = self.class.build_transaction_id(pdu_hash["SOURCE_ENTITY_ID"], pdu_hash["SEQUENCE_NUMBER"])
+    @transaction_seq_num = pdu_hash["SEQUENCE_NUMBER"]
     @transmission_mode = pdu_hash["TRANSMISSION_MODE"]
     @messages_to_user = []
     @flow_label = nil
@@ -18,11 +19,17 @@ class CfdpReceiveTransaction < CfdpTransaction
     @eof_pdu_hash = nil
     @checksum = CfdpNullChecksum.new
     @full_checksum_needed = false
-    @file_size = nil
+    @file_size = 0
     @file_status = "UNREPORTED"
     @delivery_code = "DATA_COMPLETE"
     @filestore_responses = []
     @check_timeout = nil
+    @nak_timeout = nil
+    @nak_timeout_count = 0
+    @progress = 0
+    @nak_start_of_scope = 0
+    @keep_alive_timeout = nil
+    @keep_alive_timeout = Time.now + CfdpMib.source_entity['keep_alive_interval'] if @transmission_mode == 'ACKNOWLEDGED'
     CfdpMib.transactions[@id] = self
     handle_pdu(pdu_hash)
   end
@@ -118,7 +125,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       raise "cmd_info not defined for source entity: #{@metadata_pdu_hash['SOURCE_ENTITY_ID']}" unless target_name and packet_name and item_name
       finished_pdu = CfdpPdu.build_finished_pdu(
         source_entity: source_entity,
-        transaction_seq_num: @metadata_pdu_hash["SEQUENCE_NUMBER"],
+        transaction_seq_num: @transaction_seq_num,
         destination_entity: destination_entity,
         condition_code: @condition_code,
         segmentation_control: "NOT_PRESERVED",
@@ -170,6 +177,140 @@ class CfdpReceiveTransaction < CfdpTransaction
         # TODO: Handle timeout - Check Limit Reached Fault
         # TODO: What to do with finished transactions?
       end
+    end
+    if @nak_timeout
+      if Time.now > @nak_timeout
+        if complete_file_received?
+          @nak_timeout = nil
+        else
+          send_naks(true)
+          @nak_timeout_count += 1
+          if @nak_timeout_count < CfdpMib['nak_timer_expiration_limit']
+            @nak_timeout = Time.now + CfdpMib.source_entity['nak_timer_interval']
+          else
+            @nak_timeout = 0
+          end
+        end
+      end
+    end
+    if @keep_alive_timeout
+      if @eof_pdu_hash
+        @keep_alive_timeout = nil
+      else
+        if Time.now > @keep_alive_timeout
+          send_keep_alive()
+          @keep_alive_timeout = Time.now + CfdpMib.source_entity['keep_alive_interval']
+        end
+      end
+    end
+  end
+
+  def send_keep_alive
+    source_entity = CfdpMib.entity(@metadata_pdu_hash['SOURCE_ENTITY_ID'])
+    destination_entity = CfdpMib.source_entity
+    target_name, packet_name, item_name = source_entity["cmd_info"]
+
+    keep_alive_pdu = CfdpPdu.build_keep_alive_pdu(
+      source_entity: source_entity,
+      transaction_seq_num: @transaction_seq_num,
+      destination_entity: destination_entity,
+      file_size: @file_size,
+      segmentation_control: "NOT_PRESERVED",
+      transmission_mode: @transmission_mode,
+      progress: @progress)
+    cmd_params = {}
+    cmd_params[item_name] = keep_alive_pdu
+    cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+  end
+
+  def send_naks(force = false)
+    source_entity = CfdpMib.entity(@metadata_pdu_hash['SOURCE_ENTITY_ID'])
+    destination_entity = CfdpMib.source_entity
+    target_name, packet_name, item_name = source_entity["cmd_info"]
+
+    segment_requests = []
+    segment_requests << [0, 0] unless @metadata_pdu_hash
+
+    if @eof_pdu_hash
+      final_end_of_scope = @file_size
+    else
+      final_end_of_scope = @progress
+    end
+
+    if force
+      offset = 0
+    else
+      offset = @nak_start_of_scope
+    end
+    sorted_segments = @segments.to_a.sort {|a,b| a[0] <=> b[0]}
+    index = 0
+    sorted_segments.each do |start_offset, end_offset|
+      break if end_offset > offset
+      index += 1
+    end
+    sorted_segments = sorted_segments[index..-1]
+    while (offset < final_end_of_scope) and sorted_segments.length > 0
+      found = false
+      sorted_segments.each do |start_offset, end_offset|
+        if offset >= start_offset and offset < end_offset
+          # Offset found - move to end offset
+          offset = end_offset
+          found = true
+          break
+        end
+      end
+      unless found
+        # Need a segment request up to first sorted segment
+        segment_requests << [offset, sorted_segments[0][0]]
+        offset = sorted_segments[0][1]
+        sorted_segments = sorted_segments[1..-1]
+      end
+    end
+    if offset < final_end_of_scope
+      segment_requests << [offset, final_end_of_scope]
+    end
+
+    # Calculate max number of segments in a single NAK PDU
+    if force
+      start_of_scope = 0
+    else
+      start_of_scope = @nak_start_of_scope
+    end
+    max_segments = (source_entity['maximum_file_segment_length'] / 8) - 2 # Minus 2 handles scope fields
+    while true
+      num_segments = segment_requests.length
+      if num_segments > max_segments
+        num_segments = max_segments
+      end
+      current_segment_requests = segment_requests[0..(num_segments - 1)]
+      if current_segment_requests.length == segment_requests.length
+        if @eof_pdu_hash
+          end_of_scope = @file_size
+        else
+          end_of_scope = @progress
+        end
+        @nak_start_of_scope = end_of_scope
+      else
+        end_of_scope = current_segment_requests[-1][1]
+      end
+      if start_of_scope != end_of_scope
+        nak_pdu = CfdpPdu.build_nak_pdu(
+          source_entity: source_entity,
+          transaction_seq_num: @transaction_seq_num,
+          destination_entity: destination_entity,
+          file_size: @file_size,
+          segmentation_control: "NOT_PRESERVED",
+          transmission_mode: @transmission_mode,
+          start_of_scope: start_of_scope,
+          end_of_scope: end_of_scope,
+          segment_requests: current_segment_requests)
+        segment_requests = segment_requests[num_segments..-1]
+        start_of_scope = end_of_scope
+        cmd_params = {}
+        cmd_params[item_name] = nak_pdu
+        cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+      end
+      break if segment_requests.length <= 0
     end
   end
 
@@ -239,23 +380,63 @@ class CfdpReceiveTransaction < CfdpTransaction
       end
 
       CfdpTopic.write_indication("EOF-Recv", transaction_id: @id)
+
+      if @transmission_mode == "ACKNOWLEDGED"
+        source_entity = CfdpMib.entity(@metadata_pdu_hash['SOURCE_ENTITY_ID'])
+        destination_entity = CfdpMib.source_entity
+        target_name, packet_name, item_name = source_entity["cmd_info"]
+        # Ack EOF PDU
+        ack_pdu = CfdpPdu.build_ack_pdu(
+          source_entity: source_entity,
+          transaction_seq_num: @transaction_seq_num,
+          destination_entity: destination_entity,
+          segmentation_control: "NOT_PRESERVED",
+          transmission_mode: @transmission_mode,
+          condition_code: @eof_pdu_hash["CONDITION_CODE"],
+          ack_directive_code: "EOF",
+          transaction_status: "ACTIVE")
+        cmd_params = {}
+        cmd_params[item_name] = ack_pdu
+        cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+      end
+
+      # Note: This also handles canceled
       complete = check_complete()
       unless complete
         @check_timeout = Time.now + CfdpMib.source_entity['check_limit']
+        @progress = @file_size
+        send_naks() if destination_entity['immediate_nak_mode']
+        @nak_timeout = Time.now + CfdpMib.source_entity['nak_timer_interval']
       end
 
     when "NAK", "FINISHED", "KEEP_ALIVE"
       # Unexpected - Ignore
 
     when "ACK"
+      @finished_ack_pdu_hash = pdu_hash
 
     when "PROMPT"
+      @prompt_pdu_hash = pdu_hash
+      unless @eof_pdu_hash
+        if @prompt_pdu_hash['RESPONSE_REQUIRED'] == 'NAK'
+          send_naks()
+        else
+          send_keep_alive()
+        end
+      end
 
     else # File Data
       @tmp_file ||= Tempfile.new('cfdp')
       offset = pdu_hash['OFFSET']
       file_data = pdu_hash['FILE_DATA']
       progress = offset + file_data.length
+
+      need_send_naks = false
+      if @transmission_mode == "ACKNOWLEDGED" and CfdpMib.source_entity['immediate_nak_mode']
+        need_send_naks = true unless @metadata_pdu_hash
+        need_send_naks = if offset != @progress and @progress < offset
+      end
+
       @progress = progress if progress > @progress
 
       # Ignore repeated segments
@@ -273,6 +454,8 @@ class CfdpReceiveTransaction < CfdpTransaction
 
         CfdpTopic.write_indication("File-Segment-Recv", transaction_id: @id, offset: offset, length: file_data.length)
       end
+
+      send_naks() if need_send_naks
     end
   end
 end

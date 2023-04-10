@@ -4,12 +4,16 @@ class CfdpSourceTransaction < CfdpTransaction
 
   def initialize(source_entity: nil)
     super()
+    @source_entity = source_entity
     @source_entity = CfdpMib.source_entity unless source_entity
     raise "No source entity defined" unless @source_entity
     @transaction_seq_num = CfdpModel.get_next_transaction_seq_num
     @id = CfdpReceiveTransaction.build_transaction_id(@source_entity['id'], @transaction_seq_num)
     CfdpMib.transactions[@id] = self
     @finished_pdu_hash = nil
+    @source_file_name = nil
+    @destination_file_name = nil
+    @destination_entity = nil
   end
 
   def put(
@@ -27,7 +31,10 @@ class CfdpSourceTransaction < CfdpTransaction
     raise "destination_entity_id is required" if destination_entity_id.nil?
     destination_entity_id = Integer(destination_entity_id)
 
-    segmentation_control = "NOT_PRESERVED" unless segmentation_control
+    @source_file_name = source_file_name
+    @destination_file_name = destination_file_name
+    @segmentation_control = segmentation_control
+    @segmentation_control = "NOT_PRESERVED" unless @segmentation_control
     fault_handler_overrides = [] unless fault_handler_overrides
     messages_to_user = [] unless messages_to_user
     filestore_requests = [] unless filestore_requests
@@ -38,9 +45,8 @@ class CfdpSourceTransaction < CfdpTransaction
         transaction_seq_num: @transaction_seq_num,
         transaction_id: @id,
         destination_entity_id: destination_entity_id,
-        source_file_name: source_file_name,
-        destination_file_name: destination_file_name,
-        segmentation_control: segmentation_control, # Not supported
+        source_file_name: @source_file_name,
+        destination_file_name: @destination_file_name,
         fault_handler_overrides: fault_handler_overrides,
         flow_label: flow_label, # Not supported
         transmission_mode: transmission_mode,
@@ -65,7 +71,6 @@ class CfdpSourceTransaction < CfdpTransaction
     destination_entity_id:,
     source_file_name:,
     destination_file_name:,
-    segmentation_control: "NOT_PRESERVED", # Not supported
     fault_handler_overrides:,
     flow_label: nil, # Not supported
     transmission_mode:,
@@ -74,17 +79,19 @@ class CfdpSourceTransaction < CfdpTransaction
     filestore_requests:)
 
     # Lookup outgoing PDU command
-    source_entity = CfdpMib.source_entity
-    destination_entity = CfdpMib.entity(destination_entity_id)
-    raise "Unknown destination entity: #{destination_entity_id}" unless destination_entity
-    target_name, packet_name, item_name = destination_entity["cmd_info"]
+    @source_entity = CfdpMib.source_entity
+    @destination_entity = CfdpMib.entity(destination_entity_id)
+    raise "Unknown destination entity: #{destination_entity_id}" unless @destination_entity
+    @transmission_mode = transmission_mode
+    @transmission_mode = destination_entity['default_transmission_mode'].upcase unless @transmission_mode
+    target_name, packet_name, item_name = @destination_entity["cmd_info"]
     raise "cmd_info not configured for destination_entity: #{destination_entity_id}" unless target_name and packet_name and item_name
 
     if source_file_name and destination_file_name
       # Prepare file
       source_file = CfdpMib.get_source_file(source_file_name)
       file_size = source_file.size
-      read_size = destination_entity['maximum_file_segment_length']
+      read_size = @destination_entity['maximum_file_segment_length']
     else
       source_file = nil
       file_size = 0
@@ -104,22 +111,22 @@ class CfdpSourceTransaction < CfdpTransaction
 
     # Send Metadata PDU
     metadata_pdu = CfdpPdu.build_metadata_pdu(
-      source_entity: source_entity,
-      transaction_seq_num: transaction_seq_num,
-      destination_entity: destination_entity,
+      source_entity: @source_entity,
+      transaction_seq_num: @transaction_seq_num,
+      destination_entity: @destination_entity,
       closure_requested: closure_requested,
       file_size: file_size,
       source_file_name: source_file_name,
       destination_file_name: destination_file_name,
       options: options,
-      segmentation_control: segmentation_control,
-      transmission_mode: transmission_mode)
+      segmentation_control: @segmentation_control,
+      transmission_mode: @transmission_mode)
     cmd_params = {}
     cmd_params[item_name] = metadata_pdu
     cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
 
     if source_file
-      checksum = get_checksum(destination_entity['default_checksum_type'])
+      checksum = get_checksum(@destination_entity['default_checksum_type'])
       unless checksum
         # Unsupported algorithm - Use modular instead
         @condition_code = "UNSUPPORTED_CHECKSUM_TYPE"
@@ -129,17 +136,18 @@ class CfdpSourceTransaction < CfdpTransaction
       # Send File Data PDUs
       offset = 0
       while true
+        break if @status == "CANCELED"
         file_data = source_file.read(read_size)
         break if file_data.nil? or file_data.length <= 0
         file_data_pdu = CfdpPdu.build_file_data_pdu(
           offset: offset,
           file_data: file_data,
           file_size: file_size,
-          source_entity: source_entity,
-          transaction_seq_num: transaction_seq_num,
-          destination_entity: destination_entity,
-          segmentation_control: segmentation_control,
-          transmission_mode: transmission_mode)
+          source_entity: @source_entity,
+          transaction_seq_num: @transaction_seq_num,
+          destination_entity: @destination_entity,
+          segmentation_control: @segmentation_control,
+          transmission_mode: @transmission_mode)
         cmd_params = {}
         cmd_params[item_name] = file_data_pdu
         cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
@@ -155,22 +163,22 @@ class CfdpSourceTransaction < CfdpTransaction
     else
       file_checksum = 0
     end
+    if @canceling_entity_id
+      @condition_code = "CANCEL_REQUEST_RECEIVED"
+    end
     eof_pdu = CfdpPdu.build_eof_pdu(
-      source_entity: source_entity,
-      transaction_seq_num: transaction_seq_num,
-      destination_entity: destination_entity,
+      source_entity: @source_entity,
+      transaction_seq_num: @transaction_seq_num,
+      destination_entity: @destination_entity,
       file_size: file_size,
       file_checksum: file_checksum,
       condition_code: @condition_code,
-      segmentation_control: segmentation_control,
-      transmission_mode: transmission_mode,
-      canceling_entity_id: nil)
+      segmentation_control: @segmentation_control,
+      transmission_mode: @transmission_mode,
+      canceling_entity_id: @canceling_entity_id)
     cmd_params = {}
     cmd_params[item_name] = eof_pdu
     cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
-
-    # Complete use of source file
-    CfdpMib.complete_source_file(source_file) if source_file
 
     # Issue EOF-Sent.indication
     CfdpTopic.write_indication("EOF-Sent", transaction_id: transaction_id)
@@ -178,21 +186,24 @@ class CfdpSourceTransaction < CfdpTransaction
     @file_status = "UNREPORTED"
     @delivery_code = "DATA_COMPLETE"
 
-    # Wait for Finished if Closure Requested
-    if closure_requested == "CLOSURE_REQUESTED"
+    # Wait for Finished if Closure Requested or Acknowledged Mode
+    if closure_requested == "CLOSURE_REQUESTED" or @transmission_mode == "ACKNOWLEDGED"
       start_time = Time.now
-      while (Time.now - start_time) < source_entity['check_limit']
+      while (Time.now - start_time) < @source_entity['check_limit']
         sleep(1)
         break if @finished_pdu_hash
       end
       if @finished_pdu_hash
         @file_status = @finished_pdu_hash['FILE_STATUS']
         @delivery_code = @finished_pdu_hash['DELIVERY_CODE']
-        @condition_code = @finished_pdu_hash['CONDITION_CODE']
+        @condition_code = @finished_pdu_hash['CONDITION_CODE'] unless @canceling_entity_id
       else
-        @condition_code = "CHECK_LIMIT_REACHED"
+        @condition_code = "CHECK_LIMIT_REACHED" unless @canceling_entity_id
       end
     end
+
+    # Complete use of source file
+    CfdpMib.complete_source_file(source_file) if source_file
 
     notice_of_completion()
   end
@@ -232,14 +243,83 @@ class CfdpSourceTransaction < CfdpTransaction
     when "FINISHED"
       @finished_pdu_hash = pdu_hash
 
+      if @finished_pdu_hash["CONDITION_CODE"] == "CANCEL_REQUEST_RECEIVED" and @status != "CANCELED"
+        cancel(@destination_entity.id)
+      end
+
+      if @transmission_mode == "ACKNOWLEDGED"
+        target_name, packet_name, item_name = @destination_entity["cmd_info"]
+        # Ack Finished PDU
+        ack_pdu = CfdpPdu.build_ack_pdu(
+          source_entity: @source_entity,
+          transaction_seq_num: @transaction_seq_num,
+          destination_entity: @destination_entity,
+          segmentation_control: @segmentation_control,
+          transmission_mode: @transmission_mode,
+          condition_code: @finished_pdu_hash["CONDITION_CODE"],
+          ack_directive_code: "FINISHED",
+          transaction_status: "ACTIVE")
+        cmd_params = {}
+        cmd_params[item_name] = ack_pdu
+        cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+      end
+
     when "ACK"
+      # EOF Ack
+      @eof_ack_pdu_hash = pdu_hash
 
     when "NAK"
+      handle_nak(pdu_hash)
 
     when "KEEP_ALIVE"
-
+      @keep_alive_pdu_hash = pdu_hash
+      if (@progress - @keep_alive_pdu_hash['PROGRESS']) > @destination_entity['keep_alive_discrepancy_limit']
+        # TODO: Optionally issue keep alive fault
+      end
     else # File Data
       # Unexpected - Ignore
     end
+  end
+
+  def handle_nak(pdu_hash)
+    source_file = CfdpMib.get_source_file(source_file_name)
+    file_size = source_file.size
+    max_read_size = @destination_entity['maximum_file_segment_length']
+    target_name, packet_name, item_name = @destination_entity["cmd_info"]
+
+    pdu_hash["SEGMENT_REQUESTS"].each do |request|
+      start_offset = request["START_OFFSET"]
+      end_offset = request["END_OFFSET"]
+
+      # Send File Data PDUs
+      offset = start_offset
+      source_file.seek(offset, IO::SEEK_SET)
+      while true
+        bytes_remaining = end_offset - offset
+        break if bytes_remaining <= 0
+        if bytes_remaining >= max_read_size
+          read_size = max_read_size
+        else
+          read_size = bytes_remaining
+        end
+        file_data = source_file.read(read_size)
+        break if file_data.nil? or file_data.length <= 0
+        file_data_pdu = CfdpPdu.build_file_data_pdu(
+          offset: offset,
+          file_data: file_data,
+          file_size: file_size,
+          source_entity: @source_entity,
+          transaction_seq_num: @transaction_seq_num,
+          destination_entity: @destination_entity,
+          segmentation_control: @segmentation_control,
+          transmission_mode: @transmission_mode)
+        cmd_params = {}
+        cmd_params[item_name] = file_data_pdu
+        cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+        offset += file_data.length
+      end
+    end
+
+    CfdpMib.complete_source_file(source_file) if source_file
   end
 end
