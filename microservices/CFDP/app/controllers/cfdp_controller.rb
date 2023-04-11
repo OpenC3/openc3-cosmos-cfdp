@@ -34,7 +34,11 @@ class CfdpController < ApplicationController
           destination_file_name: params[:destination_file_name],
           transmission_mode: params[:transmission_mode],
           closure_requested: params[:closure_requested],
-          filestore_requests: params[:filestore_requests]
+          filestore_requests: params[:filestore_requests],
+          fault_handler_overrides: params[:fault_handler_overrides],
+          messages_to_user: params[:messages_to_user],
+          flow_label: params[:flow_label],
+          segmentation_contro: params[:segmentation_control]
         )
       rescue => err
         OpenC3::Logger.error(err.formatted, scope: ENV['OPENC3_SCOPE'])

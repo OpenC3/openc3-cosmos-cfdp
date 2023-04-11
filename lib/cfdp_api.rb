@@ -92,6 +92,10 @@ class CfdpApi < OpenC3::JsonApi
     transmission_mode: nil,
     closure_requested: nil,
     filestore_requests: [],
+    fault_handler_overrides: [],
+    flow_label: nil,
+    segmentation_control: "NOT_PRESERVED",
+    messages_to_user: [],
     scope: $openc3_scope)
 
     begin
@@ -102,7 +106,11 @@ class CfdpApi < OpenC3::JsonApi
         "destination_file_name" => destination_file_name,
         "transmission_mode" => transmission_mode,
         "closure_requested" => closure_requested,
-        "filestore_requests" => filestore_requests
+        "filestore_requests" => filestore_requests,
+        "fault_handler_overrides" => fault_handler_overrides,
+        "messages_to_user" => messages_to_user,
+        "flow_label" => flow_label,
+        "segmentation_control" => segmentation_control
       }
       response = _request('post', endpoint, data: data, scope: scope)
       if response.nil? || response.code != 200

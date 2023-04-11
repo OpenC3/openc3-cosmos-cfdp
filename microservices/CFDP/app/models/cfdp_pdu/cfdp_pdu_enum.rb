@@ -21,10 +21,10 @@ class CfdpPdu < OpenC3::Packet
 
   # Table 5-5: Condition Codes
   CONDITION_CODES = {
-    "NO_ERROR" => 0,
+    "NO_ERROR" => 0, # Not a fault
     "ACK_LIMIT_REACHED" => 1,
     "KEEP_ALIVE_LIMIT_REACHED" => 2,
-    "INVALID_TRANSMISSION_MODE" => 3,
+    "INVALID_TRANSMISSION_MODE" => 3, # Not implemented because we support both modes
     "FILESTORE_REJECTION" => 4,
     "FILE_CHECKSUM_FAILURE" => 5,
     "FILE_SIZE_ERROR" => 6,
@@ -33,8 +33,8 @@ class CfdpPdu < OpenC3::Packet
     "INVALID_FILE_STRUCTURE" => 9,
     "CHECK_LIMIT_REACHED" => 10,
     "UNSUPPORTED_CHECKSUM_TYPE" => 11,
-    "SUSPEND_REQUEST_RECEIVED" => 14,
-    "CANCEL_REQUEST_RECEIVED" => 15
+    "SUSPEND_REQUEST_RECEIVED" => 14, # Not a fault
+    "CANCEL_REQUEST_RECEIVED" => 15 # Not a fault
   }
 
   # Table 5-7: Finished PDU Contents
