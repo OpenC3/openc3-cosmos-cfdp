@@ -68,7 +68,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       return true
     end
 
-    if @source_file_name and @destination_file_name
+    if @source_file_name and @destination_file_name and @tmp_file
       if complete_file_received?
         # Complete
         if @checksum.check(@tmp_file, @eof_pdu_hash['FILE_CHECKSUM'], @full_checksum_needed)
@@ -531,7 +531,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       need_send_naks = false
       if @transmission_mode == "ACKNOWLEDGED" and CfdpMib.source_entity['immediate_nak_mode']
         need_send_naks = true unless @metadata_pdu_hash
-        need_send_naks = if offset != @progress and @progress < offset
+        need_send_naks = true if offset != @progress and @progress < offset
       end
 
       @progress = progress if progress > @progress

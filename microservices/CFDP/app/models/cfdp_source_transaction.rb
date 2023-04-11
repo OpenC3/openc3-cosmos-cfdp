@@ -116,7 +116,7 @@ class CfdpSourceTransaction < CfdpTransaction
     @destination_entity = CfdpMib.entity(destination_entity_id)
     raise "Unknown destination entity: #{destination_entity_id}" unless @destination_entity
     @transmission_mode = transmission_mode
-    @transmission_mode = destination_entity['default_transmission_mode'].upcase unless @transmission_mode
+    @transmission_mode = @destination_entity['default_transmission_mode'].upcase unless @transmission_mode
     @target_name, @packet_name, @item_name = @destination_entity["cmd_info"]
     raise "cmd_info not configured for destination_entity: #{destination_entity_id}" unless @target_name and @packet_name and @item_name
 

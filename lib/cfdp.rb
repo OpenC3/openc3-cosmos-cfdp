@@ -20,7 +20,6 @@ def cfdp_put_and_wait(destination_entity_id:, source_file_name:, destination_fil
     continuation = result['continuation']
     indications = result['indications']
     indications.each do |indication|
-      puts indication.inspect
       if indication['indication_type'] == 'Transaction-Finished'
         done = true
       end
