@@ -178,6 +178,10 @@ class CfdpMib
       tmp_file.persist(file_name)
     end
     tmp_file.unlink
+    return true
+  rescue
+    # Something went wrong so return false
+    return false
   end
 
   def self.filestore_request(action_code, first_file_name, second_file_name)
@@ -188,7 +192,7 @@ class CfdpMib
     # Handle file path safety
     first_file_name = File.absolute_path(first_file_name)
     second_file_name = File.absolute_path(second_file_name) if second_file_name
-    if first_file_name.index(@@root_path) != 0 || (second_file_name && second_file_name.index(@@root_path) != 0)
+    if (first_file_name.index(@@root_path) != 0) or (second_file_name and second_file_name.index(@@root_path) != 0)
       return "NOT_ALLOWED", "Dangerous filename"
     end
 

@@ -104,7 +104,7 @@ module OpenC3
           end
 
           # Helper method to perform a filestore_request and return the indication
-          def request(source: nil, dest: nil, requests: [], closure: 'CLOSURE_NOT_REQUESTED')
+          def request(source: nil, dest: nil, requests: [], closure: 'CLOSURE_NOT_REQUESTED', send_closure: true)
             setup(source_id: 1, destination_id: 2)
             CfdpMib.set_entity_value(@destination_entity_id, 'maximum_file_segment_length', 8)
             CfdpMib.root_path = @root_path
@@ -122,15 +122,41 @@ module OpenC3
             expect(response).to have_http_status(200)
             sleep 0.1
 
+            # Start user thread here so it has the change to receive the closure PDU
+            @user = CfdpUser.new
+            @user.start
+            sleep 0.1 # Allow user thread to start
+
+            if closure == 'CLOSURE_REQUESTED'
+              if send_closure
+                # Simlulate the finished PDU
+                cmd_params = {}
+                cmd_params["PDU"] = CfdpPdu.build_finished_pdu(
+                  source_entity: CfdpMib.entity(@source_entity_id),
+                  transaction_seq_num: 1,
+                  destination_entity: CfdpMib.entity(@destination_entity_id),
+                  condition_code: "NO_ERROR",
+                  delivery_code: "DATA_COMPLETE",
+                  file_status: "FILESTORE_SUCCESS",
+                )
+                msg_hash = {
+                  :time => Time.now.to_nsec_from_epoch,
+                  :stored => 'false',
+                  :target_name => "CFDPTEST",
+                  :packet_name => "CFDP_PDU",
+                  :received_count => 1,
+                  :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
+                }
+                Topic.write_topic("DEFAULT__DECOM__{CFDPTEST}__CFDP_PDU", msg_hash, nil)
+              end
+              sleep 1.1
+            end
+
             # Clear the tx transactions to simulate the receive side on the same system
             keys = CfdpMib.transactions.keys
             keys.each do |key|
               CfdpMib.transactions.delete(key)
             end
-
-            @user = CfdpUser.new
-            @user.start
-            sleep 0.1 # Allow user thread to start
 
             @packets.each do |target_name, cmd_name, cmd_params|
               msg_hash = {
@@ -195,7 +221,8 @@ module OpenC3
               expect(indications[6]['status_report']).to eql 'FINISHED'
             end
             expect(File.exist?(File.join(SPEC_DIR, 'test2.txt'))).to be true
-            FileUtils.rm File.join(SPEC_DIR, 'test2.txt') # cleanup
+            FileUtils.rm File.join(SPEC_DIR, 'test1.txt'), force: true
+            FileUtils.rm File.join(SPEC_DIR, 'test2.txt')
 
             # Validate the PDUs
             expect(@tx_pdus.length).to eql 3
@@ -249,7 +276,8 @@ module OpenC3
               expect(indications[7]['status_report']).to eql 'FINISHED'
             end
             expect(File.exist?(File.join(SPEC_DIR, 'test2.txt'))).to be true
-            FileUtils.rm File.join(SPEC_DIR, 'test2.txt') # cleanup
+            FileUtils.rm File.join(SPEC_DIR, 'test1.txt'), force: true
+            FileUtils.rm File.join(SPEC_DIR, 'test2.txt')
 
             # Validate the PDUs
             expect(@tx_pdus.length).to eql 4
@@ -277,113 +305,99 @@ module OpenC3
           end
 
           it "waits for a closure" do
-            setup(source_id: 10, destination_id: 20)
-            CfdpMib.set_entity_value(@destination_entity_id, 'maximum_file_segment_length', 8)
-
             data = ('a'..'z').to_a.shuffle[0,8].join
-            File.write(File.join(SPEC_DIR, 'test.txt'), data)
-            post "/cfdp/put", :params => {
-              scope: "DEFAULT", destination_entity_id: @destination_entity_id,
-              source_file_name: 'test.txt', destination_file_name: 'test.txt',
-              closure_requested: 'CLOSURE_REQUESTED'
-            }
-            expect(response).to have_http_status(200)
-            sleep 0.1
+            File.write(File.join(SPEC_DIR, 'test1.txt'), data)
+            request(source: 'test1.txt', dest: 'test2.txt', closure: 'CLOSURE_REQUESTED') do |indications|
+              # First the transmit indications
+              expect(indications[0]['indication_type']).to eql 'Transaction'
+              expect(indications[1]['indication_type']).to eql 'EOF-Sent'
+              expect(indications[2]['indication_type']).to eql 'Transaction-Finished'
+              expect(indications[2]['condition_code']).to eql 'NO_ERROR'
+              expect(indications[2]['file_status']).to eql 'FILESTORE_SUCCESS'
+              expect(indications[2]['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indications[2]['status_report']).to eql 'FINISHED'
+              # Receive indications
+              expect(indications[3]['indication_type']).to eql 'Metadata-Recv'
+              expect(indications[3]['source_file_name']).to eql 'test1.txt'
+              expect(indications[3]['destination_file_name']).to eql 'test2.txt'
+              expect(indications[3]['file_size']).to eql '8'
+              expect(indications[3]['source_entity_id']).to eql '1'
+              expect(indications[4]['indication_type']).to eql 'File-Segment-Recv'
+              expect(indications[4]['offset']).to eql '0'
+              expect(indications[4]['length']).to eql '8'
+              expect(indications[5]['indication_type']).to eql 'EOF-Recv'
+              expect(indications[6]['indication_type']).to eql 'Transaction-Finished'
+              expect(indications[6]['condition_code']).to eql 'NO_ERROR'
+              expect(indications[6]['file_status']).to eql 'FILESTORE_SUCCESS'
+              expect(indications[6]['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indications[6]['status_report']).to eql 'FINISHED'
+            end
+            FileUtils.rm File.join(SPEC_DIR, 'test1.txt'), force: true
+            FileUtils.rm File.join(SPEC_DIR, 'test2.txt')
 
-            @user = CfdpUser.new
-            @user.start
-            sleep 0.1 # Allow user thread to start
+            # Validate the PDUs
+            expect(@tx_pdus.length).to eql 3
+            expect(@tx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
+            expect(@tx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+            expect(@tx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
+            expect(@tx_pdus[0]['DIRECTIVE_CODE']).to eql 'METADATA'
+            expect(@tx_pdus[0]['FILE_SIZE']).to eql data.length
 
-            # Simlulate the finished PDU
-            cmd_params = {}
-            cmd_params["PDU"] = CfdpPdu.build_finished_pdu(
-              source_entity: CfdpMib.entity(@source_entity_id),
-              transaction_seq_num: 1,
-              destination_entity: CfdpMib.entity(@destination_entity_id),
-              condition_code: "NO_ERROR",
-              delivery_code: "DATA_INCOMPLETE", # Just to verify it changes
-              file_status: "FILESTORE_SUCCESS",
-              # Filestore Responses only make sense when requesting a closure
-              filestore_responses: [
-                {
-                  'ACTION_CODE' => 'DELETE_FILE',
-                  'STATUS_CODE' => 'NOT_PERFORMED',
-                  'FIRST_FILE_NAME' => 'filename',
-                },
-                {
-                  'ACTION_CODE' => 'RENAME_FILE',
-                  'STATUS_CODE' => 'SUCCESSFUL',
-                  'FIRST_FILE_NAME' => 'begin',
-                  'SECOND_FILE_NAME' => 'end',
-                }
-              ]
-            )
-            msg_hash = {
-              :time => Time.now.to_nsec_from_epoch,
-              :stored => 'false',
-              :target_name => "CFDPTEST",
-              :packet_name => "CFDP_PDU",
-              :received_count => 1,
-              :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
-            }
-            Topic.write_topic("DEFAULT__DECOM__{CFDPTEST}__CFDP_PDU", msg_hash, nil)
-            sleep 1.1 # Allow wait timeout
-            @user.stop
-            sleep 0.1
+            expect(@tx_pdus[1]['TYPE']).to eql 'FILE_DATA'
+            expect(@tx_pdus[1]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+            expect(@tx_pdus[1]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
+            expect(@tx_pdus[1]['FILE_DATA']).to eql data[0..7]
 
-            get "/cfdp/indications", :params => { scope: "DEFAULT" }
-            expect(response).to have_http_status(200)
-            json = JSON.parse(response.body)
-            expect(json['indications'].length).to eql 3
-            id = json['indications'][0]['transaction_id']
-            expect(id).to include(@source_entity_id.to_s)
-            expect(json['indications'][0]['indication_type']).to eql 'Transaction'
-            expect(json['indications'][1]['indication_type']).to eql 'EOF-Sent'
-            expect(json['indications'][2]['indication_type']).to eql 'Transaction-Finished'
-            expect(json['indications'][2]['condition_code']).to eql 'NO_ERROR'
-            expect(json['indications'][2]['delivery_code']).to eql 'DATA_INCOMPLETE'
-            expect(json['indications'][2]['file_status']).to eql 'FILESTORE_SUCCESS'
-            fsr = json['indications'][2]['filestore_responses'][0]
-            expect(fsr['ACTION_CODE']).to eql 'DELETE_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'NOT_PERFORMED'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'filename'
-            fsr = json['indications'][2]['filestore_responses'][1]
-            expect(fsr['ACTION_CODE']).to eql 'RENAME_FILE'
-            expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
-            expect(fsr['FIRST_FILE_NAME']).to eql 'begin'
-            expect(fsr['SECOND_FILE_NAME']).to eql 'end'
+            expect(@tx_pdus[2]['TYPE']).to eql 'FILE_DIRECTIVE'
+            expect(@tx_pdus[2]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+            expect(@tx_pdus[2]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
+            expect(@tx_pdus[2]['DIRECTIVE_CODE']).to eql 'EOF'
+            expect(@tx_pdus[2]['CONDITION_CODE']).to eql 'NO_ERROR'
+
+            expect(@rx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
+            expect(@rx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+            expect(@rx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @source_entity_id # Sent to ourselves
+            expect(@rx_pdus[0]['DIRECTIVE_CODE']).to eql 'FINISHED'
+            expect(@rx_pdus[0]['CONDITION_CODE']).to eql 'NO_ERROR'
+            expect(@rx_pdus[0]['DELIVERY_CODE']).to eql 'DATA_COMPLETE'
+            expect(@rx_pdus[0]['FILE_STATUS']).to eql 'FILESTORE_SUCCESS'
           end
 
-          it "handles timing out waiting for a closure" do
-            setup(source_id: 10, destination_id: 20)
-            CfdpMib.set_entity_value(@source_entity_id, 'check_limit', 0.2)
-
+          it "times out waiting for a closure" do
             data = ('a'..'z').to_a.shuffle[0,8].join
-            File.write(File.join(SPEC_DIR, 'test.txt'), data)
-            post "/cfdp/put", :params => {
-              scope: "DEFAULT", destination_entity_id: @destination_entity_id,
-              source_file_name: 'test.txt', destination_file_name: 'test.txt',
-              closure_requested: 'CLOSURE_REQUESTED'
-            }
-            expect(response).to have_http_status(200)
-            sleep 1.5 # Allow the timer to expire
-
-            get "/cfdp/indications", :params => { scope: "DEFAULT" }
-            expect(response).to have_http_status(200)
-            json = JSON.parse(response.body)
-            expect(json['indications'].length).to eql 3
-            id = json['indications'][0]['transaction_id']
-            expect(id).to include(@source_entity_id.to_s)
-            expect(json['indications'][0]['indication_type']).to eql 'Transaction'
-            expect(json['indications'][1]['indication_type']).to eql 'EOF-Sent'
-            expect(json['indications'][2]['indication_type']).to eql 'Transaction-Finished'
-            expect(json['indications'][2]['condition_code']).to eql 'CHECK_LIMIT_REACHED'
-            expect(json['indications'][2]['delivery_code']).to eql 'DATA_COMPLETE'
-            expect(json['indications'][2]['file_status']).to eql 'UNREPORTED'
+            File.write(File.join(SPEC_DIR, 'test1.txt'), data)
+            request(source: 'test1.txt', dest: 'test2.txt', closure: 'CLOSURE_REQUESTED', send_closure: false) do |indications|
+              # First the transmit indications
+              expect(indications[0]['indication_type']).to eql 'Transaction'
+              expect(indications[1]['indication_type']).to eql 'EOF-Sent'
+              expect(indications[2]['indication_type']).to eql 'Fault'
+              expect(indications[3]['indication_type']).to eql 'Transaction-Finished'
+              expect(indications[3]['condition_code']).to eql 'CHECK_LIMIT_REACHED'
+              expect(indications[3]['file_status']).to eql 'UNREPORTED'
+              expect(indications[3]['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indications[3]['status_report']).to eql 'FINISHED'
+              # Receive indications
+              expect(indications[4]['indication_type']).to eql 'Metadata-Recv'
+              expect(indications[4]['source_file_name']).to eql 'test1.txt'
+              expect(indications[4]['destination_file_name']).to eql 'test2.txt'
+              expect(indications[4]['file_size']).to eql '8'
+              expect(indications[4]['source_entity_id']).to eql '1'
+              expect(indications[5]['indication_type']).to eql 'File-Segment-Recv'
+              expect(indications[5]['offset']).to eql '0'
+              expect(indications[5]['length']).to eql '8'
+              expect(indications[6]['indication_type']).to eql 'EOF-Recv'
+              expect(indications[7]['indication_type']).to eql 'Transaction-Finished'
+              expect(indications[7]['condition_code']).to eql 'NO_ERROR'
+              expect(indications[7]['file_status']).to eql 'FILESTORE_SUCCESS'
+              expect(indications[7]['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indications[7]['status_report']).to eql 'FINISHED'
+            end
+            FileUtils.rm File.join(SPEC_DIR, 'test1.txt'), force: true
+            FileUtils.rm File.join(SPEC_DIR, 'test2.txt')
           end
 
           it "handles bad transaction IDs" do
-            setup(source_id: 1, destination_id: 2)
+            setup(source_id: 11, destination_id: 22)
 
             @user = CfdpUser.new
             thread = @user.start
@@ -423,72 +437,93 @@ module OpenC3
             sleep 0.1
           end
 
-          it "executes copy with filestore requests" do
-            setup(source_id: 12, destination_id: 33)
-            CfdpMib.set_entity_value(@destination_entity_id, 'maximum_file_segment_length', 8)
-
+          it "runs filestore requests after copy" do
             data = ('a'..'z').to_a.shuffle[0,8].join
-            File.write(File.join(SPEC_DIR, 'source.txt'), data)
-            post "/cfdp/put", :params => {
-              scope: "DEFAULT", destination_entity_id: @destination_entity_id,
-              source_file_name: 'source.txt', destination_file_name: 'dest.txt',
-              filestore_requests: [
-                ['DELETE_FILE', 'dest.txt']
-              ]
-            }, as: :json
-            expect(response).to have_http_status(200)
-            sleep 0.1
-
-            # Clear the tx transactions to simulate the receive side on the same system
-            keys = CfdpMib.transactions.keys
-            keys.each do |key|
-              CfdpMib.transactions.delete(key)
+            File.write(File.join(SPEC_DIR, 'test1.txt'), data)
+            request(source: 'test1.txt', dest: 'test2.txt',
+              requests: [
+                ['CREATE_FILE', 'new_file.txt']
+              ]) do |indications|
+              # First the transmit indications
+              expect(indications[0]['indication_type']).to eql 'Transaction'
+              expect(indications[1]['indication_type']).to eql 'EOF-Sent'
+              expect(indications[2]['indication_type']).to eql 'Transaction-Finished'
+              expect(indications[2]['condition_code']).to eql 'NO_ERROR'
+              expect(indications[2]['file_status']).to eql 'UNREPORTED'
+              expect(indications[2]['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indications[2]['status_report']).to eql 'FINISHED'
+              # Receive indications
+              expect(indications[3]['indication_type']).to eql 'Metadata-Recv'
+              expect(indications[3]['source_file_name']).to eql 'test1.txt'
+              expect(indications[3]['destination_file_name']).to eql 'test2.txt'
+              expect(indications[3]['file_size']).to eql '8'
+              expect(indications[3]['source_entity_id']).to eql '1'
+              expect(indications[4]['indication_type']).to eql 'File-Segment-Recv'
+              expect(indications[4]['offset']).to eql '0'
+              expect(indications[4]['length']).to eql '8'
+              expect(indications[5]['indication_type']).to eql 'EOF-Recv'
+              expect(indications[6]['indication_type']).to eql 'Transaction-Finished'
+              expect(indications[6]['condition_code']).to eql 'NO_ERROR'
+              expect(indications[6]['file_status']).to eql 'FILESTORE_SUCCESS'
+              expect(indications[6]['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indications[6]['status_report']).to eql 'FINISHED'
+              fsr = indications[6]['filestore_responses'][0]
+              expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
+              expect(fsr['STATUS_CODE']).to eql 'SUCCESSFUL'
+              expect(fsr['FIRST_FILE_NAME']).to eql 'new_file.txt'
             end
+            expect(File.exist?(File.join(SPEC_DIR, 'test2.txt'))).to be true
+            expect(File.exist?(File.join(SPEC_DIR, 'new_file.txt'))).to be true
+            FileUtils.rm File.join(SPEC_DIR, 'test1.txt'), force: true # force ignores error if file doesn't exist
+            FileUtils.rm File.join(SPEC_DIR, 'test2.txt')
+            FileUtils.rm File.join(SPEC_DIR, 'new_file.txt')
+          end
 
-            @user = CfdpUser.new
-            @user.start
-            sleep 0.1 # Allow user thread to start
-
-            @packets.each do |target_name, cmd_name, cmd_params|
-              msg_hash = {
-                :time => Time.now.to_nsec_from_epoch,
-                :stored => 'false',
-                :target_name => target_name,
-                :packet_name => cmd_name,
-                :received_count => 1,
-                :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
-              }
-              Topic.write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
+          it "skips filestore requests if copy fails" do
+            # Simulate a failure
+            allow(CfdpMib).to receive(:put_destination_file).and_return(false)
+            data = ('a'..'z').to_a.shuffle[0,8].join
+            File.write(File.join(SPEC_DIR, 'test1.txt'), data)
+            request(source: 'test1.txt', dest: 'test2.txt',
+              requests: [
+                ['CREATE_FILE', 'new_file.txt']
+              ]) do |indications|
+              # First the transmit indications
+              expect(indications[0]['indication_type']).to eql 'Transaction'
+              expect(indications[1]['indication_type']).to eql 'EOF-Sent'
+              expect(indications[2]['indication_type']).to eql 'Transaction-Finished'
+              expect(indications[2]['condition_code']).to eql 'NO_ERROR'
+              expect(indications[2]['file_status']).to eql 'UNREPORTED'
+              expect(indications[2]['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indications[2]['status_report']).to eql 'FINISHED'
+              # Receive indications
+              expect(indications[3]['indication_type']).to eql 'Metadata-Recv'
+              expect(indications[3]['source_file_name']).to eql 'test1.txt'
+              expect(indications[3]['destination_file_name']).to eql 'test2.txt'
+              expect(indications[3]['file_size']).to eql '8'
+              expect(indications[3]['source_entity_id']).to eql '1'
+              expect(indications[4]['indication_type']).to eql 'File-Segment-Recv'
+              expect(indications[4]['offset']).to eql '0'
+              expect(indications[4]['length']).to eql '8'
+              expect(indications[5]['indication_type']).to eql 'EOF-Recv'
+              expect(indications[6]['indication_type']).to eql 'Fault'
+              expect(indications[6]['condition_code']).to eql 'FILESTORE_REJECTION'
+              expect(indications[7]['indication_type']).to eql 'Transaction-Finished'
+              expect(indications[7]['condition_code']).to eql 'FILESTORE_REJECTION'
+              expect(indications[7]['file_status']).to eql 'FILESTORE_REJECTION'
+              expect(indications[7]['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indications[7]['status_report']).to eql 'FINISHED'
+              expect(indications[7]['filestore_responses']).to be nil
             end
-            sleep 0.1
-            @user.stop
-            sleep 0.1
-
-            # The files should not exist due to the filestore requests
-            expect(File.exist?(File.join(SPEC_DIR, 'dest.txt'))).to be false
-            # FileUtils.rm(File.join(SPEC_DIR, 'source.txt')) # This still exists
-
-            expect(@rx_pdus.length).to eql 1
-            expect(@rx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
-            expect(@rx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
-            # We're the source_entity_id as well as the destination in this case
-            expect(@rx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @source_entity_id
-            expect(@rx_pdus[0]['TRANSMISSION_MODE']).to eql 'UNACKNOWLEDGED'
-            expect(@rx_pdus[0]['DIRECTIVE_CODE']).to eql 'FINISHED'
-            expect(@rx_pdus[0]['DELIVERY_CODE']).to eql 'DATA_COMPLETE'
-            expect(@rx_pdus[0]['CONDITION_CODE']).to eql 'NO_ERROR'
-            expect(@rx_pdus[0]['FILE_STATUS']).to eql 'FILESTORE_SUCCESS'
-            tlv = @rx_pdus[0]['TLVS'][0]
-            expect(tlv['TYPE']).to eql 'FILESTORE_RESPONSE'
-            expect(tlv['ACTION_CODE']).to eql 'DELETE_FILE'
-            expect(tlv['STATUS_CODE']).to eql 'SUCCESSFUL'
-            expect(tlv['FIRST_FILE_NAME']).to eql 'dest.txt'
+            expect(File.exist?(File.join(SPEC_DIR, 'test2.txt'))).to be false
+            expect(File.exist?(File.join(SPEC_DIR, 'new_file.txt'))).to be false
+            FileUtils.rm File.join(SPEC_DIR, 'test1.txt'), force: true
           end
 
           it "create file" do
             request(requests: [
               ['CREATE_FILE', "create_file.txt"],
-              ['CREATE_FILE', "../../nope"], # Outside of the root path
+              ['CREATE_FILE', "../nope"], # Outside of the root path
               ['CREATE_FILE', "another_file.txt"],
             ]) do |indications|
               indication = indications[-1]
@@ -504,7 +539,7 @@ module OpenC3
               fsr = indication['filestore_responses'][1]
               expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
               expect(fsr['STATUS_CODE']).to eql 'NOT_ALLOWED'
-              expect(fsr['FIRST_FILE_NAME']).to eql '../../nope'
+              expect(fsr['FIRST_FILE_NAME']).to eql '../nope'
               fsr = indication['filestore_responses'][2]
               expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
               # Once there is a failure no more are performed per 4.9.5
@@ -519,7 +554,7 @@ module OpenC3
           end
 
           it "delete file" do
-            request( [
+            request(requests: [
               ['CREATE_FILE', 'delete_file.txt'],
               ['DELETE_FILE', 'delete_file.txt'],
               ['DELETE_FILE', 'nope'],

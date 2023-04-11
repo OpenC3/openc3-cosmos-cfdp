@@ -68,7 +68,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       return true
     end
 
-    if @source_file_name and @destination_file_name
+    if @source_file_name and @destination_file_name and @tmp_file
       if complete_file_received?
         # Complete
         if @checksum.check(@tmp_file, @eof_pdu_hash['FILE_CHECKSUM'], @full_checksum_needed)
