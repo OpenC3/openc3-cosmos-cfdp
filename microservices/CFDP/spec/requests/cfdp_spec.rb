@@ -488,7 +488,7 @@ module OpenC3
           it "create file" do
             request(requests: [
               ['CREATE_FILE', "create_file.txt"],
-              ['CREATE_FILE', "../../nope"], # Outside of the root path
+              ['CREATE_FILE', "../nope"], # Outside of the root path
               ['CREATE_FILE', "another_file.txt"],
             ]) do |indications|
               indication = indications[-1]
@@ -504,7 +504,7 @@ module OpenC3
               fsr = indication['filestore_responses'][1]
               expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
               expect(fsr['STATUS_CODE']).to eql 'NOT_ALLOWED'
-              expect(fsr['FIRST_FILE_NAME']).to eql '../../nope'
+              expect(fsr['FIRST_FILE_NAME']).to eql '../nope'
               fsr = indication['filestore_responses'][2]
               expect(fsr['ACTION_CODE']).to eql 'CREATE_FILE'
               # Once there is a failure no more are performed per 4.9.5
