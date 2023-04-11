@@ -30,7 +30,7 @@ class CfdpPdu < OpenC3::Packet
     "FILE_SIZE_ERROR" => 6,
     "NAK_LIMIT_REACHED" => 7,
     "INACTIVITY_DETECTED" => 8,
-    "INVALID_FILE_STRUCTURE" => 9,
+    "INVALID_FILE_STRUCTURE" => 9, # Not implemented because no segmentation control
     "CHECK_LIMIT_REACHED" => 10,
     "UNSUPPORTED_CHECKSUM_TYPE" => 11,
     "SUSPEND_REQUEST_RECEIVED" => 14, # Not a fault

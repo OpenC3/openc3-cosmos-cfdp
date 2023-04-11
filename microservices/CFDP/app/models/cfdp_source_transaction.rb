@@ -156,7 +156,7 @@ class CfdpSourceTransaction < CfdpTransaction
     return if @status == "ABANDONED"
 
     # Send Metadata PDU
-    metadata_pdu = CfdpPdu.build_metadata_pdu(
+    @metadata_pdu = CfdpPdu.build_metadata_pdu(
       source_entity: @source_entity,
       transaction_seq_num: @transaction_seq_num,
       destination_entity: @destination_entity,
@@ -168,7 +168,7 @@ class CfdpSourceTransaction < CfdpTransaction
       segmentation_control: @segmentation_control,
       transmission_mode: @transmission_mode)
     cmd_params = {}
-    cmd_params[@item_name] = metadata_pdu
+    cmd_params[@item_name] = @metadata_pdu
     cmd(@target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
 
     if source_file
@@ -359,32 +359,39 @@ class CfdpSourceTransaction < CfdpTransaction
       start_offset = request["START_OFFSET"]
       end_offset = request["END_OFFSET"]
 
-      # Send File Data PDUs
-      offset = start_offset
-      source_file.seek(offset, IO::SEEK_SET)
-      while true
-        bytes_remaining = end_offset - offset
-        break if bytes_remaining <= 0
-        if bytes_remaining >= max_read_size
-          read_size = max_read_size
-        else
-          read_size = bytes_remaining
-        end
-        file_data = source_file.read(read_size)
-        break if file_data.nil? or file_data.length <= 0
-        file_data_pdu = CfdpPdu.build_file_data_pdu(
-          offset: offset,
-          file_data: file_data,
-          file_size: file_size,
-          source_entity: @source_entity,
-          transaction_seq_num: @transaction_seq_num,
-          destination_entity: @destination_entity,
-          segmentation_control: @segmentation_control,
-          transmission_mode: @transmission_mode)
+      if start_offset == 0 and end_offset == 0
+        # Send Metadata PDU
         cmd_params = {}
-        cmd_params[@item_name] = file_data_pdu
+        cmd_params[@item_name] = @metadata_pdu
         cmd(@target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
-        offset += file_data.length
+      else
+        # Send File Data PDU(s)
+        offset = start_offset
+        source_file.seek(offset, IO::SEEK_SET)
+        while true
+          bytes_remaining = end_offset - offset
+          break if bytes_remaining <= 0
+          if bytes_remaining >= max_read_size
+            read_size = max_read_size
+          else
+            read_size = bytes_remaining
+          end
+          file_data = source_file.read(read_size)
+          break if file_data.nil? or file_data.length <= 0
+          file_data_pdu = CfdpPdu.build_file_data_pdu(
+            offset: offset,
+            file_data: file_data,
+            file_size: file_size,
+            source_entity: @source_entity,
+            transaction_seq_num: @transaction_seq_num,
+            destination_entity: @destination_entity,
+            segmentation_control: @segmentation_control,
+            transmission_mode: @transmission_mode)
+          cmd_params = {}
+          cmd_params[@item_name] = file_data_pdu
+          cmd(@target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+          offset += file_data.length
+        end
       end
     end
 
