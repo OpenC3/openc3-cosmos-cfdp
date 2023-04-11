@@ -12,7 +12,7 @@ class CfdpUser
     @cancel_thread = false
     @item_name_lookup = {}
     @source_transactions = []
-    @source_threads = {}
+    @source_threads = []
 
     at_exit do
       stop()
@@ -106,7 +106,7 @@ class CfdpUser
           fault_handler_overrides: params[:fault_handler_overrides],
           messages_to_user: params[:messages_to_user],
           flow_label: params[:flow_label],
-          segmentation_contro: params[:segmentation_control]
+          segmentation_control: params[:segmentation_control]
         )
       rescue => err
         OpenC3::Logger.error(err.formatted, scope: ENV['OPENC3_SCOPE'])
