@@ -27,6 +27,8 @@ class CfdpUser
         end
         OpenC3::Topic.update_topic_offsets(topics)
         while !@cancel_thread
+          # TODO: Handle freezing transactions if interface disconnects (or goes unhealthy), and unfreezing if comes back to functional
+
           OpenC3::Topic.read_topics(topics) do |topic, msg_id, msg_hash, redis|
             break if @cancel_thread
             begin

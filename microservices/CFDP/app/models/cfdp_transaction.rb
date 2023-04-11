@@ -43,6 +43,7 @@ class CfdpTransaction
 
   def cancel(entity_id = nil)
     if @status != "FINISHED"
+      @condition_code = "CANCEL_REQUEST_RECEIVED" if @condition_code == "NO_ERROR"
       if entity_id
         @canceling_entity_id = entity_id
       else

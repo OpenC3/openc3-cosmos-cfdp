@@ -72,7 +72,6 @@ class CfdpSourceTransaction < CfdpTransaction
     end
   end
 
-
   def update
     if @status != "SUSPENDED"
       if @eof_ack_timeout
@@ -218,20 +217,28 @@ class CfdpSourceTransaction < CfdpTransaction
     end
     if @canceling_entity_id
       @condition_code = "CANCEL_REQUEST_RECEIVED"
+      eof_file_size = @progress
+    else
+      eof_file_size = file_size
     end
-    @eof_pdu = CfdpPdu.build_eof_pdu(
-      source_entity: @source_entity,
-      transaction_seq_num: @transaction_seq_num,
-      destination_entity: @destination_entity,
-      file_size: file_size,
-      file_checksum: file_checksum,
-      condition_code: @condition_code,
-      segmentation_control: @segmentation_control,
-      transmission_mode: @transmission_mode,
-      canceling_entity_id: @canceling_entity_id)
-    cmd_params = {}
-    cmd_params[@item_name] = @eof_pdu
-    cmd(@target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+    begin
+      @eof_pdu = CfdpPdu.build_eof_pdu(
+        source_entity: @source_entity,
+        transaction_seq_num: @transaction_seq_num,
+        destination_entity: @destination_entity,
+        file_size: eof_file_size,
+        file_checksum: file_checksum,
+        condition_code: @condition_code,
+        segmentation_control: @segmentation_control,
+        transmission_mode: @transmission_mode,
+        canceling_entity_id: @canceling_entity_id)
+      cmd_params = {}
+      cmd_params[@item_name] = @eof_pdu
+      cmd(@target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+    rescue => err
+      abandon() if @canceling_entity_id
+      raise err
+    end
 
     # Issue EOF-Sent.indication
     CfdpTopic.write_indication("EOF-Sent", transaction_id: transaction_id)
@@ -267,6 +274,9 @@ class CfdpSourceTransaction < CfdpTransaction
   end
 
   def notice_of_completion
+    # Cancel all timeouts
+    @eof_ack_timeout = nil
+
     filestore_responses = []
     if @finished_pdu_hash
       tlvs = @finished_pdu_hash["TLVS"]

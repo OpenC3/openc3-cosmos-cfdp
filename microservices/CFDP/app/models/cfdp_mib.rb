@@ -111,10 +111,10 @@ class CfdpMib
     entity['ack_timer_interval'] = 600
     entity['nak_timer_interval'] = 600
     entity['keep_alive_interval'] = 600
+    entity['check_interval'] = 600
     entity['immediate_nak_mode'] = true
     entity['default_transmission_mode'] = 'UNACKNOWLEDGED'
     entity['transaction_closure_requested'] = "CLOSURE_REQUESTED"
-    entity['check_limit'] = 300
     entity['default_checksum_type'] = 0
     entity['incomplete_file_disposition'] = "DISCARD"
     entity['crcs_required'] = true
@@ -123,6 +123,7 @@ class CfdpMib
     entity['ack_timer_expiration_limit'] = 1
     entity['nak_timer_expiration_limit'] = 1
     entity['transaction_inactivity_limit'] = 1
+    entity['check_limit'] = 1
     entity['entity_id_length'] = 0 # 0 = 1 byte
     entity['sequence_number_length'] = 0 # 0 = 1 byte
     # TODO: Use interface connected? to limit opportunities?
