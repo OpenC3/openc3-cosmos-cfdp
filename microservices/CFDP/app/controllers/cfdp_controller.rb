@@ -24,22 +24,7 @@ class CfdpController < ApplicationController
       render :json => { :status => 'error', :message => "destination_entity_id must be numeric" }, :status => 400
       return
     end
-
-    transaction = CfdpSourceTransaction.new
-    Thread.new do
-      begin
-        transaction.put(
-          destination_entity_id: params[:destination_entity_id],
-          source_file_name: params[:source_file_name],
-          destination_file_name: params[:destination_file_name],
-          transmission_mode: params[:transmission_mode],
-          closure_requested: params[:closure_requested],
-          filestore_requests: params[:filestore_requests]
-        )
-      rescue => err
-        OpenC3::Logger.error(err.formatted, scope: ENV['OPENC3_SCOPE'])
-      end
-    end
+    transaction = $cfdp_user.start_source_transaction(params)
     render json: transaction.id
   rescue ActionController::ParameterMissing => error
     render :json => { :status => 'error', :message => error.message }, :status => 400

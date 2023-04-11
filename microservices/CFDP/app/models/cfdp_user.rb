@@ -11,6 +11,12 @@ class CfdpUser
     @thread = nil
     @cancel_thread = false
     @item_name_lookup = {}
+    @source_transactions = []
+    @source_threads = {}
+
+    at_exit do
+      stop()
+    end
   end
 
   def start
@@ -27,6 +33,8 @@ class CfdpUser
         end
         OpenC3::Topic.update_topic_offsets(topics)
         while !@cancel_thread
+          # TODO: Handle freezing transactions if interface disconnects (or target goes unhealthy), and unfreezing if comes back to functional
+
           OpenC3::Topic.read_topics(topics) do |topic, msg_id, msg_hash, redis|
             break if @cancel_thread
             begin
@@ -72,7 +80,38 @@ class CfdpUser
 
   def stop
     @cancel_thread = true
+    @source_transactions.each do |t|
+      t.abandon
+    end
     @thread.join if @thread
     @thread = nil
+    sleep(0.6) # Give threads time to die
+    @source_threads.each do |st|
+      st.kill if st.alive?
+    end
+  end
+
+  def start_source_transaction(params)
+    transaction = CfdpSourceTransaction.new
+    @source_transactions << transaction
+    @source_threads << Thread.new do
+      begin
+        transaction.put(
+          destination_entity_id: params[:destination_entity_id],
+          source_file_name: params[:source_file_name],
+          destination_file_name: params[:destination_file_name],
+          transmission_mode: params[:transmission_mode],
+          closure_requested: params[:closure_requested],
+          filestore_requests: params[:filestore_requests],
+          fault_handler_overrides: params[:fault_handler_overrides],
+          messages_to_user: params[:messages_to_user],
+          flow_label: params[:flow_label],
+          segmentation_contro: params[:segmentation_control]
+        )
+      rescue => err
+        OpenC3::Logger.error(err.formatted, scope: ENV['OPENC3_SCOPE'])
+      end
+    end
+    return transaction
   end
 end

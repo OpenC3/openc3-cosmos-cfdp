@@ -9,7 +9,6 @@ class CfdpReceiveTransaction < CfdpTransaction
     @transmission_mode = pdu_hash["TRANSMISSION_MODE"]
     @messages_to_user = []
     @flow_label = nil
-    @fault_handler_overrides = {}
     @filestore_requests = []
     @source_file_name = nil
     @destination_file_name = nil
@@ -26,10 +25,15 @@ class CfdpReceiveTransaction < CfdpTransaction
     @check_timeout = nil
     @nak_timeout = nil
     @nak_timeout_count = 0
+    @check_timeout = nil
+    @check_timeout_count = 0
     @progress = 0
     @nak_start_of_scope = 0
+    @inactivity_timeout = Time.now + CfdpMib.source_entity['keep_alive_interval']
+    @inactivity_count = 0
     @keep_alive_timeout = nil
     @keep_alive_timeout = Time.now + CfdpMib.source_entity['keep_alive_interval'] if @transmission_mode == 'ACKNOWLEDGED'
+    @keep_alive_count = 0
     CfdpMib.transactions[@id] = self
     handle_pdu(pdu_hash)
   end
@@ -45,8 +49,21 @@ class CfdpReceiveTransaction < CfdpTransaction
       @condition_code = @eof_pdu_hash["CONDITION_CODE"]
       @file_status = "FILE_DISCARDED"
       @delivery_code = "DATA_INCOMPLETE"
-      @tmp_file.unlink if @tmp_file
-      @tmp_file = nil
+      if CfdpMib.source_entity['incomplete_file_disposition'] == "DISCARD"
+        @tmp_file.unlink if @tmp_file
+        @tmp_file = nil
+      else
+        # Keep
+        if @tmp_file
+          @tmp_file.close
+          success = CfdpMib.put_destination_file(@destination_file_name, @tmp_file) # Unlink handled by CfdpMib
+          if success
+            @file_status = "FILESTORE_SUCCESS"
+          else
+            @file_status = "FILESTORE_REJECTION"
+          end
+        end
+      end
       notice_of_completion()
       return true
     end
@@ -63,14 +80,15 @@ class CfdpReceiveTransaction < CfdpTransaction
           else
             @file_status = "FILESTORE_REJECTION"
             @condition_code = "FILESTORE_REJECTION"
+            handle_fault()
           end
           @delivery_code = "DATA_COMPLETE"
         else
           @tmp_file.unlink
           @file_status = "FILE_DISCARDED"
           @condition_code = "FILE_CHECKSUM_FAILURE"
+          handle_fault()
           @delivery_code = "DATA_INCOMPLETE"
-          # TODO: Handle different fault handlers here
         end
         @tmp_file = nil
       else
@@ -82,7 +100,7 @@ class CfdpReceiveTransaction < CfdpTransaction
     # Handle Filestore Requests
     filestore_success = true
     tlvs = @metadata_pdu_hash["TLVS"]
-    if tlvs
+    if tlvs and (@condition_code == "NO_ERROR" or @condition_code == "UNSUPPORTED_CHECKSUM_TYPE")
       tlvs.each do |tlv|
         case tlv['TYPE']
         when 'FILESTORE_REQUEST'
@@ -116,30 +134,43 @@ class CfdpReceiveTransaction < CfdpTransaction
   end
 
   def notice_of_completion
-    if @metadata_pdu_hash["CLOSURE_REQUESTED"] == "CLOSURE_REQUESTED"
-      # Lookup outgoing PDU command
-      destination_entity = CfdpMib.source_entity
-      source_entity = CfdpMib.entity(@metadata_pdu_hash['SOURCE_ENTITY_ID'])
-      raise "Unknown source entity: #{@metadata_pdu_hash['SOURCE_ENTITY_ID']}" unless source_entity
-      target_name, packet_name, item_name = source_entity["cmd_info"]
-      raise "cmd_info not defined for source entity: #{@metadata_pdu_hash['SOURCE_ENTITY_ID']}" unless target_name and packet_name and item_name
-      finished_pdu = CfdpPdu.build_finished_pdu(
-        source_entity: source_entity,
-        transaction_seq_num: @transaction_seq_num,
-        destination_entity: destination_entity,
-        condition_code: @condition_code,
-        segmentation_control: "NOT_PRESERVED",
-        transmission_mode: @transmission_mode,
-        delivery_code: @delivery_code,
-        file_status: @file_status,
-        filestore_responses: @filestore_responses,
-        fault_location_entity_id: nil)
-      cmd_params = {}
-      cmd_params[item_name] = finished_pdu
-      cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+    # Cancel all timeouts
+    @check_timeout = nil
+    @nak_timeout = nil
+    @keep_alive_timeout = nil
+    @inactivity_timeout = nil
+    @finished_ack_timeout = nil
+
+    if @metadata_pdu_hash["CLOSURE_REQUESTED"] == "CLOSURE_REQUESTED" or @transmission_mode == "ACKNOWLEDGED"
+      begin
+        # Lookup outgoing PDU command
+        destination_entity = CfdpMib.source_entity
+        source_entity = CfdpMib.entity(@metadata_pdu_hash['SOURCE_ENTITY_ID'])
+        raise "Unknown source entity: #{@metadata_pdu_hash['SOURCE_ENTITY_ID']}" unless source_entity
+        target_name, packet_name, item_name = source_entity["cmd_info"]
+        raise "cmd_info not defined for source entity: #{@metadata_pdu_hash['SOURCE_ENTITY_ID']}" unless target_name and packet_name and item_name
+        @finished_pdu = CfdpPdu.build_finished_pdu(
+          source_entity: source_entity,
+          transaction_seq_num: @transaction_seq_num,
+          destination_entity: destination_entity,
+          condition_code: @condition_code,
+          segmentation_control: "NOT_PRESERVED",
+          transmission_mode: @transmission_mode,
+          delivery_code: @delivery_code,
+          file_status: @file_status,
+          filestore_responses: @filestore_responses,
+          fault_location_entity_id: nil)
+        cmd_params = {}
+        cmd_params[item_name] = @finished_pdu
+        cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+      rescue => err
+        abandon() if @status == "CANCELED"
+        raise err
+      end
+      @finished_ack_timeout = Time.now + CfdpMib.source_entity['ack_timer_interval'] if @transmission_mode == "ACKNOWLEDGED"
     end
 
-    @status = "FINISHED" unless @status == "CANCELED"
+    @status = "FINISHED" unless @status == "CANCELED" or @status == "ABANDONED"
 
     if @filestore_responses.length > 0
       CfdpTopic.write_indication("Transaction-Finished", transaction_id: @id, condition_code: @condition_code, file_status: @file_status, delivery_code: @delivery_code, status_report: @status, filestore_responses: @filestore_responses)
@@ -171,35 +202,96 @@ class CfdpReceiveTransaction < CfdpTransaction
     return false
   end
 
-  def update
-    if @check_timeout
-      if Time.now > @check_timeout
-        # TODO: Handle timeout - Check Limit Reached Fault
-        # TODO: What to do with finished transactions?
-      end
+  def cancel(entity_id = nil)
+    super(entity_id)
+    notice_of_completion()
+  end
+
+  def suspend
+    if @transmission_mode == "ACKNOWLEDGED"
+      super()
     end
-    if @nak_timeout
-      if Time.now > @nak_timeout
-        if complete_file_received?
-          @nak_timeout = nil
-        else
-          send_naks(true)
-          @nak_timeout_count += 1
-          if @nak_timeout_count < CfdpMib['nak_timer_expiration_limit']
-            @nak_timeout = Time.now + CfdpMib.source_entity['nak_timer_interval']
+  end
+
+  def update
+    if @status != "SUSPENDED"
+      if @check_timeout
+        if Time.now > @check_timeout
+          @check_timeout_count += 1
+          if @check_timeout_count < CfdpMib['check_limit']
+            @check_timeout = Time.now + CfdpMib.source_entity['check_interval']
           else
-            @nak_timeout = 0
+            @condition_code = "CHECK_LIMIT_REACHED"
+            handle_fault()
+            @check_timeout = nil
           end
         end
       end
-    end
-    if @keep_alive_timeout
-      if @eof_pdu_hash
-        @keep_alive_timeout = nil
-      else
-        if Time.now > @keep_alive_timeout
-          send_keep_alive()
-          @keep_alive_timeout = Time.now + CfdpMib.source_entity['keep_alive_interval']
+      if @nak_timeout
+        if Time.now > @nak_timeout
+          if complete_file_received?
+            @nak_timeout = nil
+          else
+            send_naks(true)
+            @nak_timeout_count += 1
+            if @nak_timeout_count < CfdpMib['nak_timer_expiration_limit']
+              @nak_timeout = Time.now + CfdpMib.source_entity['nak_timer_interval']
+            else
+              @condition_code = "NAK_LIMIT_REACHED"
+              handle_fault()
+              @nak_timeout = nil
+            end
+          end
+        end
+      end
+      if @keep_alive_timeout
+        if @eof_pdu_hash
+          @keep_alive_timeout = nil
+        else
+          if Time.now > @keep_alive_timeout
+            send_keep_alive()
+            @keep_alive_count += 1
+            @keep_alive_timeout = Time.now + CfdpMib.source_entity['keep_alive_interval']
+          end
+        end
+      end
+      if @inactivity_timeout
+        if @eof_pdu_hash
+          @inactivity_timeout = nil
+        else
+          if Time.now > @inactivity_timeout
+            @inactivity_count += 1
+            if @inactivity_count < CfdpMib.source_entity['transaction_inactivity_limit']
+              @inactivity_timeout = Time.now + CfdpMib.source_entity['keep_alive_interval']
+            else
+              @condition_code = "INACTIVITY_DETECTED"
+              handle_fault()
+            end
+          end
+        end
+      end
+      if @finished_ack_timeout
+        if @finished_ack_pdu_hash
+          @finished_ack_timeout = nil
+        else
+          if Time.now > @finished_ack_pdu_hash
+            source_entity = CfdpMib.entity(@metadata_pdu_hash['SOURCE_ENTITY_ID'])
+            raise "Unknown source entity: #{@metadata_pdu_hash['SOURCE_ENTITY_ID']}" unless source_entity
+            target_name, packet_name, item_name = source_entity["cmd_info"]
+            raise "cmd_info not defined for source entity: #{@metadata_pdu_hash['SOURCE_ENTITY_ID']}" unless target_name and packet_name and item_name
+            cmd_params = {}
+            cmd_params[item_name] = @finished_pdu
+            cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+            @finished_count += 1
+            if @finished_count > CfdpMib.source_entity['ack_timer_expiration_limit']
+              # Positive ACK Limit Reached Fault
+              @condition_code = "ACK_LIMIT_REACHED"
+              handle_fault()
+              @finished_ack_timeout = nil
+            else
+              @finished_ack_timeout = Time.now + CfdpMib.source_entity['ack_timer_interval']
+            end
+          end
         end
       end
     end
@@ -315,6 +407,8 @@ class CfdpReceiveTransaction < CfdpTransaction
   end
 
   def handle_pdu(pdu_hash)
+    @inactivity_timeout = Time.now + CfdpMib.source_entity['keep_alive_interval']
+
     case pdu_hash["DIRECTIVE_CODE"]
     when "METADATA"
       return if @metadata_pdu_hash # Discard repeats
@@ -367,6 +461,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       unless @checksum
         # Use Null checksum if checksum type not available
         @condition_code = "UNSUPPORTED_CHECKSUM_TYPE"
+        handle_fault()
         @checksum = CfdpNullChecksum.new
       end
 
@@ -377,6 +472,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       @file_size = @eof_pdu_hash["FILE_SIZE"]
       if @progress > @file_size
         @condition_code = "FILE_SIZE_ERROR"
+        handle_fault()
       end
 
       CfdpTopic.write_indication("EOF-Recv", transaction_id: @id)
@@ -403,7 +499,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       # Note: This also handles canceled
       complete = check_complete()
       unless complete
-        @check_timeout = Time.now + CfdpMib.source_entity['check_limit']
+        @check_timeout = Time.now + CfdpMib.source_entity['check_interval']
         @progress = @file_size
         send_naks() if destination_entity['immediate_nak_mode']
         @nak_timeout = Time.now + CfdpMib.source_entity['nak_timer_interval']
@@ -414,6 +510,7 @@ class CfdpReceiveTransaction < CfdpTransaction
 
     when "ACK"
       @finished_ack_pdu_hash = pdu_hash
+      @finished_ack_timeout = nil
 
     when "PROMPT"
       @prompt_pdu_hash = pdu_hash
@@ -443,6 +540,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       if !@segments[offset] or @segments[offset] != progress
         if @file_size and progress > @file_size
           @condition_code = "FILE_SIZE_ERROR"
+          handle_fault()
         else
           @full_checksum_needed = true unless @metadata_pdu_hash
           @checksum.add(offset, file_data)
