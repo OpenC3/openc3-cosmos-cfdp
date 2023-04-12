@@ -64,7 +64,7 @@ class CfdpPdu < OpenC3::Packet
     s = OpenC3::Packet.new(nil, nil, :BIG_ENDIAN)
     s.append_item("RESERVED", 1, :UINT)
     item = s.append_item("CLOSURE_REQUESTED", 1, :UINT)
-    item.states = {"CLOSURE_NOT_REQUESTED" => 0, "CLOSURE_REQUESTED" => 1}
+    item.states = CLOSURE_MODES
     s.append_item("RESERVED2", 2, :UINT)
     s.append_item("CHECKSUM_TYPE", 4, :UINT)
     large_file = read("LARGE_FILE_FLAG")

@@ -19,6 +19,7 @@ require_relative 'cfdp_pdu/cfdp_pdu_nak'
 require_relative 'cfdp_pdu/cfdp_pdu_prompt'
 require_relative 'cfdp_pdu/cfdp_pdu_keep_alive'
 require_relative 'cfdp_pdu/cfdp_pdu_file_data'
+require_relative 'cfdp_pdu/cfdp_pdu_user_ops'
 
 class CfdpPdu < OpenC3::Packet
   def initialize(crcs_required:)
@@ -29,14 +30,14 @@ class CfdpPdu < OpenC3::Packet
     item = append_item("DIRECTION", 1, :UINT)
     item.states = {"TOWARD_FILE_RECEIVER" => 0, "TOWARD_FILE_SENDER" => 1}
     item = append_item("TRANSMISSION_MODE", 1, :UINT)
-    item.states = {"ACKNOWLEDGED" => 0, "UNACKNOWLEDGED" => 1}
+    item.states = TRANSMISSION_MODES
     item = append_item("CRC_FLAG", 1, :UINT)
     item.states = {"CRC_NOT_PRESENT" => 0, "CRC_PRESENT" => 1}
     item = append_item("LARGE_FILE_FLAG", 1, :UINT)
     item.states = {"SMALL_FILE" => 0, "LARGE_FILE" => 1}
     item = append_item("PDU_DATA_LENGTH", 16, :UINT)
     item = append_item("SEGMENTATION_CONTROL", 1, :UINT)
-    item.states = {"NOT_PRESERVED" => 0, "PRESERVED" => 1}
+    item.states = SEGMENTATION_MODES
     item = append_item("ENTITY_ID_LENGTH", 3, :UINT)
     item = append_item("SEGMENT_METADATA_FLAG", 1, :UINT)
     item.states = {"NOT_PRESENT" => 0, "PRESENT" => 1}
