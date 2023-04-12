@@ -22,7 +22,6 @@ class CfdpReceiveTransaction < CfdpTransaction
     @file_status = "UNREPORTED"
     @delivery_code = "DATA_COMPLETE"
     @filestore_responses = []
-    @check_timeout = nil
     @nak_timeout = nil
     @nak_timeout_count = 0
     @check_timeout = nil
@@ -274,7 +273,7 @@ class CfdpReceiveTransaction < CfdpTransaction
         if @finished_ack_pdu_hash
           @finished_ack_timeout = nil
         else
-          if Time.now > @finished_ack_pdu_hash
+          if Time.now > @finished_ack_timeout
             source_entity = CfdpMib.entity(@metadata_pdu_hash['SOURCE_ENTITY_ID'])
             raise "Unknown source entity: #{@metadata_pdu_hash['SOURCE_ENTITY_ID']}" unless source_entity
             target_name, packet_name, item_name = source_entity["cmd_info"]

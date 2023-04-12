@@ -21,6 +21,142 @@ end
 module OpenC3
   RSpec.describe "cfdp", type: :request do
     describe "POST /cfdp/put" do
+      before(:each) do
+        mock_redis()
+      end
+
+      def setup(source_id:, destination_id:)
+        @source_entity_id = source_id
+        @destination_entity_id = destination_id
+        ENV['OPENC3_MICROSERVICE_NAME'] = 'DEFAULT__API__CFDP'
+        # Create the model that is consumed by CfdpMib.setup
+        model = MicroserviceModel.new(name: ENV['OPENC3_MICROSERVICE_NAME'], scope: "DEFAULT",
+          options: [
+            ["source_entity_id", @source_entity_id],
+            ["cmd_info", "CFDPTEST", "CFDP_PDU", "PDU"],
+            ["tlm_info", "CFDPTEST", "CFDP_PDU", "PDU"],
+            ["destination_entity_id", @destination_entity_id],
+            ["cmd_info", "CFDPTEST", "CFDP_PDU", "PDU"],
+            ["tlm_info", "CFDPTEST", "CFDP_PDU", "PDU"],
+            ["root_path", SPEC_DIR],
+          ],
+        )
+        model.create
+        CfdpMib.setup
+
+        @tx_pdus = []
+        @rx_pdus = []
+        @packets = []
+        allow_any_instance_of(CfdpSourceTransaction).to receive('cmd') do |source, tgt_name, pkt_name, params|
+          # puts params["PDU"].formatted # Prints the raw bytes
+          @tx_pdus << CfdpPdu.decom(params["PDU"])
+          @packets << [tgt_name, pkt_name, params]
+        end
+        allow_any_instance_of(CfdpReceiveTransaction).to receive('cmd') do |source, tgt_name, pkt_name, params|
+          @rx_pdus << CfdpPdu.decom(params["PDU"])
+        end
+      end
+
+      # Helper method to perform a filestore_request and return the indication
+      def request(source: nil, dest: nil, requests: [], transmission_mode: 'UNACKNOWLEDGED',
+                  closure: 'CLOSURE_NOT_REQUESTED', send_closure: true, cancel: false)
+        setup(source_id: 1, destination_id: 2)
+        CfdpMib.set_entity_value(@destination_entity_id, 'maximum_file_segment_length', 8)
+        CfdpMib.root_path = @root_path
+        if @bucket
+          CfdpMib.bucket = @bucket
+        else
+          CfdpMib.bucket = nil
+        end
+
+        post "/cfdp/put", :params => {
+          scope: "DEFAULT", destination_entity_id: @destination_entity_id,
+          source_file_name: source, destination_file_name: dest,
+          filestore_requests: requests, closure_requested: closure,
+          transmission_mode: transmission_mode
+        }, as: :json
+        expect(response).to have_http_status(200)
+        sleep 0.1
+
+        # Start user thread here so it has the change to receive the closure PDU
+        @user = CfdpUser.new
+        @user.start
+        sleep 0.1 # Allow user thread to start
+
+        if closure == 'CLOSURE_REQUESTED' or transmission_mode == 'ACKNOWLEDGED'
+          if send_closure
+            # Simlulate the finished PDU
+            cmd_params = {}
+            cmd_params["PDU"] = CfdpPdu.build_finished_pdu(
+              source_entity: CfdpMib.entity(@source_entity_id),
+              transaction_seq_num: 1,
+              destination_entity: CfdpMib.entity(@destination_entity_id),
+              condition_code: "NO_ERROR",
+              delivery_code: "DATA_COMPLETE",
+              file_status: "FILESTORE_SUCCESS",
+            )
+            msg_hash = {
+              :time => Time.now.to_nsec_from_epoch,
+              :stored => 'false',
+              :target_name => "CFDPTEST",
+              :packet_name => "CFDP_PDU",
+              :received_count => 1,
+              :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
+            }
+            Topic.write_topic("DEFAULT__DECOM__{CFDPTEST}__CFDP_PDU", msg_hash, nil)
+          end
+          sleep 1.1
+        end
+
+        # Clear the tx transactions to simulate the receive side on the same system
+        keys = CfdpMib.transactions.keys
+        keys.each do |key|
+          CfdpMib.transactions.delete(key)
+        end
+
+        i = 0
+        @packets.each do |target_name, cmd_name, cmd_params|
+          msg_hash = {
+            :time => Time.now.to_nsec_from_epoch,
+            :stored => 'false',
+            :target_name => target_name,
+            :packet_name => cmd_name,
+            :received_count => 1,
+            :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
+          }
+          Topic.write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
+          i += 1
+          if i == 1
+            if cancel
+              post "/cfdp/cancel", :params => {
+                scope: "DEFAULT", transaction_id: "#{@source_entity_id}__1"
+              }, as: :json
+            end
+          end
+        end
+        sleep 0.1
+        @user.stop
+        sleep 0.1
+
+        get "/cfdp/indications", :params => { scope: "DEFAULT" }
+        expect(response).to have_http_status(200)
+        json = JSON.parse(response.body)
+        yield json['indications']
+      end
+
+      it "requires a destination_entity_id" do
+        setup(source_id: 10, destination_id: 20)
+        post "/cfdp/put", :params => { scope: "DEFAULT" }
+        expect(response).to have_http_status(400)
+        expect(response.body).to match(/missing.*destination_entity_id/)
+      end
+
+      it "requires a numeric destination_entity_id" do
+        setup(source_id: 10, destination_id: 20)
+        post "/cfdp/put", :params => { scope: "DEFAULT", destination_entity_id: "HI" }
+        expect(response).to have_http_status(400)
+      end
+
       %w(local bucket).each do |type|
         context "with #{type} filestore requests" do
           if type == 'bucket'
@@ -37,14 +173,9 @@ module OpenC3
               after(:all) do
                 OpenC3::Bucket.getClient.delete(@bucket) if @bucket
               end
-              before(:each) do
-                mock_redis()
-              end
             else
               # Simulate the bucket by stubbing out the bucket client
               before(:each) do
-                mock_redis()
-
                 @client = double("getClient").as_null_object
                 allow(@client).to receive(:exist?).and_return(true)
                 allow(@client).to receive(:get_object) do |bucket:, key:, path:|
@@ -66,130 +197,8 @@ module OpenC3
             end
           else
             before(:each) do
-              mock_redis()
               @root_path = SPEC_DIR
             end
-          end
-
-          def setup(source_id:, destination_id:)
-            @source_entity_id = source_id
-            @destination_entity_id = destination_id
-            ENV['OPENC3_MICROSERVICE_NAME'] = 'DEFAULT__API__CFDP'
-            # Create the model that is consumed by CfdpMib.setup
-            model = MicroserviceModel.new(name: ENV['OPENC3_MICROSERVICE_NAME'], scope: "DEFAULT",
-              options: [
-                ["source_entity_id", @source_entity_id],
-                ["cmd_info", "CFDPTEST", "CFDP_PDU", "PDU"],
-                ["tlm_info", "CFDPTEST", "CFDP_PDU", "PDU"],
-                ["destination_entity_id", @destination_entity_id],
-                ["cmd_info", "CFDPTEST", "CFDP_PDU", "PDU"],
-                ["tlm_info", "CFDPTEST", "CFDP_PDU", "PDU"],
-                ["root_path", SPEC_DIR],
-              ],
-            )
-            model.create
-            CfdpMib.setup
-
-            @tx_pdus = []
-            @rx_pdus = []
-            @packets = []
-            allow_any_instance_of(CfdpSourceTransaction).to receive('cmd') do |source, tgt_name, pkt_name, params|
-              # puts params["PDU"].formatted # Prints the raw bytes
-              @tx_pdus << CfdpPdu.decom(params["PDU"])
-              @packets << [tgt_name, pkt_name, params]
-            end
-            allow_any_instance_of(CfdpReceiveTransaction).to receive('cmd') do |source, tgt_name, pkt_name, params|
-              @rx_pdus << CfdpPdu.decom(params["PDU"])
-            end
-          end
-
-          # Helper method to perform a filestore_request and return the indication
-          def request(source: nil, dest: nil, requests: [], closure: 'CLOSURE_NOT_REQUESTED', send_closure: true)
-            setup(source_id: 1, destination_id: 2)
-            CfdpMib.set_entity_value(@destination_entity_id, 'maximum_file_segment_length', 8)
-            CfdpMib.root_path = @root_path
-            if @bucket
-              CfdpMib.bucket = @bucket
-            else
-              CfdpMib.bucket = nil
-            end
-
-            post "/cfdp/put", :params => {
-              scope: "DEFAULT", destination_entity_id: @destination_entity_id,
-              source_file_name: source, destination_file_name: dest,
-              filestore_requests: requests, closure_requested: closure
-            }, as: :json
-            expect(response).to have_http_status(200)
-            sleep 0.1
-
-            # Start user thread here so it has the change to receive the closure PDU
-            @user = CfdpUser.new
-            @user.start
-            sleep 0.1 # Allow user thread to start
-
-            if closure == 'CLOSURE_REQUESTED'
-              if send_closure
-                # Simlulate the finished PDU
-                cmd_params = {}
-                cmd_params["PDU"] = CfdpPdu.build_finished_pdu(
-                  source_entity: CfdpMib.entity(@source_entity_id),
-                  transaction_seq_num: 1,
-                  destination_entity: CfdpMib.entity(@destination_entity_id),
-                  condition_code: "NO_ERROR",
-                  delivery_code: "DATA_COMPLETE",
-                  file_status: "FILESTORE_SUCCESS",
-                )
-                msg_hash = {
-                  :time => Time.now.to_nsec_from_epoch,
-                  :stored => 'false',
-                  :target_name => "CFDPTEST",
-                  :packet_name => "CFDP_PDU",
-                  :received_count => 1,
-                  :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
-                }
-                Topic.write_topic("DEFAULT__DECOM__{CFDPTEST}__CFDP_PDU", msg_hash, nil)
-              end
-              sleep 1.1
-            end
-
-            # Clear the tx transactions to simulate the receive side on the same system
-            keys = CfdpMib.transactions.keys
-            keys.each do |key|
-              CfdpMib.transactions.delete(key)
-            end
-
-            @packets.each do |target_name, cmd_name, cmd_params|
-              msg_hash = {
-                :time => Time.now.to_nsec_from_epoch,
-                :stored => 'false',
-                :target_name => target_name,
-                :packet_name => cmd_name,
-                :received_count => 1,
-                :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
-              }
-              Topic.write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
-            end
-            sleep 0.1
-            @user.stop
-            sleep 0.1
-
-            get "/cfdp/indications", :params => { scope: "DEFAULT" }
-            expect(response).to have_http_status(200)
-            json = JSON.parse(response.body)
-            yield json['indications']
-          end
-
-          it "requires a destination_entity_id" do
-            setup(source_id: 10, destination_id: 20)
-            post "/cfdp/put", :params => { scope: "DEFAULT" }
-            expect(response).to have_http_status(400)
-            expect(response.body).to match(/missing.*destination_entity_id/)
-          end
-
-          it "requires a numeric destination_entity_id" do
-            setup(source_id: 10, destination_id: 20)
-            post "/cfdp/put", :params => { scope: "DEFAULT", destination_entity_id: "HI" }
-            expect(response).to have_http_status(400)
           end
 
           it "sends a text file" do
@@ -242,6 +251,90 @@ module OpenC3
             expect(@tx_pdus[2]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
             expect(@tx_pdus[2]['DIRECTIVE_CODE']).to eql 'EOF'
             expect(@tx_pdus[2]['CONDITION_CODE']).to eql 'NO_ERROR'
+          end
+
+          it "sends data acknowledged" do
+            data = ('a'..'z').to_a.shuffle[0,8].join
+            File.write(File.join(SPEC_DIR, 'test1.txt'), data)
+            request(source: 'test1.txt', dest: 'test2.txt',
+                    transmission_mode: 'ACKNOWLEDGED') do |indications|
+              # First the transmit indications
+              expect(indications[0]['indication_type']).to eql 'Transaction'
+              expect(indications[1]['indication_type']).to eql 'EOF-Sent'
+              expect(indications[2]['indication_type']).to eql 'Transaction-Finished'
+              expect(indications[2]['condition_code']).to eql 'NO_ERROR'
+              expect(indications[2]['file_status']).to eql 'FILESTORE_SUCCESS'
+              expect(indications[2]['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indications[2]['status_report']).to eql 'FINISHED'
+              # Receive indications
+              expect(indications[3]['indication_type']).to eql 'Metadata-Recv'
+              expect(indications[3]['source_file_name']).to eql 'test1.txt'
+              expect(indications[3]['destination_file_name']).to eql 'test2.txt'
+              expect(indications[3]['file_size']).to eql '8'
+              expect(indications[3]['source_entity_id']).to eql '1'
+              expect(indications[4]['indication_type']).to eql 'File-Segment-Recv'
+              expect(indications[4]['offset']).to eql '0'
+              expect(indications[4]['length']).to eql '8'
+              expect(indications[5]['indication_type']).to eql 'EOF-Recv'
+              expect(indications[6]['indication_type']).to eql 'Transaction-Finished'
+              expect(indications[6]['condition_code']).to eql 'NO_ERROR'
+              expect(indications[6]['file_status']).to eql 'FILESTORE_SUCCESS'
+              expect(indications[6]['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indications[6]['status_report']).to eql 'FINISHED'
+            end
+            expect(File.exist?(File.join(SPEC_DIR, 'test2.txt'))).to be true
+            FileUtils.rm File.join(SPEC_DIR, 'test1.txt'), force: true
+            FileUtils.rm File.join(SPEC_DIR, 'test2.txt')
+
+            # Validate the Tx PDUs
+            expect(@tx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
+            expect(@tx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+            expect(@tx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
+            expect(@tx_pdus[0]['DIRECTIVE_CODE']).to eql 'METADATA'
+            expect(@tx_pdus[0]['FILE_SIZE']).to eql data.length
+            expect(@tx_pdus[0]['TRANSMISSION_MODE']).to eql 'ACKNOWLEDGED'
+
+            expect(@tx_pdus[1]['TYPE']).to eql 'FILE_DATA'
+            expect(@tx_pdus[1]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+            expect(@tx_pdus[1]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
+            expect(@tx_pdus[1]['FILE_DATA']).to eql data
+            expect(@tx_pdus[1]['TRANSMISSION_MODE']).to eql 'ACKNOWLEDGED'
+
+            expect(@tx_pdus[2]['TYPE']).to eql 'FILE_DIRECTIVE'
+            expect(@tx_pdus[2]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+            expect(@tx_pdus[2]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
+            expect(@tx_pdus[2]['DIRECTIVE_CODE']).to eql 'EOF'
+            expect(@tx_pdus[2]['CONDITION_CODE']).to eql 'NO_ERROR'
+            expect(@tx_pdus[2]['TRANSMISSION_MODE']).to eql 'ACKNOWLEDGED'
+
+            expect(@tx_pdus[3]['TYPE']).to eql 'FILE_DIRECTIVE'
+            expect(@tx_pdus[3]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+            expect(@tx_pdus[3]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
+            expect(@tx_pdus[3]['DIRECTIVE_CODE']).to eql 'ACK'
+            expect(@tx_pdus[3]['ACK_DIRECTIVE_CODE']).to eql 'FINISHED'
+            expect(@tx_pdus[3]['ACK_DIRECTIVE_SUBTYPE']).to eql 1
+            expect(@tx_pdus[3]['CONDITION_CODE']).to eql 'NO_ERROR'
+            expect(@tx_pdus[3]['TRANSMISSION_MODE']).to eql 'ACKNOWLEDGED'
+            expect(@tx_pdus[3]['TRANSACTION_STATUS']).to eql 'ACTIVE' # TODO: ACTIVE?
+
+            # Validate the Rx PDUs
+            expect(@rx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
+            expect(@rx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+            expect(@rx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @source_entity_id # Sent to ourselves
+            expect(@rx_pdus[0]['TRANSMISSION_MODE']).to eql 'ACKNOWLEDGED'
+            expect(@rx_pdus[0]['DIRECTIVE_CODE']).to eql 'ACK'
+            expect(@rx_pdus[0]['ACK_DIRECTIVE_CODE']).to eql 'EOF'
+            expect(@rx_pdus[0]['ACK_DIRECTIVE_SUBTYPE']).to eql 0
+            expect(@rx_pdus[0]['CONDITION_CODE']).to eql 'NO_ERROR'
+
+            expect(@rx_pdus[1]['TYPE']).to eql 'FILE_DIRECTIVE'
+            expect(@rx_pdus[1]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+            expect(@rx_pdus[1]['DESTINATION_ENTITY_ID']).to eql @source_entity_id
+            expect(@rx_pdus[1]['TRANSMISSION_MODE']).to eql 'ACKNOWLEDGED'
+            expect(@rx_pdus[1]['DIRECTIVE_CODE']).to eql 'FINISHED'
+            expect(@rx_pdus[1]['CONDITION_CODE']).to eql 'NO_ERROR'
+            expect(@rx_pdus[1]['DELIVERY_CODE']).to eql 'DATA_COMPLETE'
+            expect(@rx_pdus[1]['FILE_STATUS']).to eql 'FILESTORE_SUCCESS'
           end
 
           it "creates multiple segments" do
@@ -435,6 +528,48 @@ module OpenC3
             expect(error_message).to include("Unknown transaction")
             @user.stop
             sleep 0.1
+          end
+
+          it "cancels a transaction" do
+            data = ('a'..'z').to_a.shuffle[0,8].join
+            File.write(File.join(SPEC_DIR, 'test1.txt'), data)
+            request(source: 'test1.txt', dest: 'test2.txt', cancel: true) do |indications|
+              # First the transmit indications
+              expect(indications[0]['indication_type']).to eql 'Transaction'
+              expect(indications[1]['indication_type']).to eql 'EOF-Sent'
+              expect(indications[2]['indication_type']).to eql 'Transaction-Finished'
+              expect(indications[2]['condition_code']).to eql 'NO_ERROR'
+              expect(indications[2]['file_status']).to eql 'UNREPORTED'
+              expect(indications[2]['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indications[2]['status_report']).to eql 'FINISHED'
+              # Receive indications
+              expect(indications[-1]['condition_code']).to eql 'CANCEL_REQUEST_RECEIVED'
+              expect(indications[-1]['file_status']).to eql 'FILESTORE_SUCCESS'
+              expect(indications[-1]['delivery_code']).to eql 'DATA_COMPLETE'
+              expect(indications[-1]['status_report']).to eql 'CANCELED'
+            end
+            expect(File.exist?(File.join(SPEC_DIR, 'test2.txt'))).to be true
+            FileUtils.rm File.join(SPEC_DIR, 'test1.txt'), force: true
+            FileUtils.rm File.join(SPEC_DIR, 'test2.txt')
+
+            # Validate the PDUs
+            expect(@tx_pdus.length).to eql 3
+            expect(@tx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
+            expect(@tx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+            expect(@tx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
+            expect(@tx_pdus[0]['DIRECTIVE_CODE']).to eql 'METADATA'
+            expect(@tx_pdus[0]['FILE_SIZE']).to eql data.length
+
+            expect(@tx_pdus[1]['TYPE']).to eql 'FILE_DATA'
+            expect(@tx_pdus[1]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+            expect(@tx_pdus[1]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
+            expect(@tx_pdus[1]['FILE_DATA']).to eql data
+
+            expect(@tx_pdus[2]['TYPE']).to eql 'FILE_DIRECTIVE'
+            expect(@tx_pdus[2]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+            expect(@tx_pdus[2]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
+            expect(@tx_pdus[2]['DIRECTIVE_CODE']).to eql 'EOF'
+            expect(@tx_pdus[2]['CONDITION_CODE']).to eql 'NO_ERROR'
           end
 
           it "runs filestore requests after copy" do
