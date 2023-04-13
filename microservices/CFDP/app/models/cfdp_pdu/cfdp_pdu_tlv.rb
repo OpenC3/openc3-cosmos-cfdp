@@ -128,24 +128,25 @@ class CfdpPdu < OpenC3::Packet
         return s.buffer(false)
       end
 
-    when "FILESTORE_RESPONSE"
-      first_file_name = tlv["FIRST_FILE_NAME"].to_s
-      second_file_name = tlv["SECOND_FILE_NAME"].to_s
-      filestore_message = tlv["FILESTORE_MESSAGE"].to_s
+    # TODO: Handled by cfdp_receive_transaction.rb, search 'Handle Filestore Requests'
+    # when "FILESTORE_RESPONSE"
+    #   first_file_name = tlv["FIRST_FILE_NAME"].to_s
+    #   second_file_name = tlv["SECOND_FILE_NAME"].to_s
+    #   filestore_message = tlv["FILESTORE_MESSAGE"].to_s
 
-      s, s2, s3, status_code_item = define_filestore_response_tlv()
-      add_status_code_states(action_code: tlv["ACTION_CODE"], status_code_item: status_code_item)
-      s.write("TLV_TYPE", "FILESTORE_REQUEST")
-      s.write("TLV_LENGTH", 4 + first_file_name.length + second_file_name.length + filestore_message.length)
-      s.write("ACTION_CODE", tlv['ACTION_CODE'])
-      s.write("STATUS_CODE", tlv['STATUS_CODE'])
-      s.write("FIRST_FILE_NAME_LENGTH", first_file_name.length)
-      s.write("FIRST_FILE_NAME", first_file_name)
-      s2.write("SECOND_FILE_NAME_LENGTH", second_file_name.length)
-      s2.write("SECOND_FILE_NAME", second_file_name)
-      s3.write("FILESTORE_MESSAGE_LENGTH", filestore_message.length)
-      s3.write("FILESTORE_MESSAGE", filestore_message)
-      return s.buffer(false) + s2.buffer(false) + s3.buffer(false)
+    #   s, s2, s3, status_code_item = define_filestore_response_tlv()
+    #   add_status_code_states(action_code: tlv["ACTION_CODE"], status_code_item: status_code_item)
+    #   s.write("TLV_TYPE", "FILESTORE_REQUEST")
+    #   s.write("TLV_LENGTH", 4 + first_file_name.length + second_file_name.length + filestore_message.length)
+    #   s.write("ACTION_CODE", tlv['ACTION_CODE'])
+    #   s.write("STATUS_CODE", tlv['STATUS_CODE'])
+    #   s.write("FIRST_FILE_NAME_LENGTH", first_file_name.length)
+    #   s.write("FIRST_FILE_NAME", first_file_name)
+    #   s2.write("SECOND_FILE_NAME_LENGTH", second_file_name.length)
+    #   s2.write("SECOND_FILE_NAME", second_file_name)
+    #   s3.write("FILESTORE_MESSAGE_LENGTH", filestore_message.length)
+    #   s3.write("FILESTORE_MESSAGE", filestore_message)
+    #   return s.buffer(false) + s2.buffer(false) + s3.buffer(false)
 
     when "MESSAGE_TO_USER"
       s = define_message_to_user_tlv()

@@ -80,25 +80,19 @@ class CfdpSourceTransaction < CfdpTransaction
 
   def update
     if @status != "SUSPENDED"
-      if @eof_ack_timeout
-        if @eof_ack_pdu_hash
+      if @eof_ack_timeout and Time.now > @eof_ack_timeout
+        # Resend eof pdu
+        cmd_params = {}
+        cmd_params[@item_name] = @eof_pdu
+        cmd(@target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+        @eof_count += 1
+        if @eof_count > CfdpMib.source_entity['ack_timer_expiration_limit']
+          # Positive ACK Limit Reached Fault
+          @condition_code = "ACK_LIMIT_REACHED"
+          handle_fault()
           @eof_ack_timeout = nil
         else
-          if Time.now > @eof_ack_timeout
-            # Resend eof pdu
-            cmd_params = {}
-            cmd_params[@item_name] = @eof_pdu
-            cmd(@target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
-            @eof_count += 1
-            if @eof_count > CfdpMib.source_entity['ack_timer_expiration_limit']
-              # Positive ACK Limit Reached Fault
-              @condition_code = "ACK_LIMIT_REACHED"
-              handle_fault()
-              @eof_ack_timeout = nil
-            else
-              @eof_ack_timeout = Time.now + CfdpMib.source_entity['ack_timer_interval']
-            end
-          end
+          @eof_ack_timeout = Time.now + CfdpMib.source_entity['ack_timer_interval']
         end
       end
     end

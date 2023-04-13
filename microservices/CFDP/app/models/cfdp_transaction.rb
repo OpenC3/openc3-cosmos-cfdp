@@ -51,7 +51,7 @@ class CfdpTransaction
       if entity_id
         @canceling_entity_id = entity_id
       else
-        @canceling_entity_id = CfdpMib.source_entity.id
+        @canceling_entity_id = CfdpMib.source_entity['id']
       end
       @status = "CANCELED"
     end
