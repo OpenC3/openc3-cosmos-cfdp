@@ -75,6 +75,7 @@ class CfdpPdu < OpenC3::Packet
     result["SOURCE_ENTITY_ID"] = s2.read("SOURCE_ENTITY_ID")
     result["SEQUENCE_NUMBER"] = s2.read("SEQUENCE_NUMBER")
     message_to_user = message_to_user[0..(s2.defined_length - 1)]
+    result["MSG_TYPE"] = "ORIGINATING_TRANSACTION_ID"
     return result, message_to_user
   end
 
@@ -119,6 +120,7 @@ class CfdpPdu < OpenC3::Packet
     dfn.buffer = dfn.buffer(false)[0..length]
     destination_file_name = dfn.read("VALUE")
     result["DESTINATION_FILE_NAME"] = destination_file_name if destination_file_name.length > 0
+    result["MSG_TYPE"] = "PROXY_PUT_REQUEST"
     return result
   end
 
@@ -143,6 +145,7 @@ class CfdpPdu < OpenC3::Packet
     s = define_proxy_message_to_user_message()
     length = s.read("LENGTH")
     result["MESSAGE_TO_USER"] = s.read("VALUE")[0..(length - 1)]
+    result["MSG_TYPE"] = "PROXY_MESSAGE_TO_USER"
     return result
   end
 
@@ -187,6 +190,7 @@ class CfdpPdu < OpenC3::Packet
     result["ACTION_CODE"] = s2.read("ACTION_CODE")
     result["FIRST_FILE_NAME"] = s3.read("VALUE") if first_file_name_length > 0
     result["SECOND_FILE_NAME"] = s4.read("VALUE") if second_file_name_length > 0
+    result["MSG_TYPE"] = "PROXY_FILESTORE_REQUEST"
     return result
   end
 
@@ -217,6 +221,7 @@ class CfdpPdu < OpenC3::Packet
     s1.buffer = message_to_user
     result["CONDITION_CODE"] = s1.read("CONDITION_CODE")
     result["HANDLER_CODE"] = s1.read("HANDLER_CODE")
+    result["MSG_TYPE"] = "PROXY_FAULT_HANDLER_OVERRIDE"
     return result
   end
 
@@ -245,6 +250,7 @@ class CfdpPdu < OpenC3::Packet
     s2 = define_proxy_transmission_mode_message()
     s2.buffer = message_to_user
     result["TRANSMISSION_MODE"] = s2.read("TRANSMISSION_MODE")
+    result["MSG_TYPE"] = "PROXY_TRANSMISSION_MODE"
     return result
   end
 
@@ -271,6 +277,7 @@ class CfdpPdu < OpenC3::Packet
     length = s2.read("LENGTH")
     s2.buffer = message_to_user[0..length]
     result["FLOW_LABEL"] = s2.read("VALUE")
+    result["MSG_TYPE"] = "PROXY_FLOW_LABEL"
     return result
   end
 
@@ -299,6 +306,7 @@ class CfdpPdu < OpenC3::Packet
     s2 = define_proxy_segmentation_control_message()
     s2.buffer = message_to_user
     result["SEGMENTATION_CONTROL"] = s2.read("SEGMENTATION_CONTROL")
+    result["MSG_TYPE"] = "PROXY_SEGMENTATION_CONTROL"
     return result
   end
 
@@ -327,6 +335,7 @@ class CfdpPdu < OpenC3::Packet
     s2 = define_proxy_closure_request_message()
     s2.buffer = message_to_user
     result["CLOSURE_REQUESTED"] = s2.read("CLOSURE_REQUESTED")
+    result["MSG_TYPE"] = "PROXY_CLOSURE_REQUEST"
     return result
   end
 
@@ -361,6 +370,7 @@ class CfdpPdu < OpenC3::Packet
     result["CONDITION_CODE"] = s2.read("CONDITION_CODE")
     result["DELIVERY_CODE"] = s2.read("DELIVERY_CODE")
     result["FILE_STATUS"] = s2.read("FILE_STATUS")
+    result["MSG_TYPE"] = "PROXY_PUT_RESPONSE"
     return result
   end
 
@@ -416,6 +426,21 @@ class CfdpPdu < OpenC3::Packet
     s5.buffer = s5.buffer(false)[0..length]
     filestore_message = s5.read("VALUE")
     result["FILESTORE_MESSAGE"] = filestore_message if filestore_message.length > 0
+    result["MSG_TYPE"] = "PROXY_FILESTORE_RESPONSE"
+    return result
+  end
+
+  # 6.2.6.2
+  def build_proxy_put_cancel_message
+    s1 = define_reserved_cfdp_message_header()
+    s1.write("MSG_ID", "cfdp")
+    s1.write("MSG_TYPE", "PROXY_PUT_CANCEL")
+    return s1.buffer(false)
+  end
+
+  def decom_proxy_put_cancel_message(message_to_user)
+    result = {}
+    result["MSG_TYPE"] = "PROXY_PUT_CANCEL"
     return result
   end
 
@@ -451,6 +476,7 @@ class CfdpPdu < OpenC3::Packet
     s3.buffer = s3.buffer(false)[0..length]
     directory_file_name = s3.read("VALUE")
     result["DIRECTORY_FILE_NAME"] = directory_file_name if directory_file_name.length > 0
+    result["MSG_TYPE"] = "DIRECTORY_LISTING_REQUEST"
     return result
   end
 
@@ -495,6 +521,7 @@ class CfdpPdu < OpenC3::Packet
     s3.buffer = s3.buffer(false)[0..length]
     directory_file_name = s3.read("VALUE")
     result["DIRECTORY_FILE_NAME"] = directory_file_name if directory_file_name.length > 0
+    result["MSG_TYPE"] = "DIRECTORY_LISTING_RESPONSE"
     return result
   end
 
@@ -523,6 +550,7 @@ class CfdpPdu < OpenC3::Packet
     s2.buffer = s2.buffer(false)[0..length]
     report_file_name = s2.read("VALUE")
     result["REPORT_FILE_NAME"] = report_file_name if report_file_name.length > 0
+    result["MSG_TYPE"] = "REMOTE_STATUS_REPORT_REQUEST"
     return result
   end
 
@@ -557,6 +585,7 @@ class CfdpPdu < OpenC3::Packet
     result, message_to_user = decom_originating_transaction_id_message(message_to_user)
     result["TRANSACTION_STATUS"] = s2.read("TRANSACTION_STATUS")
     result["RESPONSE_CODE"] = s2.read("RESPONSE_CODE")
+    result["MSG_TYPE"] = "REMOTE_STATUS_REPORT_RESPONSE"
     return result
   end
 
@@ -572,6 +601,7 @@ class CfdpPdu < OpenC3::Packet
   def decom_remote_suspend_request_message(message_to_user)
     message_to_user = message_to_user[5..-1] # Remove header
     result, message_to_user = decom_originating_transaction_id_message(message_to_user)
+    result["MSG_TYPE"] = "REMOTE_SUSPEND_REQUEST"
     return result
   end
 
@@ -606,6 +636,7 @@ class CfdpPdu < OpenC3::Packet
     result, message_to_user = decom_originating_transaction_id_message(message_to_user)
     result["SUSPENSION_INDICATOR"] = s2.read("SUSPENSION_INDICATOR")
     result["TRANSACTION_STATUS"] = s2.read("TRANSACTION_STATUS")
+    result["MSG_TYPE"] = "REMOTE_SUSPEND_RESPONSE"
     return result
   end
 
@@ -621,6 +652,7 @@ class CfdpPdu < OpenC3::Packet
   def decom_remote_resume_request_message(message_to_user)
     message_to_user = message_to_user[5..-1] # Remove header
     result, message_to_user = decom_originating_transaction_id_message(message_to_user)
+    result["MSG_TYPE"] = "REMOTE_RESUME_REQUEST"
     return result
   end
 
@@ -638,7 +670,9 @@ class CfdpPdu < OpenC3::Packet
   end
 
   def decom_remote_resume_response_message(message_to_user)
-    return decom_remote_suspend_response_message(message_to_user)
+    result = decom_remote_suspend_response_message(message_to_user)
+    result["MSG_TYPE"] = "REMOTE_RESUME_RESPONSE"
+    return result
   end
 
   def decom_message_to_user(message_to_user)
@@ -689,13 +723,13 @@ class CfdpPdu < OpenC3::Packet
         when "REMOTE_RESUME_RESPONSE"
           return decom_remote_resume_response_message(message_to_user)
         else
-          return {"MSG_TYPE" => "UNKNOWN", "MSG" => message_to_user}
+          return {"MSG_TYPE" => "UNKNOWN"}
         end
       else
-        return {"MSG_TYPE" => "UNKNOWN", "MSG" => message_to_user}
+        return {"MSG_TYPE" => "UNKNOWN"}
       end
     else
-      return {"MSG_TYPE" => "UNKNOWN", "MSG" => message_to_user}
+      return {"MSG_TYPE" => "UNKNOWN"}
     end
   end
 end

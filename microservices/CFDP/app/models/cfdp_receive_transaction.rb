@@ -2,6 +2,8 @@ require_relative 'cfdp_transaction'
 
 class CfdpReceiveTransaction < CfdpTransaction
 
+  attr_reader :metadata_pdu_hash
+
   def initialize(pdu_hash)
     super()
     @id = self.class.build_transaction_id(pdu_hash["SOURCE_ENTITY_ID"], pdu_hash["SEQUENCE_NUMBER"])

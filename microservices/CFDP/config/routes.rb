@@ -11,6 +11,7 @@ Rails.application.routes.draw do
     post "/suspend" => "cfdp#suspend"
     post "/resume" => "cfdp#resume"
     post "/report" => "cfdp#report"
+    post "/directorylisting" => "cfdp#directory_listing"
     get "/indications/:transaction_id" => "cfdp#indications"
     get "/indications" => "cfdp#indications"
   end

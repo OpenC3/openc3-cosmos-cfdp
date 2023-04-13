@@ -83,6 +83,19 @@ class CfdpController < ApplicationController
     end
   end
 
+  def directory_listing
+    return unless authorization('cmd')
+    params.require([:entity_id, :directory_name, :directory_file_name])
+    if params[:entity_id].to_i.to_s != params[:entity_id].to_s
+      render :json => { :status => 'error', :message => "entity_id must be numeric" }, :status => 400
+      return
+    end
+    transaction = $cfdp_user.start_directory_listing(params)
+    render json: transaction.id
+  rescue ActionController::ParameterMissing => error
+    render :json => { :status => 'error', :message => error.message }, :status => 400
+  end
+
   # Transaction.indication (transaction ID)
   # EOF-Sent.indication (transaction ID)
   # Transaction-Finished.indication (transaction ID,

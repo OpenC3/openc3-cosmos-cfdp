@@ -14,6 +14,10 @@ class CfdpTransaction
   attr_reader :frozen
   attr_reader :status
   attr_reader :progress
+  attr_reader :transaction_seq_num
+  attr_reader :condition_code
+  attr_reader :delivery_code
+  attr_reader :file_status
 
   def initialize
     @frozen = false

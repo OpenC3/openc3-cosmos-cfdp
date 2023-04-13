@@ -2,6 +2,10 @@ require_relative 'cfdp_transaction'
 
 class CfdpSourceTransaction < CfdpTransaction
 
+  attr_accessor :proxy_response_info
+  attr_reader :proxy_response_needed
+  attr_reader :filestore_responses
+
   def initialize(source_entity: nil)
     super()
     @source_entity = source_entity
@@ -15,6 +19,8 @@ class CfdpSourceTransaction < CfdpTransaction
     @destination_file_name = nil
     @destination_entity = nil
     @eof_count = 0
+    @filestore_responses = []
+    @proxy_response_needed = false
   end
 
   def put(
@@ -277,14 +283,13 @@ class CfdpSourceTransaction < CfdpTransaction
     # Cancel all timeouts
     @eof_ack_timeout = nil
 
-    filestore_responses = []
     if @finished_pdu_hash
       tlvs = @finished_pdu_hash["TLVS"]
       if tlvs
         tlvs.each do |tlv|
           case tlv['TYPE']
           when 'FILESTORE_RESPONSE'
-            filestore_responses << tlv.except('TYPE')
+            @filestore_responses << tlv.except('TYPE')
           end
         end
       end
@@ -295,12 +300,13 @@ class CfdpSourceTransaction < CfdpTransaction
       CfdpTopic.write_indication("Transaction-Finished",
         transaction_id: @id, condition_code: @condition_code,
         file_status: @file_status, delivery_code: @delivery_code, status_report: @status,
-        filestore_responses: filestore_responses)
+        filestore_responses: @filestore_responses)
     else
       CfdpTopic.write_indication("Transaction-Finished",
         transaction_id: @id, condition_code: @condition_code,
         file_status: @file_status, status_report: @status, delivery_code: @delivery_code)
     end
+    @proxy_response_needed = true if @proxy_response_info
   end
 
   def handle_pdu(pdu_hash)
