@@ -49,7 +49,7 @@ class CfdpUser
               transaction_id = CfdpReceiveTransaction.build_transaction_id(pdu_hash["SOURCE_ENTITY_ID"], pdu_hash["SEQUENCE_NUMBER"])
               transaction = CfdpMib.transactions[transaction_id]
               if transaction
-                have_metadata = transaction.metadata_pdu_hash
+                # have_metadata = transaction.metadata_pdu_hash
                 transaction.handle_pdu(pdu_hash)
               elsif pdu_hash["DIRECTIVE_CODE"] == "METADATA" or pdu_hash["DIRECTIVE_CODE"].nil?
                 transaction = CfdpReceiveTransaction.new(pdu_hash) # Also calls handle_pdu inside
@@ -74,21 +74,21 @@ class CfdpUser
           end
           CfdpMib.transactions.each do |transaction_id, transaction|
             transaction.update
-            if transaction.proxy_response_needed
-              # Send the proxy response
-              params = {}
-              params[:destination_entity_id] = transaction.proxy_response_info["SOURCE_ENTITY_ID"]
-              params[:messages_to_user] = []
-              pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: params[:destination_entity_id], file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
-              params[:messages_to_user] << pdu.build_proxy_put_response_message(condition_code: transaction.condition_code, delivery_code: transaction.delivery_code, file_status: transaction.file_status)
-              params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: transaction.proxy_response_info["SOURCE_ENTITY_ID"], sequence_number: transaction.proxy_response_info["SEQUENCE_NUMBER"])
-              transaction.filestore_responses.each do |filestore_response|
-                params[:messages_to_user] << pdu.build_proxy_filestore_response_message(action_code: filestore_response["ACTION_CODE"], status_code: filestore_response["STATUS_CODE"], first_file_name: filestore_response["FIRST_FILE_NAME"], second_file_name: filestore_response["SECOND_FILE_NAME"], filestore_message: filestore_response["FILESTORE_MESSAGE"])
-              end
-              start_source_transaction(params)
-              transaction.proxy_response_needed = false
-              transaction.proxy_response_info = nil
-            end
+            # if transaction.proxy_response_needed
+            #   # Send the proxy response
+            #   params = {}
+            #   params[:destination_entity_id] = transaction.proxy_response_info["SOURCE_ENTITY_ID"]
+            #   params[:messages_to_user] = []
+            #   pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: params[:destination_entity_id], file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
+            #   params[:messages_to_user] << pdu.build_proxy_put_response_message(condition_code: transaction.condition_code, delivery_code: transaction.delivery_code, file_status: transaction.file_status)
+            #   params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: transaction.proxy_response_info["SOURCE_ENTITY_ID"], sequence_number: transaction.proxy_response_info["SEQUENCE_NUMBER"])
+            #   transaction.filestore_responses.each do |filestore_response|
+            #     params[:messages_to_user] << pdu.build_proxy_filestore_response_message(action_code: filestore_response["ACTION_CODE"], status_code: filestore_response["STATUS_CODE"], first_file_name: filestore_response["FIRST_FILE_NAME"], second_file_name: filestore_response["SECOND_FILE_NAME"], filestore_message: filestore_response["FILESTORE_MESSAGE"])
+            #   end
+            #   start_source_transaction(params)
+            #   transaction.proxy_response_needed = false
+            #   transaction.proxy_response_info = nil
+            # end
           end
         end
       rescue => err
@@ -221,7 +221,7 @@ class CfdpUser
         params[:messages_to_user] << message_to_user["MESSAGE_TO_USER"]
 
       when "PROXY_FILESTORE_REQUEST"
-        params[:filestore_requests] << [message_to_user["ACTION_CODE", message_to_user["FIRST_FILE_NAME"]]
+        params[:filestore_requests] << message_to_user["ACTION_CODE", message_to_user["FIRST_FILE_NAME"]]
         params[:filestore_requests][-1] << message_to_user["SECOND_FILE_NAME"] if message_to_user["SECOND_FILE_NAME"]
 
       when "PROXY_FAULT_HANDLER_OVERRIDE"
@@ -291,7 +291,7 @@ class CfdpUser
       when :PUT
         transaction = start_source_transaction(params)
         transaction.proxy_response_info = {
-          "SOURCE_ENTITY_ID" => metadata_pdu_hash["SOURCE_ENTITY_ID"]
+          "SOURCE_ENTITY_ID" => metadata_pdu_hash["SOURCE_ENTITY_ID"],
           "SEQUENCE_NUMBER" => metadata_pdu_hash["SEQUENCE_NUMBER"]
         }
       end
@@ -299,10 +299,10 @@ class CfdpUser
   end
 end
 
-params = {}
-params[:destination_entity_id] = source_entity_id
-params[:messages_to_user] = []
-pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: params[:destination_entity_id], file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
-params[:messages_to_user] << pdu.build_proxy_put_response_message(condition_code: transaction.condition_code, delivery_code: transaction.delivery_code, file_status: transaction.file_status)
-params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: source_entity_id, sequence_number: sequence_number)
-start_source_transaction(params)
+# params = {}
+# params[:destination_entity_id] = source_entity_id
+# params[:messages_to_user] = []
+# pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: params[:destination_entity_id], file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
+# params[:messages_to_user] << pdu.build_proxy_put_response_message(condition_code: transaction.condition_code, delivery_code: transaction.delivery_code, file_status: transaction.file_status)
+# params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: source_entity_id, sequence_number: sequence_number)
+# start_source_transaction(params)
