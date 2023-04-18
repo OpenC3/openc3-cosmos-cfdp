@@ -19,6 +19,10 @@ class CfdpTransaction
   attr_reader :delivery_code
   attr_reader :file_status
 
+  def self.build_transaction_id(source_entity_id, transaction_seq_num)
+    "#{source_entity_id}__#{transaction_seq_num}"
+  end
+
   def initialize
     @frozen = false
     @status = "ACTIVE" # ACTIVE, FINISHED, CANCELED, SUSPENDED

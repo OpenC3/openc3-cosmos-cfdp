@@ -45,18 +45,16 @@ class CfdpUser
               #  raise "PDU received for different entity: Mine: #{CfdpMib.source_entity_id}, Destination: #{pdu_hash['DESTINATION_ENTITY_ID']}"
               #end
 
-              have_metadata = false
-              transaction_id = CfdpReceiveTransaction.build_transaction_id(pdu_hash["SOURCE_ENTITY_ID"], pdu_hash["SEQUENCE_NUMBER"])
+              transaction_id = CfdpTransaction.build_transaction_id(pdu_hash["SOURCE_ENTITY_ID"], pdu_hash["SEQUENCE_NUMBER"])
               transaction = CfdpMib.transactions[transaction_id]
               if transaction
-                # have_metadata = transaction.metadata_pdu_hash
                 transaction.handle_pdu(pdu_hash)
               elsif pdu_hash["DIRECTIVE_CODE"] == "METADATA" or pdu_hash["DIRECTIVE_CODE"].nil?
                 transaction = CfdpReceiveTransaction.new(pdu_hash) # Also calls handle_pdu inside
               else
                 raise "Unknown transaction: #{transaction_id}, #{pdu_hash}"
               end
-              if pdu_hash["DIRECTIVE_CODE"] == "METADATA" and not have_metadata
+              if pdu_hash["DIRECTIVE_CODE"] == "METADATA" and not transaction.metadata_pdu_hash
                 # Handle messages_to_user
                 messages_to_user = []
                 if pdu_hash["TLVS"]

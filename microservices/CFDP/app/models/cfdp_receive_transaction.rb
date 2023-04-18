@@ -6,7 +6,7 @@ class CfdpReceiveTransaction < CfdpTransaction
 
   def initialize(pdu_hash)
     super()
-    @id = self.class.build_transaction_id(pdu_hash["SOURCE_ENTITY_ID"], pdu_hash["SEQUENCE_NUMBER"])
+    @id = CfdpTransaction.build_transaction_id(pdu_hash["SOURCE_ENTITY_ID"], pdu_hash["SEQUENCE_NUMBER"])
     @transaction_seq_num = pdu_hash["SEQUENCE_NUMBER"]
     @transmission_mode = pdu_hash["TRANSMISSION_MODE"]
     @messages_to_user = []
@@ -37,10 +37,6 @@ class CfdpReceiveTransaction < CfdpTransaction
     @keep_alive_count = 0
     CfdpMib.transactions[@id] = self
     handle_pdu(pdu_hash)
-  end
-
-  def self.build_transaction_id(source_entity_id, transaction_seq_num)
-    "#{source_entity_id}__#{transaction_seq_num}"
   end
 
   def check_complete
@@ -478,9 +474,9 @@ class CfdpReceiveTransaction < CfdpTransaction
 
       CfdpTopic.write_indication("EOF-Recv", transaction_id: @id)
 
+      destination_entity = CfdpMib.source_entity
       if @transmission_mode == "ACKNOWLEDGED"
         source_entity = CfdpMib.entity(@metadata_pdu_hash['SOURCE_ENTITY_ID'])
-        destination_entity = CfdpMib.source_entity
         target_name, packet_name, item_name = source_entity["cmd_info"]
         # Ack EOF PDU
         ack_pdu = CfdpPdu.build_ack_pdu(
