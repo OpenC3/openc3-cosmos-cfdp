@@ -7,7 +7,7 @@
 # purchased from OpenC3, Inc.
 
 require 'openc3/utilities/authentication'
-require 'openc3/io/json_api_object'
+require 'openc3/io/json_api'
 
 # Usage:
 #

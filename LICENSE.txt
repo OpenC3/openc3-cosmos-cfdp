@@ -1,5 +1,16 @@
-# OpenC3 Evaluation License
+# OpenC3 Evaluation and Educational License
 #
-# This work is licensed for evaluation purposes only. It may NOT be used
-# for formal development, integration and test, or operations without the purchase
-# of a commercial license from OpenC3, Inc.
+# This work is licensed for evaluation and educational purposes only.
+# It may NOT be used for formal development, integration and test, operations
+# or any other commercial purpose without the purchase of a commercial license
+# from OpenC3, Inc.
+#
+# The above copyright notice and this permission notice shall be included in all copies
+# or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+# PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
