@@ -19,9 +19,11 @@ Contributing is easy.
 3. Make your changes
 4. Submit a pull request
 
-Before any contributions can be incorporated we do require all contributors to agree to a Contributor License Agreement
+YOU MUST AGREE TO OUR CONTRIBUTOR LICENSE AGREEMENT TO SUBMIT CODE TO THIS PROJECT: See [CONTRIBUTING.txt](CONTRIBUTING.txt)
 
-This protects both you and us and you retain full rights to any code you write.
+Most importantly:
+
+FOR ALL CONTRIBUTIONS TO THE OPENC3 COSMOS PROJECT, OPENC3, INC. MAINTAINS ALL RIGHTS TO ALL CODE CONTRIBUTED TO THE OPENC3 PROJECT INCLUDING THE RIGHT TO LICENSE IT UNDER OTHER TERMS.
 
 ## License
 

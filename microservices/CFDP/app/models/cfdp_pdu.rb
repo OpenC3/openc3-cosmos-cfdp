@@ -3,23 +3,31 @@
 # Copyright 2023 OpenC3, Inc.
 # All Rights Reserved.
 #
-# This file may only be used under the terms of a commercial license
-# if purchased from OpenC3, Inc.
+# Licensed for Evaluation and Educational Use
+#
+# This file may only be used commercially under the terms of a commercial license
+# purchased from OpenC3, Inc.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#
+# The development of this software was funded in-whole or in-part by MethaneSAT LLC.
 
 require 'openc3/packets/packet'
 require 'openc3/utilities/crc'
 
-require_relative 'cfdp_pdu/cfdp_pdu_enum'
-require_relative 'cfdp_pdu/cfdp_pdu_tlv'
-require_relative 'cfdp_pdu/cfdp_pdu_eof'
-require_relative 'cfdp_pdu/cfdp_pdu_finished'
-require_relative 'cfdp_pdu/cfdp_pdu_ack'
-require_relative 'cfdp_pdu/cfdp_pdu_metadata'
-require_relative 'cfdp_pdu/cfdp_pdu_nak'
-require_relative 'cfdp_pdu/cfdp_pdu_prompt'
-require_relative 'cfdp_pdu/cfdp_pdu_keep_alive'
-require_relative 'cfdp_pdu/cfdp_pdu_file_data'
-require_relative 'cfdp_pdu/cfdp_pdu_user_ops'
+require 'cfdp_pdu/cfdp_pdu_enum'
+require 'cfdp_pdu/cfdp_pdu_tlv'
+require 'cfdp_pdu/cfdp_pdu_eof'
+require 'cfdp_pdu/cfdp_pdu_finished'
+require 'cfdp_pdu/cfdp_pdu_ack'
+require 'cfdp_pdu/cfdp_pdu_metadata'
+require 'cfdp_pdu/cfdp_pdu_nak'
+require 'cfdp_pdu/cfdp_pdu_prompt'
+require 'cfdp_pdu/cfdp_pdu_keep_alive'
+require 'cfdp_pdu/cfdp_pdu_file_data'
+require 'cfdp_pdu/cfdp_pdu_user_ops'
 
 class CfdpPdu < OpenC3::Packet
   def initialize(crcs_required:)

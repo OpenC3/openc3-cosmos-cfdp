@@ -3,8 +3,16 @@
 # Copyright 2023 OpenC3, Inc.
 # All Rights Reserved.
 #
-# This file may only be used under the terms of a commercial license
-# if purchased from OpenC3, Inc.
+# Licensed for Evaluation and Educational Use
+#
+# This file may only be used commercially under the terms of a commercial license
+# purchased from OpenC3, Inc.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#
+# The development of this software was funded in-whole or in-part by MethaneSAT LLC.
 
 class CfdpPdu < OpenC3::Packet
   def self.decom_prompt_pdu_contents(pdu, pdu_hash, variable_data)
