@@ -454,141 +454,117 @@ module OpenC3
             expect(@tx_pdus[3]['CONDITION_CODE']).to eql 'NO_ERROR'
           end
 
-          it "sends a NAK if a single segment missing" do
-            data = ('a'..'z').to_a.shuffle[0,9].join
-            File.write(File.join(SPEC_DIR, 'test1.txt'), data)
-            # Skip the second segment
-            request(source: 'test1.txt', dest: 'test2.txt', skip: [2]) do |indications|
-              # First the transmit indications
-              expect(indications[0]['indication_type']).to eql 'Transaction'
-              expect(indications[1]['indication_type']).to eql 'EOF-Sent'
-              expect(indications[2]['indication_type']).to eql 'Transaction-Finished'
-              expect(indications[2]['condition_code']).to eql 'NO_ERROR'
-              expect(indications[2]['file_status']).to eql 'UNREPORTED'
-              expect(indications[2]['delivery_code']).to eql 'DATA_COMPLETE'
-              expect(indications[2]['status_report']).to eql 'FINISHED'
-              # Receive indications
-              expect(indications[3]['indication_type']).to eql 'Metadata-Recv'
-              expect(indications[3]['source_file_name']).to eql 'test1.txt'
-              expect(indications[3]['destination_file_name']).to eql 'test2.txt'
-              expect(indications[3]['file_size']).to eql '9'
-              expect(indications[3]['source_entity_id']).to eql '1'
-              expect(indications[4]['indication_type']).to eql 'File-Segment-Recv'
-              expect(indications[4]['offset']).to eql '0'
-              expect(indications[4]['length']).to eql '8'
-              # This segment is skipped
-              # expect(indications[5]['indication_type']).to eql 'File-Segment-Recv'
-              # expect(indications[5]['offset']).to eql '8'
-              # expect(indications[5]['length']).to eql '1'
-              expect(indications[5]['indication_type']).to eql 'EOF-Recv'
+          %w(1 2 3 1_2 2_3 1_3).each do |missing|
+            context "with segment #{missing} missing" do
+              it "sends a NAK" do
+                data = ('a'..'z').to_a.shuffle[0,17].join
+                File.write(File.join(SPEC_DIR, 'test1.txt'), data)
+                segments = missing.split('_')
+                segments.map! {|segment| segment.to_i }
+                start_offset = nil
+                end_offset = nil
+                if segments.include?(3)
+                  start_offset = 16
+                end
+                if segments.include?(2)
+                  start_offset = 8
+                end
+                if segments.include?(1)
+                  start_offset = 0
+                  end_offset = 8
+                end
+                if segments.include?(2)
+                  end_offset = 16
+                end
+                if segments.include?(3)
+                  end_offset = 17
+                end
+                request(source: 'test1.txt', dest: 'test2.txt', skip: segments) do |indications|
+                  # First the transmit indications
+                  expect(indications[0]['indication_type']).to eql 'Transaction'
+                  expect(indications[1]['indication_type']).to eql 'EOF-Sent'
+                  expect(indications[2]['indication_type']).to eql 'Transaction-Finished'
+                  expect(indications[2]['condition_code']).to eql 'NO_ERROR'
+                  expect(indications[2]['file_status']).to eql 'UNREPORTED'
+                  expect(indications[2]['delivery_code']).to eql 'DATA_COMPLETE'
+                  expect(indications[2]['status_report']).to eql 'FINISHED'
+                  # Receive indications
+                  expect(indications[3]['indication_type']).to eql 'Metadata-Recv'
+                  expect(indications[3]['source_file_name']).to eql 'test1.txt'
+                  expect(indications[3]['destination_file_name']).to eql 'test2.txt'
+                  expect(indications[3]['file_size']).to eql '17'
+                  expect(indications[3]['source_entity_id']).to eql '1'
+                  # Segment indications
+                  i = 4
+                  unless segments.include?(1)
+                    expect(indications[i]['indication_type']).to eql 'File-Segment-Recv'
+                    expect(indications[i]['offset']).to eql '0'
+                    expect(indications[i]['length']).to eql '8'
+                    i += 1
+                  end
+                  unless segments.include?(2)
+                    expect(indications[i]['indication_type']).to eql 'File-Segment-Recv'
+                    expect(indications[i]['offset']).to eql '8'
+                    expect(indications[i]['length']).to eql '8'
+                    i += 1
+                  end
+                  unless segments.include?(3)
+                    expect(indications[i]['indication_type']).to eql 'File-Segment-Recv'
+                    expect(indications[i]['offset']).to eql '16'
+                    expect(indications[i]['length']).to eql '1'
+                    i += 1
+                  end
+                  expect(indications[i]['indication_type']).to eql 'EOF-Recv'
+                end
+                expect(File.exist?(File.join(SPEC_DIR, 'test2.txt'))).to be false
+                FileUtils.rm File.join(SPEC_DIR, 'test1.txt'), force: true
+
+                # Validate the TX PDUs
+                expect(@tx_pdus.length).to eql 5
+                expect(@tx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
+                expect(@tx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+                expect(@tx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
+                expect(@tx_pdus[0]['DIRECTIVE_CODE']).to eql 'METADATA'
+                expect(@tx_pdus[0]['FILE_SIZE']).to eql data.length
+
+                # Even though a FILE_DATA pdu is skipped by receive it is still sent
+                expect(@tx_pdus[1]['TYPE']).to eql 'FILE_DATA'
+                expect(@tx_pdus[1]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+                expect(@tx_pdus[1]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
+                expect(@tx_pdus[1]['FILE_DATA']).to eql data[0..7]
+
+                expect(@tx_pdus[2]['TYPE']).to eql 'FILE_DATA'
+                expect(@tx_pdus[2]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+                expect(@tx_pdus[2]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
+                expect(@tx_pdus[2]['FILE_DATA']).to eql data[8..15]
+
+                expect(@tx_pdus[3]['TYPE']).to eql 'FILE_DATA'
+                expect(@tx_pdus[3]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+                expect(@tx_pdus[3]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
+                expect(@tx_pdus[3]['FILE_DATA']).to eql data[16..-1]
+
+                expect(@tx_pdus[4]['TYPE']).to eql 'FILE_DIRECTIVE'
+                expect(@tx_pdus[4]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+                expect(@tx_pdus[4]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
+                expect(@tx_pdus[4]['DIRECTIVE_CODE']).to eql 'EOF'
+                expect(@tx_pdus[4]['CONDITION_CODE']).to eql 'NO_ERROR'
+
+                # Validate the RX PDUs
+                expect(@rx_pdus.length).to eql 1
+                expect(@rx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
+                expect(@rx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+                expect(@rx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @source_entity_id # Sent to ourselves
+                expect(@rx_pdus[0]['DIRECTIVE_CODE']).to eql 'NAK'
+                expect(@rx_pdus[0]['START_OF_SCOPE']).to eql 0
+                expect(@rx_pdus[0]['END_OF_SCOPE']).to eql 17
+                # Section 4.6.4.3.3 b indicates the segment requests should indicate only the segments not yet received
+                if segments == [1,3] # Special case
+                  expect(@rx_pdus[0]['SEGMENT_REQUESTS']).to eql [{"START_OFFSET"=>0, "END_OFFSET"=>8}, {"START_OFFSET"=>16, "END_OFFSET"=>17}]
+                else
+                  expect(@rx_pdus[0]['SEGMENT_REQUESTS']).to eql [{"START_OFFSET"=>start_offset, "END_OFFSET"=>end_offset}]
+                end
+              end
             end
-            expect(File.exist?(File.join(SPEC_DIR, 'test2.txt'))).to be false
-            FileUtils.rm File.join(SPEC_DIR, 'test1.txt'), force: true
-
-            # Validate the TX PDUs
-            expect(@tx_pdus.length).to eql 4
-            expect(@tx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
-            expect(@tx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
-            expect(@tx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
-            expect(@tx_pdus[0]['DIRECTIVE_CODE']).to eql 'METADATA'
-            expect(@tx_pdus[0]['FILE_SIZE']).to eql data.length
-
-            expect(@tx_pdus[1]['TYPE']).to eql 'FILE_DATA'
-            expect(@tx_pdus[1]['SOURCE_ENTITY_ID']).to eql @source_entity_id
-            expect(@tx_pdus[1]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
-            expect(@tx_pdus[1]['FILE_DATA']).to eql data[0..7]
-
-            # Even though the second FILE_DATA pdu is skipped by receive it is still sent
-            expect(@tx_pdus[2]['TYPE']).to eql 'FILE_DATA'
-            expect(@tx_pdus[2]['SOURCE_ENTITY_ID']).to eql @source_entity_id
-            expect(@tx_pdus[2]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
-            expect(@tx_pdus[2]['FILE_DATA']).to eql data[8..-1]
-
-            expect(@tx_pdus[3]['TYPE']).to eql 'FILE_DIRECTIVE'
-            expect(@tx_pdus[3]['SOURCE_ENTITY_ID']).to eql @source_entity_id
-            expect(@tx_pdus[3]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
-            expect(@tx_pdus[3]['DIRECTIVE_CODE']).to eql 'EOF'
-            expect(@tx_pdus[3]['CONDITION_CODE']).to eql 'NO_ERROR'
-
-            # Validate the RX PDUs
-            expect(@rx_pdus.length).to eql 1
-            expect(@rx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
-            expect(@rx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
-            expect(@rx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @source_entity_id # Sent to ourselves
-            expect(@rx_pdus[0]['DIRECTIVE_CODE']).to eql 'NAK'
-            expect(@rx_pdus[0]['START_OF_SCOPE']).to eql 0
-            expect(@rx_pdus[0]['END_OF_SCOPE']).to eql 9
-            # Section 4.6.4.3.3 b indicates the segment requests should indicate only the segments not yet received
-            expect(@rx_pdus[0]['SEGMENT_REQUESTS']).to eql [{"START_OFFSET"=>8, "END_OFFSET"=>9}]
-          end
-
-          it "sends a NAK if multiple segments missing" do
-            data = ('a'..'z').to_a.shuffle[0,17].join
-            File.write(File.join(SPEC_DIR, 'test1.txt'), data)
-            # Skip the second and third segments
-            request(source: 'test1.txt', dest: 'test2.txt', skip: [2, 3]) do |indications|
-              # First the transmit indications
-              expect(indications[0]['indication_type']).to eql 'Transaction'
-              expect(indications[1]['indication_type']).to eql 'EOF-Sent'
-              expect(indications[2]['indication_type']).to eql 'Transaction-Finished'
-              expect(indications[2]['condition_code']).to eql 'NO_ERROR'
-              expect(indications[2]['file_status']).to eql 'UNREPORTED'
-              expect(indications[2]['delivery_code']).to eql 'DATA_COMPLETE'
-              expect(indications[2]['status_report']).to eql 'FINISHED'
-              # Receive indications
-              expect(indications[3]['indication_type']).to eql 'Metadata-Recv'
-              expect(indications[3]['source_file_name']).to eql 'test1.txt'
-              expect(indications[3]['destination_file_name']).to eql 'test2.txt'
-              expect(indications[3]['file_size']).to eql '17'
-              expect(indications[3]['source_entity_id']).to eql '1'
-              expect(indications[4]['indication_type']).to eql 'File-Segment-Recv'
-              expect(indications[4]['offset']).to eql '0'
-              expect(indications[4]['length']).to eql '8'
-              expect(indications[5]['indication_type']).to eql 'EOF-Recv'
-            end
-            expect(File.exist?(File.join(SPEC_DIR, 'test2.txt'))).to be false
-            FileUtils.rm File.join(SPEC_DIR, 'test1.txt'), force: true
-
-            # Validate the TX PDUs
-            expect(@tx_pdus.length).to eql 5
-            expect(@tx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
-            expect(@tx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
-            expect(@tx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
-            expect(@tx_pdus[0]['DIRECTIVE_CODE']).to eql 'METADATA'
-            expect(@tx_pdus[0]['FILE_SIZE']).to eql data.length
-
-            expect(@tx_pdus[1]['TYPE']).to eql 'FILE_DATA'
-            expect(@tx_pdus[1]['SOURCE_ENTITY_ID']).to eql @source_entity_id
-            expect(@tx_pdus[1]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
-            expect(@tx_pdus[1]['FILE_DATA']).to eql data[0..7]
-
-            # Even though the middle FILE_DATA pdus are skipped by receive they is still sent
-            expect(@tx_pdus[2]['TYPE']).to eql 'FILE_DATA'
-            expect(@tx_pdus[2]['SOURCE_ENTITY_ID']).to eql @source_entity_id
-            expect(@tx_pdus[2]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
-            expect(@tx_pdus[2]['FILE_DATA']).to eql data[8..15]
-
-            expect(@tx_pdus[3]['TYPE']).to eql 'FILE_DATA'
-            expect(@tx_pdus[3]['SOURCE_ENTITY_ID']).to eql @source_entity_id
-            expect(@tx_pdus[3]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
-            expect(@tx_pdus[3]['FILE_DATA']).to eql data[16..-1]
-
-            expect(@tx_pdus[4]['TYPE']).to eql 'FILE_DIRECTIVE'
-            expect(@tx_pdus[4]['SOURCE_ENTITY_ID']).to eql @source_entity_id
-            expect(@tx_pdus[4]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
-            expect(@tx_pdus[4]['DIRECTIVE_CODE']).to eql 'EOF'
-            expect(@tx_pdus[4]['CONDITION_CODE']).to eql 'NO_ERROR'
-
-            # Validate the RX PDUs
-            expect(@rx_pdus.length).to eql 1
-            expect(@rx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
-            expect(@rx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
-            expect(@rx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @source_entity_id # Sent to ourselves
-            expect(@rx_pdus[0]['DIRECTIVE_CODE']).to eql 'NAK'
-            expect(@rx_pdus[0]['START_OF_SCOPE']).to eql 0
-            expect(@rx_pdus[0]['END_OF_SCOPE']).to eql 17
-            # Section 4.6.4.3.3 b indicates the segment requests should indicate only the segments not yet received
-            expect(@rx_pdus[0]['SEGMENT_REQUESTS']).to eql [{"START_OFFSET"=>8, "END_OFFSET"=>16}, {"START_OFFSET"=>16, "END_OFFSET"=>17}]
           end
 
           it "waits for a closure" do

@@ -352,8 +352,8 @@ class CfdpReceiveTransaction < CfdpTransaction
         # Need a segment request up to first sorted segment
         segment_requests << [offset, sorted_segments[0][0]]
         offset = sorted_segments[0][1]
-        sorted_segments = sorted_segments[1..-1]
       end
+      sorted_segments = sorted_segments[1..-1]
     end
     if offset < final_end_of_scope
       segment_requests << [offset, final_end_of_scope]
