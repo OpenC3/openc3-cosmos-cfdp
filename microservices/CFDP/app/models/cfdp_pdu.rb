@@ -17,17 +17,17 @@
 require 'openc3/packets/packet'
 require 'openc3/utilities/crc'
 
-require_relative 'cfdp_pdu/cfdp_pdu_enum'
-require_relative 'cfdp_pdu/cfdp_pdu_tlv'
-require_relative 'cfdp_pdu/cfdp_pdu_eof'
-require_relative 'cfdp_pdu/cfdp_pdu_finished'
-require_relative 'cfdp_pdu/cfdp_pdu_ack'
-require_relative 'cfdp_pdu/cfdp_pdu_metadata'
-require_relative 'cfdp_pdu/cfdp_pdu_nak'
-require_relative 'cfdp_pdu/cfdp_pdu_prompt'
-require_relative 'cfdp_pdu/cfdp_pdu_keep_alive'
-require_relative 'cfdp_pdu/cfdp_pdu_file_data'
-require_relative 'cfdp_pdu/cfdp_pdu_user_ops'
+require 'cfdp_pdu/cfdp_pdu_enum'
+require 'cfdp_pdu/cfdp_pdu_tlv'
+require 'cfdp_pdu/cfdp_pdu_eof'
+require 'cfdp_pdu/cfdp_pdu_finished'
+require 'cfdp_pdu/cfdp_pdu_ack'
+require 'cfdp_pdu/cfdp_pdu_metadata'
+require 'cfdp_pdu/cfdp_pdu_nak'
+require 'cfdp_pdu/cfdp_pdu_prompt'
+require 'cfdp_pdu/cfdp_pdu_keep_alive'
+require 'cfdp_pdu/cfdp_pdu_file_data'
+require 'cfdp_pdu/cfdp_pdu_user_ops'
 
 class CfdpPdu < OpenC3::Packet
   def initialize(crcs_required:)
