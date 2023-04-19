@@ -29,8 +29,9 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby-version }}
-      - name: Install rspec and openc3 gem
-        run: gem install rspec openc3
+      - name: Bundle install
+        working-directory: microservices/CFDP
+        run: bundle install
       - name: Run unit tests
         working-directory: microservices/CFDP
         run: rspec
