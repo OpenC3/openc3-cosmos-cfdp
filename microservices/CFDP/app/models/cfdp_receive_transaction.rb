@@ -76,8 +76,10 @@ class CfdpReceiveTransaction < CfdpTransaction
       return true
     end
 
-    if @source_file_name and @destination_file_name and @tmp_file
+    if @source_file_name and @destination_file_name
       if complete_file_received?
+        @tmp_file ||= Tempfile.new('cfdp')
+
         # Complete
         if @checksum.check(@tmp_file, @eof_pdu_hash['FILE_CHECKSUM'], @full_checksum_needed)
           # Move file to final destination
