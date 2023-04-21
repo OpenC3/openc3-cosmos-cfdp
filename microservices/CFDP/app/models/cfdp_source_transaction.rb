@@ -146,8 +146,26 @@ class CfdpSourceTransaction < CfdpTransaction
       file_size = 0
     end
 
-    # Prepare options
+    # Prepare options, ordered by 4.6.1.1.3 c.
     options = []
+    fault_handler_overrides = [] unless fault_handler_overrides
+    fault_handler_overrides.each do |fho|
+      tlv = {}
+      tlv["TYPE"] = "FAULT_HANDLER_OVERRIDE"
+      tlv["CONDITION_CODE"] = fho[0].to_s.upcase
+      tlv["HANDLER_CODE"] = fho[1].to_s.upcase
+      options << tlv
+      @fault_handler_overrides[tlv["CONDITION_CODE"]] = tlv["HANDLER_CODE"]
+    end
+
+    messages_to_user = [] unless messages_to_user
+    messages_to_user.each do |mtu|
+      tlv = {}
+      tlv["TYPE"] = "MESSAGE_TO_USER"
+      tlv["MESSAGE_TO_USER"] = mtu[0]
+      options << tlv
+    end
+
     filestore_requests = [] unless filestore_requests
     filestore_requests.each do |fsr|
       tlv = {}
@@ -158,14 +176,11 @@ class CfdpSourceTransaction < CfdpTransaction
       options << tlv
     end
 
-    fault_handler_overrides = [] unless fault_handler_overrides
-    fault_handler_overrides.each do |fho|
+    if flow_label
       tlv = {}
-      tlv["TYPE"] = "FAULT_HANDLER_OVERRIDE"
-      tlv["CONDITION_CODE"] = fho[0].to_s.upcase
-      tlv["HANDLER_CODE"] = fho[1].to_s.upcase
+      tlv["TYPE"] = "FLOW_LABEL"
+      tlv["FLOW_LABEL"] = flow_label
       options << tlv
-      @fault_handler_overrides[tlv["CONDITION_CODE"]] = tlv["HANDLER_CODE"]
     end
 
     handle_suspend()

@@ -26,7 +26,6 @@ class CfdpReceiveTransaction < CfdpTransaction
     @transaction_seq_num = pdu_hash["SEQUENCE_NUMBER"]
     @transmission_mode = pdu_hash["TRANSMISSION_MODE"]
     @messages_to_user = []
-    @flow_label = nil
     @filestore_requests = []
     @source_file_name = nil
     @destination_file_name = nil
@@ -440,16 +439,19 @@ class CfdpReceiveTransaction < CfdpTransaction
 
           when "MESSAGE_TO_USER"
             @messages_to_user << tlv["MESSAGE_TO_USER"]
-            kw_args[:messages_to_user] = @messages_to_user
 
           when "FAULT_HANDLER_OVERRIDE"
             @fault_handler_overrides[tlv["CONDITION_CODE"]] = tlv["HANDLER_CODE"]
 
           when "FLOW_LABEL"
-            @flow_label = tlv["FLOW_LABEL"]
+            kw_args[:flow_label] = tlv["FLOW_LABEL"]
           end
         end
       end
+      kw_args[:filestore_requests] = @filestore_requests unless @filestore_requests.empty?
+      kw_args[:messages_to_user] = @messages_to_user unless @messages_to_user.empty?
+      kw_args[:fault_handler_overrides] = @fault_handler_overrides unless @fault_handler_overrides.empty?
+
       kw_args[:transaction_id] = @id
       kw_args[:source_entity_id] = @metadata_pdu_hash['SOURCE_ENTITY_ID']
 
