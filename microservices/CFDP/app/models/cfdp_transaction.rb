@@ -34,6 +34,7 @@ class CfdpTransaction
   attr_reader :condition_code
   attr_reader :delivery_code
   attr_reader :file_status
+  attr_reader :metadata_pdu_hash
 
   def self.build_transaction_id(source_entity_id, transaction_seq_num)
     "#{source_entity_id}__#{transaction_seq_num}"
@@ -46,6 +47,7 @@ class CfdpTransaction
     @condition_code = "NO_ERROR"
     @canceling_entity_id = nil
     @fault_handler_overrides = {}
+    @metadata_pdu_hash = nil
   end
 
   def suspend

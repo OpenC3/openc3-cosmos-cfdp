@@ -17,9 +17,6 @@
 require_relative 'cfdp_transaction'
 
 class CfdpReceiveTransaction < CfdpTransaction
-
-  attr_reader :metadata_pdu_hash
-
   def initialize(pdu_hash)
     super()
     @id = CfdpTransaction.build_transaction_id(pdu_hash["SOURCE_ENTITY_ID"], pdu_hash["SEQUENCE_NUMBER"])
@@ -31,7 +28,6 @@ class CfdpReceiveTransaction < CfdpTransaction
     @destination_file_name = nil
     @tmp_file = nil
     @segments = {}
-    @metadata_pdu_hash = nil
     @eof_pdu_hash = nil
     @checksum = CfdpNullChecksum.new
     @full_checksum_needed = false
@@ -334,6 +330,11 @@ class CfdpReceiveTransaction < CfdpTransaction
 
     segment_requests = []
     segment_requests << [0, 0] unless @metadata_pdu_hash
+
+    # TODO: I don't see the metadata_pdu_hash being used anywhere
+    # past this point. The Metadata holds the file size so how can
+    # we know if we haven't received segments if we never check
+    # the original request size?
 
     if @eof_pdu_hash
       final_end_of_scope = @file_size

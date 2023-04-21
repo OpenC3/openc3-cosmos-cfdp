@@ -37,6 +37,7 @@ class CfdpSourceTransaction < CfdpTransaction
     @eof_count = 0
     @filestore_responses = []
     @proxy_response_needed = false
+    @metadata_pdu_hash = {} # non-nil to avoid cfdp_user thinking it needs to be set
   end
 
   def put(
@@ -382,7 +383,10 @@ class CfdpSourceTransaction < CfdpTransaction
   end
 
   def handle_nak(pdu_hash)
-    source_file = CfdpMib.get_source_file(source_file_name)
+    source_file = CfdpMib.get_source_file(@source_file_name)
+    # TODO: Not sure how valid this is in real life
+    # but test code can delete the file from under us
+    return unless source_file
     file_size = source_file.size
     max_read_size = @destination_entity['maximum_file_segment_length']
 

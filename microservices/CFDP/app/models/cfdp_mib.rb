@@ -40,6 +40,7 @@
 
 require 'openc3/models/microservice_model'
 require 'openc3/utilities/bucket'
+require 'openc3/utilities/logger'
 require 'tempfile'
 require 'fileutils'
 
@@ -178,6 +179,9 @@ class CfdpMib
       file = File.open(file_name, 'rb')
     end
     file
+  rescue Errno::ENOENT => error
+    OpenC3::Logger.error(error.message)
+    nil
   end
 
   def self.complete_source_file(file)
