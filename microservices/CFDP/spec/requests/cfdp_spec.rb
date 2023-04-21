@@ -79,7 +79,7 @@ module OpenC3
       def request(source: nil, dest: nil, requests: [], overrides: [], messages: [], flow_label: nil,
                   transmission_mode: 'UNACKNOWLEDGED', closure: 'CLOSURE_NOT_REQUESTED',
                   send_closure: true, cancel: false, skip: false, duplicate_metadata: false,
-                  duplicate_filedata: false, bad_seg_size: false, bad_eof_size: false,
+                  duplicate_filedata: false, bad_seg_size: false, eof_size: nil,
                   prompt: nil)
         setup(source_id: 1, destination_id: 2) unless CfdpMib.entity(@destination_entity_id)
         CfdpMib.set_entity_value(@destination_entity_id, 'maximum_file_segment_length', 8)
@@ -121,9 +121,9 @@ module OpenC3
           # 1 based since segments start at packet 1, metadata is 0
           next if skip and skip.include?(i)
 
-          if bad_eof_size and i == 2
+          if eof_size and i == 2
             # See the cfdp_pdu_eof_spec.rb for the structure
-            cmd_params['PDU'][16] = "\x07" # Hack to be less than 8
+            cmd_params['PDU'][16] = [eof_size].pack('C') #"\x07" # Hack to be less than 8
           end
           if bad_seg_size and i == 2
             # See the cfdp_pdu_file_data_spec.rb for the structure
@@ -774,6 +774,8 @@ module OpenC3
         expect(@tx_pdus[3]['TRANSMISSION_MODE']).to eql 'ACKNOWLEDGED'
         expect(@tx_pdus[3]['TRANSACTION_STATUS']).to eql 'ACTIVE' # TODO: ACTIVE?
 
+        # TODO: NO Rx NAK PDUs?
+
         # Validate the Rx PDUs
         expect(@rx_pdus.length).to eql 2
         expect(@rx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
@@ -839,8 +841,6 @@ module OpenC3
         # Disable CRCs so the hacked PDU will be processed
         CfdpMib.set_entity_value(@source_entity_id, 'crcs_required', false)
         CfdpMib.set_entity_value(@destination_entity_id, 'crcs_required', false)
-        # Don't cause the NAK to get generated
-        CfdpMib.set_entity_value(@source_entity_id, 'immediate_nak_mode', false)
 
         data = ('a'..'z').to_a.shuffle[0,9].join
         File.write(File.join(SPEC_DIR, 'test1.txt'), data)
@@ -882,13 +882,11 @@ module OpenC3
         # Disable CRCs so the hacked PDU will be processed
         CfdpMib.set_entity_value(@source_entity_id, 'crcs_required', false)
         CfdpMib.set_entity_value(@destination_entity_id, 'crcs_required', false)
-        # Don't cause the NAK to get generated
-        CfdpMib.set_entity_value(@source_entity_id, 'immediate_nak_mode', false)
 
         data = ('a'..'z').to_a.shuffle[0,8].join
         File.write(File.join(SPEC_DIR, 'test1.txt'), data)
         request(source: 'test1.txt', dest: 'test2.txt',
-                bad_eof_size: true) do |indications|
+                eof_size: 7) do |indications|
           # Transmit indications
           expect(indications[2]['indication_type']).to eql 'Transaction-Finished'
           expect(indications[2]['condition_code']).to eql 'NO_ERROR'
@@ -909,6 +907,13 @@ module OpenC3
         end
         expect(File.exist?(File.join(SPEC_DIR, 'test2.txt'))).to be false
         FileUtils.rm File.join(SPEC_DIR, 'test1.txt'), force: true
+
+        # Validate the RX PDU
+        expect(@rx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
+        expect(@rx_pdus[0]['DIRECTIVE_CODE']).to eql 'NAK'
+        expect(@rx_pdus[0]['START_OF_SCOPE']).to eql 0
+        expect(@rx_pdus[0]['END_OF_SCOPE']).to eql 7 # Our bad eof_size
+        expect(@rx_pdus[0]['SEGMENT_REQUESTS']).to eql [] # TODO: Nothing?
       end
 
       # 4.6.1.2.10 Flow label optional & implementation specific ... not implemented

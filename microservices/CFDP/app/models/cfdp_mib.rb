@@ -186,7 +186,6 @@ class CfdpMib
 
   def self.complete_source_file(file)
     file.close
-    FileUtils.rm file.path
   end
 
   def self.put_destination_file(destination_filename, tmp_file)
