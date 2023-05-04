@@ -29,6 +29,7 @@ class CfdpTransaction
   attr_reader :id
   attr_reader :frozen
   attr_reader :status
+  attr_reader :transaction_status
   attr_reader :progress
   attr_reader :transaction_seq_num
   attr_reader :condition_code
@@ -43,6 +44,7 @@ class CfdpTransaction
   def initialize
     @frozen = false
     @status = "ACTIVE" # ACTIVE, FINISHED, CANCELED, SUSPENDED
+    @transaction_status = "ACTIVE"
     @progress = 0
     @condition_code = "NO_ERROR"
     @canceling_entity_id = nil
@@ -67,21 +69,23 @@ class CfdpTransaction
     end
   end
 
-  def cancel(entity_id = nil)
+  def cancel(canceling_entity_id = nil)
     if @status != "FINISHED"
       @condition_code = "CANCEL_REQUEST_RECEIVED" if @condition_code == "NO_ERROR"
       if entity_id
-        @canceling_entity_id = entity_id
+        @canceling_entity_id = canceling_entity_id
       else
         @canceling_entity_id = CfdpMib.source_entity['id']
       end
       @status = "CANCELED"
+      @transaction_status = "TERMINATED"
     end
   end
 
   def abandon
     if @status != "FINISHED"
       @status = "ABANDONED"
+      @transaction_status = "TERMINATED"
       CfdpTopic.write_indication("Abandoned", transaction_id: @id, condition_code: @condition_code, progress: @progress)
     end
   end

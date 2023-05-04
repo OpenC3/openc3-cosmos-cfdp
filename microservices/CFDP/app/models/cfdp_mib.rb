@@ -43,6 +43,7 @@ require 'openc3/utilities/bucket'
 require 'openc3/utilities/logger'
 require 'tempfile'
 require 'fileutils'
+require 'json'
 
 class Tempfile
   def persist(filename)
@@ -436,5 +437,43 @@ class CfdpMib
     raise "OPTION source_entity_id is required" unless source_entity_defined
     raise "OPTION destination_entity_id is required" unless destination_entity_defined
     raise "OPTION root_path is required" unless root_path_defined
+  end
+
+  def self.directory_listing(directory_name, directory_file_name)
+    # Apply root path
+    directory_name = File.join(@@root_path, directory_name.to_s)
+    directory_file_name = File.join(@@root_path, directory_file_name.to_s)
+
+    # Handle file path safety
+    directory_name = File.absolute_path(directory_name)
+    directory_file_name = File.absolute_path(directory_file_name)
+    if (directory_name.index(@@root_path) != 0) or (directory_file_name.index(@@root_path) != 0)
+      return nil
+    end
+
+    result = []
+    if self.bucket
+      dirs, files = OpenC3::Bucket.getClient().list_files(bucket: self.bucket, path: directory_name)
+      dirs.each do |dir|
+        result << {"directory" => dir}
+      end
+      files.each do |file|
+        result << file
+      end
+    else
+      entries = Dir.entries(directory_name)
+      entries.each do |entry|
+        next if entry == '.' or entry == '..'
+        full_name = File.join(directory_name, entry)
+        if File.directory?(full_name)
+          result << {"directory" => entry}
+        else
+          stat = File.stat(full_name)
+          result << {"name" => entry, "modified" => stat.mtime.to_s, "size" => stat.size}
+        end
+      end
+    end
+    json_result = JSON.pretty_generate(result.as_json)
+    return json_result
   end
 end

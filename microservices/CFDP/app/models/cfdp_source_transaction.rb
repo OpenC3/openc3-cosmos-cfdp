@@ -139,7 +139,12 @@ class CfdpSourceTransaction < CfdpTransaction
 
     if source_file_name and destination_file_name
       # Prepare file
-      source_file = CfdpMib.get_source_file(source_file_name)
+      if StringIO === source_file_name
+        source_file = source_file_name
+        source_file_name = destination_file_name
+      else
+        source_file = CfdpMib.get_source_file(source_file_name)
+      end
       file_size = source_file.size
       read_size = @destination_entity['maximum_file_segment_length']
     else
@@ -321,8 +326,9 @@ class CfdpSourceTransaction < CfdpTransaction
       end
     end
     @status = "FINISHED" unless @status == "CANCELED" or @status == "ABANDONED"
+    @transaction_status = "TERMINATED"
 
-    if filestore_responses.length > 0
+    if @filestore_responses.length > 0
       CfdpTopic.write_indication("Transaction-Finished",
         transaction_id: @id, condition_code: @condition_code,
         file_status: @file_status, delivery_code: @delivery_code, status_report: @status,
@@ -383,7 +389,12 @@ class CfdpSourceTransaction < CfdpTransaction
   end
 
   def handle_nak(pdu_hash)
-    source_file = CfdpMib.get_source_file(@source_file_name)
+    if StringIO === @source_file_name
+      source_file = StringIO.new(@source_file_name.string)
+    else
+      source_file = CfdpMib.get_source_file(@source_file_name)
+    end
+
     # TODO: Not sure how valid this is in real life
     # but test code can delete the file from under us
     return unless source_file

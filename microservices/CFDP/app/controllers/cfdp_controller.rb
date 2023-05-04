@@ -26,12 +26,8 @@ class CfdpController < ApplicationController
   #   [messages to user],
   #   [filestore requests])
   def put
-    return unless authorization('cmd')
     params.require([:destination_entity_id])
-    if params[:destination_entity_id].to_i.to_s != params[:destination_entity_id].to_s
-      render :json => { :status => 'error', :message => "destination_entity_id must be numeric" }, :status => 400
-      return
-    end
+    return unless check_authorization()
     transaction = $cfdp_user.start_source_transaction(params)
     render json: transaction.id
   rescue ActionController::ParameterMissing => error
@@ -40,12 +36,10 @@ class CfdpController < ApplicationController
 
   # Cancel.request (transaction ID)
   def cancel
-    return unless authorization('cmd')
     params.require([:transaction_id])
-    entity_id = params[:entity_id]
-    transaction = CfdpMib.transactions[params[:transaction_id]]
+    return unless check_authorization()
+    transaction = $cfdp_user.cancel(params)
     if transaction
-      transaction.cancel(entity_id)
       render json: transaction.id
     else
       render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }, :status => 404
@@ -54,11 +48,10 @@ class CfdpController < ApplicationController
 
   # Suspend.request (transaction ID)
   def suspend
-    return unless authorization('cmd')
     params.require([:transaction_id])
-    transaction = CfdpMib.transactions[params[:transaction_id]]
+    return unless check_authorization()
+    transaction = $cfdp_user.suspend(params)
     if transaction
-      transaction.suspend
       render json: transaction.id
     else
       render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }, :status => 404
@@ -67,11 +60,10 @@ class CfdpController < ApplicationController
 
   # Resume.request (transaction ID)
   def resume
-    return unless authorization('cmd')
     params.require([:transaction_id])
-    transaction = CfdpMib.transactions[params[:transaction_id]]
+    return unless check_authorization()
+    transaction = $cfdp_user.resume(params)
     if transaction
-      transaction.resume
       render json: transaction.id
     else
       render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }, :status => 404
@@ -80,11 +72,10 @@ class CfdpController < ApplicationController
 
   # Report.request (transaction ID)
   def report
-    return unless authorization('cmd')
     params.require([:transaction_id])
-    transaction = CfdpMib.transactions[params[:transaction_id]]
+    return unless check_authorization()
+    transaction = $cfdp_user.report(params)
     if transaction
-      transaction.report
       render json: transaction.id
     else
       render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }, :status => 404
@@ -92,12 +83,8 @@ class CfdpController < ApplicationController
   end
 
   def directory_listing
-    return unless authorization('cmd')
     params.require([:entity_id, :directory_name, :directory_file_name])
-    if params[:entity_id].to_i.to_s != params[:entity_id].to_s
-      render :json => { :status => 'error', :message => "entity_id must be numeric" }, :status => 400
-      return
-    end
+    return unless check_authorization()
     transaction = $cfdp_user.start_directory_listing(params)
     render json: transaction.id
   rescue ActionController::ParameterMissing => error
@@ -138,8 +125,53 @@ class CfdpController < ApplicationController
   #    progress)
   # EOF-Recv.indication (transaction ID)
   def indications
-    return unless authorization('cmd')
+    return unless check_authorization()
     result = CfdpTopic.read_indications(transaction_id: params[:transaction_id], continuation: params[:continuation], limit: params[:limit])
     render json: result
   end
+
+  # private
+
+  def check_authorization
+    cmd_entity_id = nil
+    cmd_entity = nil
+
+    if params[:entity_id]
+      if params[:entity_id].to_i.to_s != params[:entity_id].to_s
+        render :json => { :status => 'error', :message => "entity_id must be numeric" }, :status => 400
+        return false
+      end
+      cmd_entity_id = Integer(params[:entity_id])
+      cmd_entity = CfdpMib.entity(cmd_entity_id)
+    elsif params[:destination_entity_id]
+      if params[:destination_entity_id].to_i.to_s != params[:destination_entity_id].to_s
+        render :json => { :status => 'error', :message => "destination_entity_id must be numeric" }, :status => 400
+        return
+      end
+      cmd_entity_id = Integer(params[:destination_entity_id])
+      cmd_entity = CfdpMib.entity(cmd_entity_id)
+    else
+      cmd_entity_id = CfdpMib.source_entity_id
+      cmd_entity = CfdpMib.entity(cmd_entity_id)
+    end
+
+    if cmd_entity
+      target_name, packet_name, item_name = cmd_entity["cmd_info"]
+      target_name, packet_name, item_name = cmd_entity["tlm_info"] unless target_name and packet_name and item_name
+      if target_name and packet_name and item_name
+        # Caller must be able to send this command
+        return false unless authorization('cmd', target_name: target_name, packet_name: packet_name)
+      else
+        render :json => { :status => 'error', :message => "info not configured for entity: #{cmd_entity_id}" }, :status => 400
+        return false
+      end
+    else
+      render :json => { :status => 'error', :message => "Unknown entity: #{cmd_entity_id}" }, :status => 400
+      return false
+    end
+
+    # Authorized
+    return true
+  end
+
 end

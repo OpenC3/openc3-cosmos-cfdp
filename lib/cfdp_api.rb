@@ -98,8 +98,8 @@ class CfdpApi < OpenC3::JsonApi
     transaction_id_post(method_name: "resume", transaction_id: transaction_id, entity_id: entity_id, scope: $openc3_scope)
   end
 
-  def report(transaction_id:, entity_id: nil, scope: $openc3_scope)
-    transaction_id_post(method_name: "report", transaction_id: transaction_id, entity_id: entity_id, scope: $openc3_scope)
+  def report(transaction_id:, entity_id: nil, report_file_name: nil, scope: $openc3_scope)
+    transaction_id_post(method_name: "report", transaction_id: transaction_id, entity_id: entity_id, report_file_name: report_file_name:, scope: $openc3_scope)
   end
 
   def indications(transaction_id: nil, continuation: nil, limit: 100, scope: $openc3_scope)
@@ -144,11 +144,12 @@ class CfdpApi < OpenC3::JsonApi
 
   # private
 
-  transaction_id_post(method_name:, transaction_id:, entity_id: nil, scope: $openc3_scope)
+  transaction_id_post(method_name:, transaction_id:, entity_id: nil, report_file_name: nil, scope: $openc3_scope)
     begin
       endpoint = "/#{method_name}"
       data = { "transaction_id" => transaction_id.to_s }
       data['entity_id'] = entity_id if entity_id
+      data['report_file_name'] = report_file_name if report_file_name
       response = _request('post', endpoint, data: data, scope: scope)
       if response.nil? || response.code != 200
         if response

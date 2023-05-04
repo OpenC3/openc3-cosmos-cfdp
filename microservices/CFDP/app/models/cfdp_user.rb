@@ -88,21 +88,22 @@ class CfdpUser
           end
           CfdpMib.transactions.each do |transaction_id, transaction|
             transaction.update
-            # if transaction.proxy_response_needed
-            #   # Send the proxy response
-            #   params = {}
-            #   params[:destination_entity_id] = transaction.proxy_response_info["SOURCE_ENTITY_ID"]
-            #   params[:messages_to_user] = []
-            #   pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: params[:destination_entity_id], file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
-            #   params[:messages_to_user] << pdu.build_proxy_put_response_message(condition_code: transaction.condition_code, delivery_code: transaction.delivery_code, file_status: transaction.file_status)
-            #   params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: transaction.proxy_response_info["SOURCE_ENTITY_ID"], sequence_number: transaction.proxy_response_info["SEQUENCE_NUMBER"])
-            #   transaction.filestore_responses.each do |filestore_response|
-            #     params[:messages_to_user] << pdu.build_proxy_filestore_response_message(action_code: filestore_response["ACTION_CODE"], status_code: filestore_response["STATUS_CODE"], first_file_name: filestore_response["FIRST_FILE_NAME"], second_file_name: filestore_response["SECOND_FILE_NAME"], filestore_message: filestore_response["FILESTORE_MESSAGE"])
-            #   end
-            #   start_source_transaction(params)
-            #   transaction.proxy_response_needed = false
-            #   transaction.proxy_response_info = nil
-            # end
+            if transaction.proxy_response_needed
+              # Send the proxy response
+              params = {}
+              params[:destination_entity_id] = transaction.proxy_response_info["SOURCE_ENTITY_ID"]
+              params[:messages_to_user] = []
+              destination_entity = CfdpMib.entity(Integer(params[:destination_entity_id]))
+              pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
+              params[:messages_to_user] << pdu.build_proxy_put_response_message(condition_code: transaction.condition_code, delivery_code: transaction.delivery_code, file_status: transaction.file_status)
+              params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: transaction.proxy_response_info["SOURCE_ENTITY_ID"], sequence_number: transaction.proxy_response_info["SEQUENCE_NUMBER"])
+              transaction.filestore_responses.each do |filestore_response|
+                params[:messages_to_user] << pdu.build_proxy_filestore_response_message(action_code: filestore_response["ACTION_CODE"], status_code: filestore_response["STATUS_CODE"], first_file_name: filestore_response["FIRST_FILE_NAME"], second_file_name: filestore_response["SECOND_FILE_NAME"], filestore_message: filestore_response["FILESTORE_MESSAGE"])
+              end
+              start_source_transaction(params)
+              transaction.proxy_response_needed = false
+              transaction.proxy_response_info = nil
+            end
           end
         end
       rescue => err
@@ -134,17 +135,19 @@ class CfdpUser
     end
   end
 
-  def start_source_transaction(params)
+  def start_source_transaction(params, proxy_response_info: nil)
     transaction = CfdpSourceTransaction.new
+    transaction.proxy_response_info = proxy_response_info
     @source_transactions << transaction
     @source_threads << Thread.new do
       begin
-        if params[:source_entity_id] and params[:source_entity_id] != CfdpMib.source_entity_id
+        if params[:entity_id] and Integer(params[:entity_id]) != CfdpMib.source_entity_id
           # Proxy Put
-          pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: params[:destination_entity_id], file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
+          destination_entity = CfdpMib.entity(Integer(params[:destination_entity_id]))
+          pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
           messages_to_user = []
           # messages_to_user << pdu.build_originating_transaction_id_message(source_entity_id: CfdpMib.source_entity.id, sequence_number: transaction.transaction_seq_num)
-          messages_to_user << pdu.build_proxy_put_request_message(destination_entity_id: params[:destination_entity_id], source_file_name: params[:source_file_name], destination_file_name: params[:destination_file_name])
+          messages_to_user << pdu.build_proxy_put_request_message(destination_entity_id: Integer(params[:destination_entity_id]), source_file_name: params[:source_file_name], destination_file_name: params[:destination_file_name])
           if params[:messages_to_user]
             params[:messages_to_user].each do |message_to_user|
               messages_to_user << pdu.build_proxy_message_to_user_message(message_to_user: message_to_user)
@@ -173,14 +176,14 @@ class CfdpUser
             messages_to_user << pdu.build_proxy_closure_request_message(closure_requested: params[:closure_requested])
           end
           transaction.put(
-            destination_entity_id: params[:source_entity_id],
+            destination_entity_id: Integer(params[:source_entity_id]),
             closure_requested: params[:closure_requested],
             messages_to_user: messages_to_user,
           )
         else
           # Regular Put
           transaction.put(
-            destination_entity_id: params[:destination_entity_id],
+            destination_entity_id: Integer(params[:destination_entity_id]),
             source_file_name: params[:source_file_name],
             destination_file_name: params[:destination_file_name],
             transmission_mode: params[:transmission_mode],
@@ -199,11 +202,15 @@ class CfdpUser
     return transaction
   end
 
-  def start_directory_listing(params)
-    entity_id = params[:entity_id]
-    pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: entity_id, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
+  def proxy_request_setup(params)
     messages_to_user = []
-    messages_to_user << pdu.build_directory_listing_request_message(directory_name: params[:directory_name], directory_file_name: params[:directory_file_name])
+    entity_id = Integer(params[:entity_id])
+    destination_entity = CfdpMib.entity(entity_id)
+    pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
+    return pdu, entity_id, messages_to_user
+  end
+
+  def proxy_request_start(entity_id:, messages_to_user:)
     params = {}
     params[:destination_entity_id] = CfdpMib.source_entity_id
     params[:source_entity_id] = entity_id
@@ -211,11 +218,101 @@ class CfdpUser
     return start_source_transaction(params)
   end
 
+  def start_directory_listing(params)
+    pdu, entity_id, messages_to_user = proxy_request_setup(params)
+    messages_to_user << pdu.build_directory_listing_request_message(directory_name: params[:directory_name], directory_file_name: params[:directory_file_name])
+    return proxy_request_start(entity_id: entity_id, messages_to_user: messages_to_user)
+  end
+
+  def cancel(params)
+    if params[:entity_id] and Integer(params[:entity_id]) != CfdpMib.source_entity_id
+      # Proxy Cancel
+      pdu, entity_id, messages_to_user = proxy_request_setup(params)
+      source_entity_id, sequence_number = params[:transaction_id].split('__')
+      messages_to_user << pdu.build_proxy_put_cancel_message()
+      messages_to_user << pdu.build_originating_transaction_id_message(source_entity_id: Integer(source_entity_id), sequence_number: Integer(sequence_number))
+      return proxy_request_start(entity_id: entity_id, messages_to_user: messages_to_user)
+    else
+      transaction = CfdpMib.transactions[params[:transaction_id]]
+      if transaction
+        transaction.cancel
+        return transaction
+      else
+        return nil
+      end
+    end
+  end
+
+  def suspend(params)
+    if params[:entity_id] and Integer(params[:entity_id]) != CfdpMib.source_entity_id
+      # Proxy Suspend
+      pdu, entity_id, messages_to_user = proxy_request_setup(params)
+      source_entity_id, sequence_number = params[:transaction_id].split('__')
+      messages_to_user << pdu.build_remote_suspend_request_message(source_entity_id: Integer(source_entity_id), sequence_number: Integer(sequence_number))
+      return proxy_request_start(entity_id: entity_id, messages_to_user: messages_to_user)
+    else
+      transaction = CfdpMib.transactions[params[:transaction_id]]
+      if transaction
+        transaction.suspend
+        return transaction
+      else
+        return nil
+      end
+    end
+  end
+
+  def resume(params)
+    if params[:entity_id] and Integer(params[:entity_id]) != CfdpMib.source_entity_id
+      # Proxy Resume
+      pdu, entity_id, messages_to_user = proxy_request_setup(params)
+      source_entity_id, sequence_number = params[:transaction_id].split('__')
+      messages_to_user << pdu.build_remote_resume_request_message(source_entity_id: Integer(source_entity_id), sequence_number: Integer(sequence_number))
+      return proxy_request_start(entity_id: entity_id, messages_to_user: messages_to_user)
+    else
+      transaction = CfdpMib.transactions[params[:transaction_id]]
+      if transaction
+        transaction.resume
+        return transaction
+      else
+        return nil
+      end
+    end
+  end
+
+  def report(params)
+    if params[:entity_id] and Integer(params[:entity_id]) != CfdpMib.source_entity_id
+      # Proxy Report
+      pdu, entity_id, messages_to_user = proxy_request_setup(params)
+      source_entity_id, sequence_number = params[:transaction_id].split('__')
+      messages_to_user << pdu.build_remote_report_request_message(source_entity_id: Integer(source_entity_id), sequence_number: Integer(sequence_number), report_file_name: params[:report_file_name])
+      return proxy_request_start(entity_id: entity_id, messages_to_user: messages_to_user)
+    else
+      transaction = CfdpMib.transactions[params[:transaction_id]]
+      if transaction
+        transaction.report
+        return transaction
+      else
+        return nil
+      end
+    end
+  end
+
   def handle_messages_to_user(metadata_pdu_hash, messages_to_user)
     messages_to_user.each do |message_to_user|
       proxy_action = nil
       source_entity_id = nil
       sequence_number = nil
+      request_source_entity_id = nil
+      request_sequence_number = nil
+      condition_code = nil
+      delivery_code = nil
+      file_status = nil
+      filestore_responses = []
+      directory_name = nil
+      directory_file_name = nil
+      response_code = nil
+      transaction_status = nil
+      suspension_indicator = nil
 
       params = {}
       params[:fault_handler_overrides] = []
@@ -227,7 +324,8 @@ class CfdpUser
         params[:destination_entity_id] = message_to_user["DESTINATION_ENTITY_ID"]
         params[:source_file_name] = message_to_user["SOURCE_FILE_NAME"]
         params[:destination_file_name] = message_to_user["DESTINATION_FILE_NAME"]
-        pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: params[:destination_entity_id], file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
+        destination_entity = CfdpMib.entity(Integer(params[:destination_entity_id]))
+        pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
         params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: metadata_pdu_hash["SOURCE_ENTITY_ID"], sequence_number: meta_pdu_hash["SEQUENCE_NUMBER"])
         proxy_action = :PUT
 
@@ -252,9 +350,14 @@ class CfdpUser
 
       when "PROXY_PUT_RESPONSE"
         # This is back at the originator
+        condition_code = message_to_user["CONDITION_CODE"]
+        delivery_code = message_to_user["DELIVERY_CODE"]
+        file_status = message_to_user["FILE_STATUS"]
+        proxy_action = :PUT_RESPONSE
 
       when "PROXY_FILESTORE_RESPONSE"
         # This is back at the originator
+        filestore_responses << message_to_user.except("MSG_TYPE", "MSG_ID")
 
       when "PROXY_PUT_CANCEL"
         proxy_action = :CANCEL
@@ -267,26 +370,60 @@ class CfdpUser
         params[:closure_requested] = message_to_user["CLOSURE_REQUESTED"]
 
       when "DIRECTORY_LISTING_REQUEST"
+        proxy_action = :DIRECTORY_LISTING
+        directory_name = message_to_user["DIRECTORY_NAME"]
+        directory_file_name = message_to_user["DIRECTORY_FILE_NAME"]
 
       when "DIRECTORY_LISTING_RESPONSE"
         # This is back at the originator
+        proxy_action = :DIRECTORY_LISTING_RESPONSE
+        directory_name = message_to_user["DIRECTORY_NAME"]
+        directory_file_name = message_to_user["DIRECTORY_FILE_NAME"]
+        response_code = message_to_user["RESPONSE_CODE"]
 
       when "REMOTE_STATUS_REPORT_REQUEST"
+        proxy_action = :REPORT
+        request_source_entity_id = message_to_user["SOURCE_ENTITY_ID"]
+        request_sequence_number = message_to_user["SEQUENCE_NUMBER"]
+        report_file_name = message_to_user["REPORT_FILE_NAME"]
 
       when "REMOTE_STATUS_REPORT_RESPONSE"
         # This is back at the originator
+        proxy_action = :REPORT_RESPONSE
+        request_source_entity_id = message_to_user["SOURCE_ENTITY_ID"]
+        request_sequence_number = message_to_user["SEQUENCE_NUMBER"]
+        transaction_status = message_to_user["TRANSACTION_STATUS"]
+        response_code = message_to_user["RESPONSE_CODE"]
 
       when "REMOTE_SUSPEND_REQUEST"
+        proxy_action = :SUSPEND
+        request_source_entity_id = message_to_user["SOURCE_ENTITY_ID"]
+        request_sequence_number = message_to_user["SEQUENCE_NUMBER"]
 
       when "REMOTE_SUSPEND_RESPONSE"
         # This is back at the originator
+        proxy_action = :SUSPEND_RESPONSE
+        request_source_entity_id = message_to_user["SOURCE_ENTITY_ID"]
+        request_sequence_number = message_to_user["SEQUENCE_NUMBER"]
+        suspension_indicator = message_to_user["SUSPENSION_INDICATOR"]
+        transaction_status = message_to_user["TRANSACTION_STATUS"]
 
       when "REMOTE_RESUME_REQUEST"
+        proxy_action = :RESUME
+        request_source_entity_id = message_to_user["SOURCE_ENTITY_ID"]
+        request_sequence_number = message_to_user["SEQUENCE_NUMBER"]
 
       when "REMOTE_RESUME_RESPONSE"
         # This is back at the originator
+        proxy_action = :RESUME_RESPONSE
+        request_source_entity_id = message_to_user["SOURCE_ENTITY_ID"]
+        request_sequence_number = message_to_user["SEQUENCE_NUMBER"]
+        suspension_indicator = message_to_user["SUSPENSION_INDICATOR"]
+        transaction_status = message_to_user["TRANSACTION_STATUS"]
 
       else
+        # Unknown Message - Ignore
+        OpenC3::Logger.warn("Received Unknown Message to User", scope: ENV['OPENC3_SCOPE'])
 
       end
     end
@@ -297,26 +434,139 @@ class CfdpUser
         CfdpMib.transactions.each do |transaction_id, transaction|
           if transaction.proxy_response_info
             if transaction.proxy_response_info["SOURCE_ENTITY_ID"] == source_entity_id and transaction.proxy_response_info["SEQUENCE_NUMBER"] == sequence_number
-              transaction.cancel
+              transaction.cancel(metadata_pdu_hash["SOURCE_ENTITY_ID"])
               break
             end
           end
         end
+
       when :PUT
-        transaction = start_source_transaction(params)
-        transaction.proxy_response_info = {
+        proxy_response_info = {
           "SOURCE_ENTITY_ID" => metadata_pdu_hash["SOURCE_ENTITY_ID"],
           "SEQUENCE_NUMBER" => metadata_pdu_hash["SEQUENCE_NUMBER"]
         }
+        transaction = start_source_transaction(params, proxy_response_info: proxy_response_info)
+
+      when :PUT_RESPONSE
+        transaction_id = CfdpTransaction.build_transaction_id(source_entity_id, sequence_number)
+        if filestore_responses.length > 0
+          CfdpTopic.write_indication('Proxy-Put-Response',
+            transaction_id: transaction_id, condition_code: condition_code,
+            file_status: file_status, delivery_code: delivery_code,
+            filestore_responses: filestore_responses)
+        else
+          CfdpTopic.write_indication('Proxy-Put-Response',
+            transaction_id: transaction_id, condition_code: condition_code,
+            file_status: file_status, delivery_code: delivery_code)
+        end
+
+      when :DIRECTORY_LISTING
+        result = CfdpMib.directory_listing(directory_name, directory_file_name)
+        if result
+          params = {}
+          params[:destination_entity_id] = metadata_pdu_hash["SOURCE_ENTITY_ID"]
+          params[:source_file_name] = StringIO.new(result)
+          params[:destination_file_name] = directory_file_name
+          params[:messages_to_user] = []
+          destination_entity = CfdpMib.entity(metadata_pdu_hash["SOURCE_ENTITY_ID"])
+          pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
+          params[:messages_to_user] << pdu.build_directory_listing_response_message(response_code: "SUCCESSFUL", directory_name: directory_name, directory_file_name: directory_file_name)
+          params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: metadata_pdu_hash["SOURCE_ENTITY_ID"], sequence_number: metadata_pdu_hash["SEQUENCE_NUMBER"])
+          start_source_transaction(params)
+        else
+          params = {}
+          params[:destination_entity_id] = metadata_pdu_hash["SOURCE_ENTITY_ID"]
+          params[:source_file_name] = nil
+          params[:destination_file_name] = nil
+          params[:messages_to_user] = []
+          destination_entity = CfdpMib.entity(metadata_pdu_hash["SOURCE_ENTITY_ID"])
+          pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
+          params[:messages_to_user] << pdu.build_directory_listing_response_message(response_code: "UNSUCCESSFUL", directory_name: directory_name, directory_file_name: directory_file_name)
+          params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: metadata_pdu_hash["SOURCE_ENTITY_ID"], sequence_number: metadata_pdu_hash["SEQUENCE_NUMBER"])
+          start_source_transaction(params)
+        end
+
+      when :DIRECTORY_LISTING_RESPONSE
+        transaction_id = CfdpTransaction.build_transaction_id(source_entity_id, sequence_number)
+        CfdpTopic.write_indication('Directory-Listing-Response',
+          transaction_id: transaction_id, response_code: response_code,
+          directory_name: directory_name, directory_file_name: directory_file_name)
+
+      when :REPORT
+        transaction_id = CfdpTransaction.build_transaction_id(request_source_entity_id, request_sequence_number)
+        transaction = CfdpMib.transactions[transaction_id]
+        if transaction
+          params = {}
+          params[:destination_entity_id] = metadata_pdu_hash["SOURCE_ENTITY_ID"]
+          params[:source_file_name] = StringIO.new(transaction.status)
+          params[:destination_file_name] = report_file_name
+          params[:messages_to_user] = []
+          destination_entity = CfdpMib.entity(metadata_pdu_hash["SOURCE_ENTITY_ID"])
+          pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
+          params[:messages_to_user] << pdu.build_remote_status_report_response_message(source_entity_id: request_source_entity_id, sequence_number: request_sequence_number, transaction_status: transaction.transaction_status, response_code: "SUCCESSFUL")
+          params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: metadata_pdu_hash["SOURCE_ENTITY_ID"], sequence_number: metadata_pdu_hash["SEQUENCE_NUMBER"])
+          start_source_transaction(params)
+        else
+          params = {}
+          params[:destination_entity_id] = metadata_pdu_hash["SOURCE_ENTITY_ID"]
+          params[:source_file_name] = nil
+          params[:destination_file_name] = nil
+          params[:messages_to_user] = []
+          destination_entity = CfdpMib.entity(metadata_pdu_hash["SOURCE_ENTITY_ID"])
+          pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
+          params[:messages_to_user] << pdu.build_remote_status_report_response_message(source_entity_id: request_source_entity_id, sequence_number: request_sequence_number, transaction_status: "UNDEFINED", response_code: "UNSUCCESSFUL")
+          params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: metadata_pdu_hash["SOURCE_ENTITY_ID"], sequence_number: metadata_pdu_hash["SEQUENCE_NUMBER"])
+          start_source_transaction(params)
+        end
+
+      when :REPORT_RESPONSE
+        transaction_id = CfdpTransaction.build_transaction_id(source_entity_id, sequence_number)
+        CfdpTopic.write_indication('Remote-Report-Response',
+          transaction_id: transaction_id, source_entity_id: request_source_entity_id, sequence_number: request_sequence_number,
+          transaction_status: transaction_status, response_code: response_code)
+
+      when :SUSPEND, :RESUME
+        transaction_id = CfdpTransaction.build_transaction_id(request_source_entity_id, request_sequence_number)
+        transaction = CfdpMib.transactions[transaction_id]
+        suspension_indicator = "NOT_SUSPENDED"
+        transaction_status = "UNDEFINED"
+        if transaction
+          if proxy_action == :SUSPEND
+            transaction.suspend
+          else
+            transaction.resume
+          end
+          transaction_status = transaction.transaction_status
+          suspension_indicator = "SUSPENDED" if transaction.status = "SUSPENDED"
+        end
+        params = {}
+        params[:destination_entity_id] = metadata_pdu_hash["SOURCE_ENTITY_ID"]
+        params[:source_file_name] = nil
+        params[:destination_file_name] = nil
+        params[:messages_to_user] = []
+        destination_entity = CfdpMib.entity(metadata_pdu_hash["SOURCE_ENTITY_ID"])
+        pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
+        if proxy_action == :SUSPEND
+          params[:messages_to_user] << pdu.build_remote_suspend_response_message(source_entity_id: request_source_entity_id, sequence_number: request_sequence_number, transaction_status: transaction_status, suspension_indicator: suspension_indicator)
+        else
+          params[:messages_to_user] << pdu.build_remote_resume_response_message(source_entity_id: request_source_entity_id, sequence_number: request_sequence_number, transaction_status: transaction_status, suspension_indicator: suspension_indicator)
+        end
+        params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: metadata_pdu_hash["SOURCE_ENTITY_ID"], sequence_number: metadata_pdu_hash["SEQUENCE_NUMBER"])
+        start_source_transaction(params)
+
+      when :SUSPEND_RESPONSE
+        transaction_id = CfdpTransaction.build_transaction_id(source_entity_id, sequence_number)
+        CfdpTopic.write_indication('Remote-Suspend-Response',
+          transaction_id: transaction_id, source_entity_id: request_source_entity_id, sequence_number: request_sequence_number,
+          transaction_status: transaction_status, suspension_indicator: suspension_indicator)
+
+      when :RESUME_RESPONSE
+        transaction_id = CfdpTransaction.build_transaction_id(source_entity_id, sequence_number)
+        CfdpTopic.write_indication('Remote-Resume-Response',
+          transaction_id: transaction_id, source_entity_id: request_source_entity_id, sequence_number: request_sequence_number,
+          transaction_status: transaction_status, suspension_indicator: suspension_indicator)
+
       end
     end
   end
 end
-
-# params = {}
-# params[:destination_entity_id] = source_entity_id
-# params[:messages_to_user] = []
-# pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: params[:destination_entity_id], file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
-# params[:messages_to_user] << pdu.build_proxy_put_response_message(condition_code: transaction.condition_code, delivery_code: transaction.delivery_code, file_status: transaction.file_status)
-# params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: source_entity_id, sequence_number: sequence_number)
-# start_source_transaction(params)

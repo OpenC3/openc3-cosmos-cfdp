@@ -54,6 +54,7 @@ class CfdpReceiveTransaction < CfdpTransaction
     return false unless @metadata_pdu_hash and @eof_pdu_hash
     if @eof_pdu_hash["CONDITION_CODE"] != "NO_ERROR" # Canceled
       @status = "CANCELED"
+      @transaction_status = "TERMINATED"
       @condition_code = @eof_pdu_hash["CONDITION_CODE"]
       @file_status = "FILE_DISCARDED"
       @delivery_code = "DATA_INCOMPLETE"
@@ -181,6 +182,7 @@ class CfdpReceiveTransaction < CfdpTransaction
     end
 
     @status = "FINISHED" unless @status == "CANCELED" or @status == "ABANDONED"
+    @transaction_status = "TERMINATED"
 
     if @filestore_responses.length > 0
       CfdpTopic.write_indication("Transaction-Finished", transaction_id: @id, condition_code: @condition_code, file_status: @file_status, delivery_code: @delivery_code, status_report: @status, filestore_responses: @filestore_responses)
@@ -212,8 +214,8 @@ class CfdpReceiveTransaction < CfdpTransaction
     return false
   end
 
-  def cancel(entity_id = nil)
-    super(entity_id)
+  def cancel(canceling_entity_id = nil)
+    super(canceling_entity_id)
     notice_of_completion()
   end
 

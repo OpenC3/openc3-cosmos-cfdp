@@ -23,10 +23,14 @@ class ApplicationController < ActionController::API
 
   # Authorize and rescue the possible execeptions
   # @return [Boolean] true if authorize successful
-  def authorization(permission)
+  def authorization(permission, target_name: nil, packet_name: nil, interface_name: nil, router_name: nil)
     begin
       authorize(
         permission: permission,
+        target_name: target_name,
+        packet_name: packet_name,
+        interface_name: interface_name,
+        router_name: router_name,
         scope: params[:scope],
         token: request.headers['HTTP_AUTHORIZATION'],
       )
