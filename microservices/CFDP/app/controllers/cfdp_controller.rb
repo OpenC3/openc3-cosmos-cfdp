@@ -136,12 +136,12 @@ class CfdpController < ApplicationController
     cmd_entity_id = nil
     cmd_entity = nil
 
-    if params[:entity_id]
-      if params[:entity_id].to_i.to_s != params[:entity_id].to_s
-        render :json => { :status => 'error', :message => "entity_id must be numeric" }, :status => 400
+    if params[:remote_entity_id]
+      if params[:remote_entity_id].to_i.to_s != params[:remote_entity_id].to_s
+        render :json => { :status => 'error', :message => "remote_entity_id must be numeric" }, :status => 400
         return false
       end
-      cmd_entity_id = Integer(params[:entity_id])
+      cmd_entity_id = Integer(params[:remote_entity_id])
       cmd_entity = CfdpMib.entity(cmd_entity_id)
     elsif params[:destination_entity_id]
       if params[:destination_entity_id].to_i.to_s != params[:destination_entity_id].to_s

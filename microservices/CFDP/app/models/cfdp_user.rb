@@ -141,7 +141,7 @@ class CfdpUser
     @source_transactions << transaction
     @source_threads << Thread.new do
       begin
-        if params[:entity_id] and Integer(params[:entity_id]) != CfdpMib.source_entity_id
+        if params[:remote_entity_id] and Integer(params[:remote_entity_id]) != CfdpMib.source_entity_id
           # Proxy Put
           destination_entity = CfdpMib.entity(Integer(params[:destination_entity_id]))
           pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
@@ -204,7 +204,7 @@ class CfdpUser
 
   def proxy_request_setup(params)
     messages_to_user = []
-    entity_id = Integer(params[:entity_id])
+    entity_id = Integer(params[:remote_entity_id])
     destination_entity = CfdpMib.entity(entity_id)
     pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
     return pdu, entity_id, messages_to_user
@@ -225,7 +225,7 @@ class CfdpUser
   end
 
   def cancel(params)
-    if params[:entity_id] and Integer(params[:entity_id]) != CfdpMib.source_entity_id
+    if params[:remote_entity_id] and Integer(params[:remote_entity_id]) != CfdpMib.source_entity_id
       # Proxy Cancel
       pdu, entity_id, messages_to_user = proxy_request_setup(params)
       source_entity_id, sequence_number = params[:transaction_id].split('__')
@@ -244,7 +244,7 @@ class CfdpUser
   end
 
   def suspend(params)
-    if params[:entity_id] and Integer(params[:entity_id]) != CfdpMib.source_entity_id
+    if params[:remote_entity_id] and Integer(params[:remote_entity_id]) != CfdpMib.source_entity_id
       # Proxy Suspend
       pdu, entity_id, messages_to_user = proxy_request_setup(params)
       source_entity_id, sequence_number = params[:transaction_id].split('__')
@@ -262,7 +262,7 @@ class CfdpUser
   end
 
   def resume(params)
-    if params[:entity_id] and Integer(params[:entity_id]) != CfdpMib.source_entity_id
+    if params[:remote_entity_id] and Integer(params[:remote_entity_id]) != CfdpMib.source_entity_id
       # Proxy Resume
       pdu, entity_id, messages_to_user = proxy_request_setup(params)
       source_entity_id, sequence_number = params[:transaction_id].split('__')
@@ -280,7 +280,7 @@ class CfdpUser
   end
 
   def report(params)
-    if params[:entity_id] and Integer(params[:entity_id]) != CfdpMib.source_entity_id
+    if params[:remote_entity_id] and Integer(params[:remote_entity_id]) != CfdpMib.source_entity_id
       # Proxy Report
       pdu, entity_id, messages_to_user = proxy_request_setup(params)
       source_entity_id, sequence_number = params[:transaction_id].split('__')

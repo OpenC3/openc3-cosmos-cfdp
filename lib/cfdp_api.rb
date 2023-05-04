@@ -54,7 +54,7 @@ class CfdpApi < OpenC3::JsonApi
     flow_label: nil,
     segmentation_control: "NOT_PRESERVED",
     messages_to_user: [],
-    source_entity_id: nil, # Used to indicate proxy put
+    remote_entity_id: nil, # Used to indicate proxy put
     scope: $openc3_scope)
 
     begin
@@ -71,7 +71,7 @@ class CfdpApi < OpenC3::JsonApi
         "flow_label" => flow_label,
         "segmentation_control" => segmentation_control
       }
-      data["source_entity_id"] = source_entity_id.to_i if source_entity_id
+      data["remote_entity_id"] = remote_entity_id.to_i if remote_entity_id
       response = _request('post', endpoint, data: data, scope: scope)
       if response.nil? || response.code != 200
         if response
@@ -86,20 +86,20 @@ class CfdpApi < OpenC3::JsonApi
     end
   end
 
-  def cancel(transaction_id:, entity_id: nil, scope: $openc3_scope)
-    transaction_id_post(method_name: "cancel", transaction_id: transaction_id, entity_id: entity_id, scope: $openc3_scope)
+  def cancel(transaction_id:, remote_entity_id: nil, scope: $openc3_scope)
+    transaction_id_post(method_name: "cancel", transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: $openc3_scope)
   end
 
-  def suspend(transaction_id:, entity_id: nil, scope: $openc3_scope)
-    transaction_id_post(method_name: "suspend", transaction_id: transaction_id, entity_id: entity_id, scope: $openc3_scope)
+  def suspend(transaction_id:, remote_entity_id: nil, scope: $openc3_scope)
+    transaction_id_post(method_name: "suspend", transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: $openc3_scope)
   end
 
-  def resume(transaction_id:, entity_id: nil, scope: $openc3_scope)
-    transaction_id_post(method_name: "resume", transaction_id: transaction_id, entity_id: entity_id, scope: $openc3_scope)
+  def resume(transaction_id:, remote_entity_id: nil, scope: $openc3_scope)
+    transaction_id_post(method_name: "resume", transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: $openc3_scope)
   end
 
-  def report(transaction_id:, entity_id: nil, report_file_name: nil, scope: $openc3_scope)
-    transaction_id_post(method_name: "report", transaction_id: transaction_id, entity_id: entity_id, report_file_name: report_file_name:, scope: $openc3_scope)
+  def report(transaction_id:, remote_entity_id: nil, report_file_name: nil, scope: $openc3_scope)
+    transaction_id_post(method_name: "report", transaction_id: transaction_id, remote_entity_id: remote_entity_id, report_file_name: report_file_name:, scope: $openc3_scope)
   end
 
   def indications(transaction_id: nil, continuation: nil, limit: 100, scope: $openc3_scope)
@@ -124,10 +124,10 @@ class CfdpApi < OpenC3::JsonApi
     end
   end
 
-  def directory_listing(entity_id:, directory_name:, directory_file_name:)
+  def directory_listing(remote_entity_id:, directory_name:, directory_file_name:)
     begin
       endpoint = "/directorylisting"
-      data = { "entity_id" => entity_id, "directory_name" => directory_name, "directory_file_name" => directory_file_name }
+      data = { "remote_entity_id" => remote_entity_id, "directory_name" => directory_name, "directory_file_name" => directory_file_name }
       response = _request('post', endpoint, data: data, scope: scope)
       if response.nil? || response.code != 200
         if response
@@ -144,11 +144,11 @@ class CfdpApi < OpenC3::JsonApi
 
   # private
 
-  transaction_id_post(method_name:, transaction_id:, entity_id: nil, report_file_name: nil, scope: $openc3_scope)
+  transaction_id_post(method_name:, transaction_id:, remote_entity_id: nil, report_file_name: nil, scope: $openc3_scope)
     begin
       endpoint = "/#{method_name}"
       data = { "transaction_id" => transaction_id.to_s }
-      data['entity_id'] = entity_id if entity_id
+      data['remote_entity_id'] = remote_entity_id if remote_entity_id
       data['report_file_name'] = report_file_name if report_file_name
       response = _request('post', endpoint, data: data, scope: scope)
       if response.nil? || response.code != 200

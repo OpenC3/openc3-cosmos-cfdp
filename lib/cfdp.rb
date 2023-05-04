@@ -27,7 +27,7 @@ def cfdp_put(
   flow_label: nil,
   segmentation_control: "NOT_PRESERVED",
   messages_to_user: [],
-  source_entity_id: nil, # Used to indicate proxy put
+  remote_entity_id: nil, # Used to indicate proxy put
   timeout: 600,
   microservice_name: 'CFDP',
   prefix: '/cfdp',
@@ -49,17 +49,18 @@ def cfdp_put(
     flow_label: flow_label,
     segmentation_control: segmentation_control,
     messages_to_user: messages_to_user,
-    source_entity_id: source_entity_id, # Used to indicate proxy put
+    remote_entity_id: remote_entity_id, # Used to indicate proxy put
     scope: $openc3_scope)
+  return transaction_id unless timeout
   indication = nil
   indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Transaction-Finished', timeout: timeout) if timeout
   indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Proxy-Put-Response', timeout: timeout) if source_entity_id and timeout
-  return indication
+  return transaction_id, indication
 end
 
 def cfdp_cancel(
   transaction_id:,
-  entity_id: nil,
+  remote_entity_id: nil,
   timeout: 600,
   microservice_name: 'CFDP',
   prefix: '/cfdp',
@@ -69,7 +70,7 @@ def cfdp_cancel(
   url: nil,
   scope: $openc3_scope)
   api = CfdpApi.new(timeout: timeout, microservice_name: microservice_name, prefix: prefix, schema: schema, hostname: hostname, port: port, url: url, scope: scope)
-  transaction_id = api.cancel(transaction_id: transaction_id, entity_id: entity_id, scope: scope)
+  transaction_id = api.cancel(transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: scope)
   indication = nil
   indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Transaction-Finished', timeout: timeout) if timeout
   indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Proxy-Put-Response', timeout: timeout) if entity_id and timeout
@@ -78,7 +79,7 @@ end
 
 def cfdp_suspend(
   transaction_id:,
-  entity_id: nil,
+  remote_entity_id: nil,
   timeout: 600,
   microservice_name: 'CFDP',
   prefix: '/cfdp',
@@ -88,16 +89,16 @@ def cfdp_suspend(
   url: nil,
   scope: $openc3_scope)
   api = CfdpApi.new(timeout: timeout, microservice_name: microservice_name, prefix: prefix, schema: schema, hostname: hostname, port: port, url: url, scope: scope)
-  transaction_id = api.suspend(transaction_id: transaction_id, entity_id: entity_id, scope: scope)
+  transaction_id = api.suspend(transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: scope)
   indication = nil
   indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Suspended', timeout: timeout) if not entity_id and timeout
   indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Remote-Suspend-Response', timeout: timeout) if entity_id and timeout
   return indication
 end
 
-def resume(transaction_id:, entity_id: nil, scope: $openc3_scope)
+def cfdp_resume(
   transaction_id:,
-  entity_id: nil,
+  remote_entity_id: nil,
   timeout: 600,
   microservice_name: 'CFDP',
   prefix: '/cfdp',
@@ -107,16 +108,17 @@ def resume(transaction_id:, entity_id: nil, scope: $openc3_scope)
   url: nil,
   scope: $openc3_scope)
   api = CfdpApi.new(timeout: timeout, microservice_name: microservice_name, prefix: prefix, schema: schema, hostname: hostname, port: port, url: url, scope: scope)
-  transaction_id = api.resume(transaction_id: transaction_id, entity_id: entity_id, scope: scope)
+  transaction_id = api.resume(transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: scope)
   indication = nil
   indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Resumed', timeout: timeout) if not entity_id and timeout
   indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Remote-Resume-Response', timeout: timeout) if entity_id and timeout
   return indication
 end
 
-def report(transaction_id:, entity_id: nil, report_file_name: nil, scope: $openc3_scope)
+def cfdp_report(
   transaction_id:,
   entity_id: nil,
+  report_file_name: nil,
   timeout: 600,
   microservice_name: 'CFDP',
   prefix: '/cfdp',
@@ -126,7 +128,7 @@ def report(transaction_id:, entity_id: nil, report_file_name: nil, scope: $openc
   url: nil,
   scope: $openc3_scope)
   api = CfdpApi.new(timeout: timeout, microservice_name: microservice_name, prefix: prefix, schema: schema, hostname: hostname, port: port, url: url, scope: scope)
-  transaction_id = api.report(transaction_id: transaction_id, entity_id: entity_id, report_file_name: report_file_name, scope: scope)
+  transaction_id = api.report(transaction_id: transaction_id, remote_entity_id: remote_entity_id, report_file_name: report_file_name, scope: scope)
   indication = nil
   indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Report', timeout: timeout) if not entity_id and timeout
   indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Remote-Report-Response', timeout: timeout) if entity_id and timeout
@@ -152,7 +154,7 @@ def indications(
 end
 
 def cfdp_directory_listing(
-  entity_id:,
+  remote_entity_id:,
   directory_name:,
   directory_file_name:,
   timeout: 600,
@@ -165,7 +167,7 @@ def cfdp_directory_listing(
   scope: $openc3_scope)
 
   api = CfdpApi.new(timeout: timeout, microservice_name: microservice_name, prefix: prefix, schema: schema, hostname: hostname, port: port, url: url, scope: scope)
-  transaction_id = api.directory_listing(entity_id: entity_id, directory_name: directory_name, directory_file_name: directory_file_name)
+  transaction_id = api.directory_listing(remote_entity_id: remote_entity_id, directory_name: directory_name, directory_file_name: directory_file_name)
   indication = nil
   indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Transaction-Finished', timeout: timeout) if timeout
   indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Directory-Listing-Response', timeout: timeout) if timeout
