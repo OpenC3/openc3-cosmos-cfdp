@@ -46,6 +46,7 @@ class CfdpReceiveTransaction < CfdpTransaction
     @keep_alive_timeout = nil
     @keep_alive_timeout = Time.now + CfdpMib.source_entity['keep_alive_interval'] if @transmission_mode == 'ACKNOWLEDGED'
     @keep_alive_count = 0
+    @finished_count = 0
     CfdpMib.transactions[@id] = self
     handle_pdu(pdu_hash)
   end
@@ -428,6 +429,7 @@ class CfdpReceiveTransaction < CfdpTransaction
 
     case pdu_hash["DIRECTIVE_CODE"]
     when "METADATA"
+      @metadata_pdu_count += 1
       return if @metadata_pdu_hash # Discard repeats
       @metadata_pdu_hash = pdu_hash
       kw_args = {}

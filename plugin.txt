@@ -2,29 +2,29 @@ VARIABLE cfdp_microservice_name CFDP
 VARIABLE cfdp_route_prefix /cfdp
 VARIABLE cfdp_port 2905
 
-VARIABLE cfdp_cmd_target_name CFDP1
+VARIABLE cfdp_cmd_target_name CFDP2
 VARIABLE cfdp_cmd_packet_name CFDP_PDU
 VARIABLE cfdp_cmd_item_name PDU
 
-VARIABLE cfdp_tlm_target_name CFDP1
+VARIABLE cfdp_tlm_target_name CFDP2
 VARIABLE cfdp_tlm_packet_name CFDP_PDU
 VARIABLE cfdp_tlm_item_name PDU
 
-VARIABLE source_entity_id 0
-VARIABLE destination_entity_id 1
+VARIABLE source_entity_id 1
+VARIABLE destination_entity_id 2
 VARIABLE root_path /tmp
 VARIABLE bucket ""
 
-VARIABLE test_target_name ""
-VARIABLE test2_target_name ""
-VARIABLE test_interface_type client
-VARIABLE test_port 2906
+# Set to true to enable a test configuration
+VARIABLE plugin_test_mode "false"
 
 MICROSERVICE CFDP <%= cfdp_microservice_name %>
   WORK_DIR .
   ROUTE_PREFIX <%= cfdp_route_prefix %>
   PORT <%= cfdp_port %>
-  CMD rails s -b 0.0.0.0 -p <%= cfdp_port %>
+  CMD rails s -b 0.0.0.0 -p <%= cfdp_port %> -e production
+  # MIB Options Follow -
+  # You will need to modify these for your mission
   OPTION source_entity_id <%= source_entity_id %>
   OPTION tlm_info <%= cfdp_tlm_target_name %> <%= cfdp_tlm_packet_name %> <%= cfdp_tlm_item_name %>
   OPTION destination_entity_id <%= destination_entity_id %>
@@ -34,17 +34,29 @@ MICROSERVICE CFDP <%= cfdp_microservice_name %>
     OPTION bucket <%= bucket %>
   <% end %>
 
-<% include_target = (test_target_name.to_s.strip.length > 0) %>
-<% if include_target %>
-  TARGET CFDPTEST <%= test_target_name %>
+<% include_test = (plugin_test_mode.to_s.strip.downcase == "true") %>
+<% if include_test %>
+  TARGET CFDPTEST CFDP
+  TARGET CFDPTEST CFDP2
 
-  <% if test_interface_type == 'client' %>
-    # TODO: Have Interfaces Optionally Create a Service in Kubernetes
-    <% test_host = ENV['KUBERNETES_SERVICE_HOST'] ? "#{scope}-interface-#{(test2_target_name + "_INT").downcase.gsub('__', '-').gsub('_', '-')}-service" : "openc3-operator" %>
-    INTERFACE <%= test_target_name %>_INT tcpip_client_interface.rb <%= test_host %> <%= test_port %> <%= test_port %> 10.0 nil LENGTH 0 32 4 1 BIG_ENDIAN 0 nil nil true
-      MAP_TARGET <%= test_target_name %>
-  <% else %>
-    INTERFACE <%= test_target_name %>_INT tcpip_server_interface.rb <%= test_port %> <%= test_port %> 10.0 nil LENGTH 0 32 4 1 BIG_ENDIAN 0 nil nil true
-      MAP_TARGET <%= test_target_name %>
-  <% end %>
+  MICROSERVICE CFDP CFDP2
+    WORK_DIR .
+    ROUTE_PREFIX /cfdp2
+    PORT 2906
+    CMD rails s -b 0.0.0.0 -p 2906 -e production
+    OPTION source_entity_id <%= destination_entity_id %>
+    OPTION tlm_info CFDP CFDP_PDU PDU
+    OPTION destination_entity_id <%= source_entity_id %>
+    OPTION cmd_info CFDP CFDP_PDU PDU
+    OPTION root_path <%= root_path %>
+    <% if bucket.to_s.strip != '' %>
+      OPTION bucket <%= bucket %>
+    <% end %>
+
+  <% test_host = ENV['KUBERNETES_SERVICE_HOST'] ? "#{scope}-interface-cfdp2-int.downcase.gsub('__', '-').gsub('_', '-')}-service" : "openc3-operator" %>
+  INTERFACE CFDP_INT tcpip_client_interface.rb <%= test_host %> 2907 2907 10.0 nil LENGTH 0 32 4 1 BIG_ENDIAN 0 nil nil true
+    MAP_TARGET CFDP
+
+  INTERFACE CFDP2_INT tcpip_server_interface.rb 2907 2907 10.0 nil LENGTH 0 32 4 1 BIG_ENDIAN 0 nil nil true
+    MAP_TARGET CFDP2
 <% end %>

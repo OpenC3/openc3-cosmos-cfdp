@@ -43,7 +43,7 @@ def cfdp_put(
     source_file_name: source_file_name,
     destination_file_name: destination_file_name,
     transmission_mode: transmission_mode,
-    closure_requested: closure_requested)
+    closure_requested: closure_requested,
     filestore_requests: filestore_requests,
     fault_handler_overrides: fault_handler_overrides,
     flow_label: flow_label,
@@ -54,7 +54,7 @@ def cfdp_put(
   return transaction_id unless timeout
   indication = nil
   indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Transaction-Finished', timeout: timeout) if timeout
-  indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Proxy-Put-Response', timeout: timeout) if source_entity_id and timeout
+  indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Proxy-Put-Response', timeout: timeout) if remote_entity_id and timeout
   return transaction_id, indication
 end
 
@@ -73,7 +73,7 @@ def cfdp_cancel(
   transaction_id = api.cancel(transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: scope)
   indication = nil
   indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Transaction-Finished', timeout: timeout) if timeout
-  indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Proxy-Put-Response', timeout: timeout) if entity_id and timeout
+  indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Proxy-Put-Response', timeout: timeout) if remote_entity_id and timeout
   return indication
 end
 
@@ -91,8 +91,8 @@ def cfdp_suspend(
   api = CfdpApi.new(timeout: timeout, microservice_name: microservice_name, prefix: prefix, schema: schema, hostname: hostname, port: port, url: url, scope: scope)
   transaction_id = api.suspend(transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: scope)
   indication = nil
-  indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Suspended', timeout: timeout) if not entity_id and timeout
-  indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Remote-Suspend-Response', timeout: timeout) if entity_id and timeout
+  indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Suspended', timeout: timeout) if not remote_entity_id and timeout
+  indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Remote-Suspend-Response', timeout: timeout) if remote_entity_id and timeout
   return indication
 end
 
@@ -110,14 +110,14 @@ def cfdp_resume(
   api = CfdpApi.new(timeout: timeout, microservice_name: microservice_name, prefix: prefix, schema: schema, hostname: hostname, port: port, url: url, scope: scope)
   transaction_id = api.resume(transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: scope)
   indication = nil
-  indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Resumed', timeout: timeout) if not entity_id and timeout
-  indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Remote-Resume-Response', timeout: timeout) if entity_id and timeout
+  indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Resumed', timeout: timeout) if not remote_entity_id and timeout
+  indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Remote-Resume-Response', timeout: timeout) if remote_entity_id and timeout
   return indication
 end
 
 def cfdp_report(
   transaction_id:,
-  entity_id: nil,
+  remote_entity_id: nil,
   report_file_name: nil,
   timeout: 600,
   microservice_name: 'CFDP',
@@ -130,12 +130,12 @@ def cfdp_report(
   api = CfdpApi.new(timeout: timeout, microservice_name: microservice_name, prefix: prefix, schema: schema, hostname: hostname, port: port, url: url, scope: scope)
   transaction_id = api.report(transaction_id: transaction_id, remote_entity_id: remote_entity_id, report_file_name: report_file_name, scope: scope)
   indication = nil
-  indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Report', timeout: timeout) if not entity_id and timeout
-  indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Remote-Report-Response', timeout: timeout) if entity_id and timeout
+  indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Report', timeout: timeout) if not remote_entity_id and timeout
+  indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Remote-Report-Response', timeout: timeout) if remote_entity_id and timeout
   return indication
 end
 
-def indications(
+def cfdp_indications(
   transaction_id: nil,
   indication_type: nil,
   continuation: nil,
@@ -168,10 +168,10 @@ def cfdp_directory_listing(
 
   api = CfdpApi.new(timeout: timeout, microservice_name: microservice_name, prefix: prefix, schema: schema, hostname: hostname, port: port, url: url, scope: scope)
   transaction_id = api.directory_listing(remote_entity_id: remote_entity_id, directory_name: directory_name, directory_file_name: directory_file_name)
-  indication = nil
-  indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Transaction-Finished', timeout: timeout) if timeout
-  indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Directory-Listing-Response', timeout: timeout) if timeout
-  return indication
+  indications = []
+  indications << cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Transaction-Finished', timeout: timeout) if timeout
+  indications << cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Directory-Listing-Response', timeout: timeout) if timeout
+  return (indications.empty? ? nil : indications)
 end
 
 # Helper methods
@@ -212,10 +212,11 @@ def cfdp_wait_for_indication(
         end
       end
     end
-    done = true if Time.now < end_time
+    done = true if Time.now >= end_time
     break if done
     if defined? wait
-      wait(1)
+      wait_time = wait(1)
+      break if wait_time < 1.0 # User hit go
     else
       sleep(1)
     end

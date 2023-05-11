@@ -18,8 +18,6 @@ require_relative 'cfdp_transaction'
 
 class CfdpSourceTransaction < CfdpTransaction
 
-  attr_accessor :proxy_response_info
-  attr_reader :proxy_response_needed
   attr_reader :filestore_responses
 
   def initialize(source_entity: nil)
@@ -36,7 +34,6 @@ class CfdpSourceTransaction < CfdpTransaction
     @destination_entity = nil
     @eof_count = 0
     @filestore_responses = []
-    @proxy_response_needed = false
     @metadata_pdu_hash = {} # non-nil to avoid cfdp_user thinking it needs to be set
   end
 
@@ -168,7 +165,7 @@ class CfdpSourceTransaction < CfdpTransaction
     messages_to_user.each do |mtu|
       tlv = {}
       tlv["TYPE"] = "MESSAGE_TO_USER"
-      tlv["MESSAGE_TO_USER"] = mtu[0]
+      tlv["MESSAGE_TO_USER"] = mtu
       options << tlv
     end
 

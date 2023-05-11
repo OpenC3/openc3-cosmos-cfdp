@@ -38,6 +38,11 @@ class CfdpPdu < OpenC3::Packet
     pdu_header_part_1_length = pdu.length # Measured here before writing variable data
     pdu_header = pdu.build_variable_header(source_entity_id: source_entity['id'], transaction_seq_num: transaction_seq_num, destination_entity_id: destination_entity['id'], directive_code: "ACK")
     pdu_header_part_2_length = pdu_header.length
+    if ack_directive_code == "FINISHED" or ack_directive_code == 5
+      pdu.write("DIRECTION", "TOWARD_FILE_RECEIVER")
+    else
+      pdu.write("DIRECTION", "TOWARD_FILE_SENDER")
+    end
     pdu_contents = pdu.build_ack_pdu_contents(ack_directive_code: ack_directive_code, condition_code: condition_code, transaction_status: transaction_status)
     pdu.write("VARIABLE_DATA", pdu_header + pdu_contents)
     pdu.write("PDU_DATA_LENGTH", pdu.length - pdu_header_part_1_length - pdu_header_part_2_length)

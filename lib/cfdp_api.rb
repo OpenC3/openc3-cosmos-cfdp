@@ -99,7 +99,7 @@ class CfdpApi < OpenC3::JsonApi
   end
 
   def report(transaction_id:, remote_entity_id: nil, report_file_name: nil, scope: $openc3_scope)
-    transaction_id_post(method_name: "report", transaction_id: transaction_id, remote_entity_id: remote_entity_id, report_file_name: report_file_name:, scope: $openc3_scope)
+    transaction_id_post(method_name: "report", transaction_id: transaction_id, remote_entity_id: remote_entity_id, report_file_name: report_file_name, scope: $openc3_scope)
   end
 
   def indications(transaction_id: nil, continuation: nil, limit: 100, scope: $openc3_scope)
@@ -124,7 +124,7 @@ class CfdpApi < OpenC3::JsonApi
     end
   end
 
-  def directory_listing(remote_entity_id:, directory_name:, directory_file_name:)
+  def directory_listing(remote_entity_id:, directory_name:, directory_file_name:, scope: $openc3_scope)
     begin
       endpoint = "/directorylisting"
       data = { "remote_entity_id" => remote_entity_id, "directory_name" => directory_name, "directory_file_name" => directory_file_name }
@@ -144,7 +144,7 @@ class CfdpApi < OpenC3::JsonApi
 
   # private
 
-  transaction_id_post(method_name:, transaction_id:, remote_entity_id: nil, report_file_name: nil, scope: $openc3_scope)
+  def transaction_id_post(method_name:, transaction_id:, remote_entity_id: nil, report_file_name: nil, scope: $openc3_scope)
     begin
       endpoint = "/#{method_name}"
       data = { "transaction_id" => transaction_id.to_s }

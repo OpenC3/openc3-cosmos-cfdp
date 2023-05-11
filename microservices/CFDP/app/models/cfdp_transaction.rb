@@ -36,6 +36,9 @@ class CfdpTransaction
   attr_reader :delivery_code
   attr_reader :file_status
   attr_reader :metadata_pdu_hash
+  attr_reader :metadata_pdu_count
+  attr_accessor :proxy_response_info
+  attr_accessor :proxy_response_needed
 
   def self.build_transaction_id(source_entity_id, transaction_seq_num)
     "#{source_entity_id}__#{transaction_seq_num}"
@@ -50,13 +53,16 @@ class CfdpTransaction
     @canceling_entity_id = nil
     @fault_handler_overrides = {}
     @metadata_pdu_hash = nil
+    @metadata_pdu_count = 0
+    @proxy_response_info = nil
+    @proxy_response_needed = false
   end
 
   def suspend
     if @status == "ACTIVE"
       @condition_code = "SUSPEND_REQUEST_RECEIVED"
       @status = "SUSPENDED"
-      CfdpTopic.write_indication("Suspended", transaction_id: transaction_id, condition_code: @condition_code)
+      CfdpTopic.write_indication("Suspended", transaction_id: @id, condition_code: @condition_code)
     end
   end
 
@@ -65,14 +71,14 @@ class CfdpTransaction
       @status = "ACTIVE"
       @condition_code = "NO_ERROR"
       @inactivity_timeout = Time.now + CfdpMib.source_entity['keep_alive_interval']
-      CfdpTopic.write_indication("Resumed", transaction_id: transaction_id, progress: @progress)
+      CfdpTopic.write_indication("Resumed", transaction_id: @id, progress: @progress)
     end
   end
 
   def cancel(canceling_entity_id = nil)
     if @status != "FINISHED"
       @condition_code = "CANCEL_REQUEST_RECEIVED" if @condition_code == "NO_ERROR"
-      if entity_id
+      if canceling_entity_id
         @canceling_entity_id = canceling_entity_id
       else
         @canceling_entity_id = CfdpMib.source_entity['id']

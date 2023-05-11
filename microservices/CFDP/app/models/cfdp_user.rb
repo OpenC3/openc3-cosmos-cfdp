@@ -56,10 +56,17 @@ class CfdpUser
             begin
               pdu_hash = receive_packet(topic, msg_id, msg_hash, redis)
 
-              # TODO This only applies to certain directives
-              #if pdu_hash['DESTINATION_ENTITY_ID'] != CfdpMib.source_entity_id
-              #  raise "PDU received for different entity: Mine: #{CfdpMib.source_entity_id}, Destination: #{pdu_hash['DESTINATION_ENTITY_ID']}"
-              #end
+              if pdu_hash['DIRECTION'] == "TOWARD_FILE_RECEIVER"
+                if pdu_hash['DESTINATION_ENTITY_ID'] != CfdpMib.source_entity_id
+                  OpenC3::Logger.error("Receiver PDU received for wrong entity: Mine: #{CfdpMib.source_entity_id}, Destination: #{pdu_hash['DESTINATION_ENTITY_ID']}", scope: ENV['OPENC3_SCOPE'])
+                  next
+                end
+              else
+                if pdu_hash['SOURCE_ENTITY_ID'] != CfdpMib.source_entity_id
+                  OpenC3::Logger.error("Sender PDU received for wrong entity: Mine: #{CfdpMib.source_entity_id}, Source: #{pdu_hash['SOURCE_ENTITY_ID']}", scope: ENV['OPENC3_SCOPE'])
+                  next
+                end
+              end
 
               transaction_id = CfdpTransaction.build_transaction_id(pdu_hash["SOURCE_ENTITY_ID"], pdu_hash["SEQUENCE_NUMBER"])
               transaction = CfdpMib.transactions[transaction_id]
@@ -70,7 +77,7 @@ class CfdpUser
               else
                 raise "Unknown transaction: #{transaction_id}, #{pdu_hash}"
               end
-              if pdu_hash["DIRECTIVE_CODE"] == "METADATA" and not transaction.metadata_pdu_hash
+              if pdu_hash["DIRECTIVE_CODE"] == "METADATA" and not transaction.metadata_pdu_count > 1
                 # Handle messages_to_user
                 messages_to_user = []
                 if pdu_hash["TLVS"]
@@ -86,6 +93,7 @@ class CfdpUser
               OpenC3::Logger.error(err.formatted, scope: ENV['OPENC3_SCOPE'])
             end
           end
+          proxy_responses = []
           CfdpMib.transactions.each do |transaction_id, transaction|
             transaction.update
             if transaction.proxy_response_needed
@@ -100,10 +108,13 @@ class CfdpUser
               transaction.filestore_responses.each do |filestore_response|
                 params[:messages_to_user] << pdu.build_proxy_filestore_response_message(action_code: filestore_response["ACTION_CODE"], status_code: filestore_response["STATUS_CODE"], first_file_name: filestore_response["FIRST_FILE_NAME"], second_file_name: filestore_response["SECOND_FILE_NAME"], filestore_message: filestore_response["FILESTORE_MESSAGE"])
               end
-              start_source_transaction(params)
+              proxy_responses << params
               transaction.proxy_response_needed = false
               transaction.proxy_response_info = nil
             end
+          end
+          proxy_responses.each do |params|
+            start_source_transaction(params)
           end
         end
       rescue => err
@@ -176,9 +187,11 @@ class CfdpUser
             messages_to_user << pdu.build_proxy_closure_request_message(closure_requested: params[:closure_requested])
           end
           transaction.put(
-            destination_entity_id: Integer(params[:source_entity_id]),
+            destination_entity_id: Integer(params[:remote_entity_id]),
             closure_requested: params[:closure_requested],
-            messages_to_user: messages_to_user,
+            transmission_mode: params[:transmission_mode],
+            fault_handler_overrides: params[:fault_handler_overrides],
+            messages_to_user: messages_to_user
           )
         else
           # Regular Put
@@ -212,8 +225,7 @@ class CfdpUser
 
   def proxy_request_start(entity_id:, messages_to_user:)
     params = {}
-    params[:destination_entity_id] = CfdpMib.source_entity_id
-    params[:source_entity_id] = entity_id
+    params[:destination_entity_id] = entity_id
     params[:messages_to_user] = messages_to_user
     return start_source_transaction(params)
   end
@@ -284,7 +296,7 @@ class CfdpUser
       # Proxy Report
       pdu, entity_id, messages_to_user = proxy_request_setup(params)
       source_entity_id, sequence_number = params[:transaction_id].split('__')
-      messages_to_user << pdu.build_remote_report_request_message(source_entity_id: Integer(source_entity_id), sequence_number: Integer(sequence_number), report_file_name: params[:report_file_name])
+      messages_to_user << pdu.build_remote_status_report_request_message(source_entity_id: Integer(source_entity_id), sequence_number: Integer(sequence_number), report_file_name: params[:report_file_name])
       return proxy_request_start(entity_id: entity_id, messages_to_user: messages_to_user)
     else
       transaction = CfdpMib.transactions[params[:transaction_id]]
@@ -298,27 +310,28 @@ class CfdpUser
   end
 
   def handle_messages_to_user(metadata_pdu_hash, messages_to_user)
+    proxy_action = nil
+    source_entity_id = nil
+    sequence_number = nil
+    request_source_entity_id = nil
+    request_sequence_number = nil
+    condition_code = nil
+    delivery_code = nil
+    file_status = nil
+    filestore_responses = []
+    directory_name = nil
+    directory_file_name = nil
+    response_code = nil
+    transaction_status = nil
+    suspension_indicator = nil
+    report_file_name = nil
+
+    params = {}
+    params[:fault_handler_overrides] = []
+    params[:messages_to_user] = []
+    params[:filestore_requests] = []
+
     messages_to_user.each do |message_to_user|
-      proxy_action = nil
-      source_entity_id = nil
-      sequence_number = nil
-      request_source_entity_id = nil
-      request_sequence_number = nil
-      condition_code = nil
-      delivery_code = nil
-      file_status = nil
-      filestore_responses = []
-      directory_name = nil
-      directory_file_name = nil
-      response_code = nil
-      transaction_status = nil
-      suspension_indicator = nil
-
-      params = {}
-      params[:fault_handler_overrides] = []
-      params[:messages_to_user] = []
-      params[:filestore_requests] = []
-
       case message_to_user['MSG_TYPE']
       when "PROXY_PUT_REQUEST"
         params[:destination_entity_id] = message_to_user["DESTINATION_ENTITY_ID"]
@@ -326,7 +339,7 @@ class CfdpUser
         params[:destination_file_name] = message_to_user["DESTINATION_FILE_NAME"]
         destination_entity = CfdpMib.entity(Integer(params[:destination_entity_id]))
         pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
-        params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: metadata_pdu_hash["SOURCE_ENTITY_ID"], sequence_number: meta_pdu_hash["SEQUENCE_NUMBER"])
+        params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: metadata_pdu_hash["SOURCE_ENTITY_ID"], sequence_number: metadata_pdu_hash["SEQUENCE_NUMBER"])
         proxy_action = :PUT
 
       when "PROXY_MESSAGE_TO_USER"
@@ -421,9 +434,9 @@ class CfdpUser
         suspension_indicator = message_to_user["SUSPENSION_INDICATOR"]
         transaction_status = message_to_user["TRANSACTION_STATUS"]
 
-      else
+      when "UNKNOWN"
         # Unknown Message - Ignore
-        OpenC3::Logger.warn("Received Unknown Message to User", scope: ENV['OPENC3_SCOPE'])
+        OpenC3::Logger.warn("Received Unknown Message to User: #{message_to_user["DATA"].to_s.simple_formatted}", scope: ENV['OPENC3_SCOPE'])
 
       end
     end
@@ -537,7 +550,7 @@ class CfdpUser
             transaction.resume
           end
           transaction_status = transaction.transaction_status
-          suspension_indicator = "SUSPENDED" if transaction.status = "SUSPENDED"
+          suspension_indicator = "SUSPENDED" if transaction.status == "SUSPENDED"
         end
         params = {}
         params[:destination_entity_id] = metadata_pdu_hash["SOURCE_ENTITY_ID"]

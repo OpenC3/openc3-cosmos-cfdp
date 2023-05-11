@@ -41,10 +41,10 @@ module CfdpApi
     # config.action_cable.disable_request_forgery_protection = true
     # config.action_cable.mount_path = '/script-api/cable'
 
-    OpenC3::Logger.microservice_name = 'CFDP__SERVER__API'
+    OpenC3::Logger.microservice_name = ENV['OPENC3_MICROSERVICE_NAME']
 
     require 'openc3/utilities/open_telemetry'
-    OpenC3.setup_open_telemetry('CFDP__SERVER__API', true)
+    OpenC3.setup_open_telemetry(ENV['OPENC3_MICROSERVICE_NAME'], true)
     if OpenC3.otel_enabled
       config.middleware.insert_before(
         0,

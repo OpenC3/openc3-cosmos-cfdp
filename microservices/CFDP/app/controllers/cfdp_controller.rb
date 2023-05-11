@@ -83,7 +83,7 @@ class CfdpController < ApplicationController
   end
 
   def directory_listing
-    params.require([:entity_id, :directory_name, :directory_file_name])
+    params.require([:remote_entity_id, :directory_name, :directory_file_name])
     return unless check_authorization()
     transaction = $cfdp_user.start_directory_listing(params)
     render json: transaction.id
@@ -156,8 +156,13 @@ class CfdpController < ApplicationController
     end
 
     if cmd_entity
+      STDOUT.puts cmd_entity.inspect(1000)
       target_name, packet_name, item_name = cmd_entity["cmd_info"]
-      target_name, packet_name, item_name = cmd_entity["tlm_info"] unless target_name and packet_name and item_name
+      unless target_name and packet_name and item_name
+        tlm_packets = cmd_entity["tlm_info"]
+        tlm_packets ||= []
+        target_name, packet_name, item_name = tlm_packets[0]
+      end
       if target_name and packet_name and item_name
         # Caller must be able to send this command
         return false unless authorization('cmd', target_name: target_name, packet_name: packet_name)

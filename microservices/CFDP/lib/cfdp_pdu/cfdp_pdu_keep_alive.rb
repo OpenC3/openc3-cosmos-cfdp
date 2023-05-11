@@ -31,6 +31,7 @@ class CfdpPdu < OpenC3::Packet
     progress:)
 
     pdu = build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, transmission_mode: transmission_mode, file_size: file_size, segmentation_control: segmentation_control)
+    pdu.write("DIRECTION", "TOWARD_FILE_SENDER")
     pdu_header_part_1_length = pdu.length # Measured here before writing variable data
     pdu_header = pdu.build_variable_header(source_entity_id: source_entity['id'], transaction_seq_num: transaction_seq_num, destination_entity_id: destination_entity['id'], directive_code: "KEEP_ALIVE")
     pdu_header_part_2_length = pdu_header.length

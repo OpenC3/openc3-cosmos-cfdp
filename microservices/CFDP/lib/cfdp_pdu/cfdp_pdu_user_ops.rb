@@ -44,6 +44,7 @@ class CfdpPdu < OpenC3::Packet
   end
 
   def define_originating_transaction_id_message_variable_data(id_length:, seq_num_length:)
+    s = OpenC3::Packet.new(nil, nil, :BIG_ENDIAN)
     s.append_item("SOURCE_ENTITY_ID", id_length * 8, :UINT)
     s.append_item("SEQUENCE_NUMBER", seq_num_length * 8, :UINT, nil, :BIG_ENDIAN, :TRUNCATE)
     return s
@@ -107,7 +108,7 @@ class CfdpPdu < OpenC3::Packet
     sfn.write("VALUE", source_file_name.to_s)
     dfn.write("LENGTH", destination_file_name.to_s.length)
     dfn.write("VALUE", destination_file_name.to_s)
-    return s1 + dei.buffer(false) + sfn.buffer(false) + dfn.buffer(false)
+    return s1.buffer(false) + dei.buffer(false) + sfn.buffer(false) + dfn.buffer(false)
   end
 
   def decom_proxy_put_request_message(message_to_user)
@@ -144,7 +145,7 @@ class CfdpPdu < OpenC3::Packet
     s2 = define_proxy_message_to_user_message()
     s2.write("LENGTH", message_to_user.length)
     s2.write("VALUE", message_to_user)
-    return s1 + s2
+    return s1.buffer(false) + s2.buffer(false)
   end
 
   def decom_proxy_message_to_user_message(message_to_user)
@@ -702,7 +703,7 @@ class CfdpPdu < OpenC3::Packet
         when "PROXY_FLOW_LABEL"
           return decom_proxy_flow_label_message(message_to_user)
         when "PROXY_SEGMENTATION_CONTROL"
-          return decom_segmentation_control_message(message_to_user)
+          return decom_proxy_segmentation_control_message(message_to_user)
         when "PROXY_PUT_RESPONSE"
           return decom_proxy_put_response_message(message_to_user)
         when "PROXY_FILESTORE_RESPONSE"
@@ -731,13 +732,13 @@ class CfdpPdu < OpenC3::Packet
         when "REMOTE_RESUME_RESPONSE"
           return decom_remote_resume_response_message(message_to_user)
         else
-          return {"MSG_TYPE" => "UNKNOWN"}
+          return {"MSG_TYPE" => "UNKNOWN", "DATA" => message_to_user}
         end
       else
-        return {"MSG_TYPE" => "UNKNOWN"}
+        return {"MSG_TYPE" => "UNKNOWN", "DATA" => message_to_user}
       end
     else
-      return {"MSG_TYPE" => "UNKNOWN"}
+      return {"MSG_TYPE" => "UNKNOWN", "DATA" => message_to_user}
     end
   end
 end
