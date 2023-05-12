@@ -94,7 +94,7 @@ class CfdpUser
             end
           end
           proxy_responses = []
-          CfdpMib.transactions.each do |transaction_id, transaction|
+          CfdpMib.transactions.dup.each do |transaction_id, transaction|
             transaction.update
             if transaction.proxy_response_needed
               # Send the proxy response
@@ -436,15 +436,18 @@ class CfdpUser
 
       when "UNKNOWN"
         # Unknown Message - Ignore
-        OpenC3::Logger.warn("Received Unknown Message to User: #{message_to_user["DATA"].to_s.simple_formatted}", scope: ENV['OPENC3_SCOPE'])
-
+        if message_to_user["DATA"].to_s.is_printable?
+          OpenC3::Logger.warn("Received Unknown Message to User: '#{message_to_user["DATA"].to_s}'", scope: ENV['OPENC3_SCOPE'])
+        else
+          OpenC3::Logger.warn("Received Unknown Message to User: #{message_to_user["DATA"].to_s.simple_formatted}", scope: ENV['OPENC3_SCOPE'])
+        end
       end
     end
 
     if proxy_action
       case proxy_action
       when :CANCEL
-        CfdpMib.transactions.each do |transaction_id, transaction|
+        CfdpMib.transactions.dup.each do |transaction_id, transaction|
           if transaction.proxy_response_info
             if transaction.proxy_response_info["SOURCE_ENTITY_ID"] == source_entity_id and transaction.proxy_response_info["SEQUENCE_NUMBER"] == sequence_number
               transaction.cancel(metadata_pdu_hash["SOURCE_ENTITY_ID"])

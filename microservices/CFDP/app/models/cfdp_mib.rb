@@ -60,6 +60,7 @@ class CfdpMib
     'ack_timer_interval',
     'nak_timer_interval',
     'keep_alive_interval',
+    'check_interval',
     'immediate_nak_mode',
     'default_transmission_mode',
     'transaction_closure_requested',
@@ -475,5 +476,13 @@ class CfdpMib
     end
     json_result = JSON.pretty_generate(result.as_json)
     return json_result
+  end
+
+  def self.clear
+    @@source_entity_id = 0
+    @@entities = {}
+    @@bucket = nil
+    @@root_path = "/"
+    @@transactions = {}
   end
 end

@@ -31,7 +31,28 @@ module OpenC3
     describe "POST /cfdp/put" do
       before(:each) do
         mock_redis()
+        CfdpMib.clear
         @root_path = SPEC_DIR
+        FileUtils.rm File.join(SPEC_DIR, 'test1.txt') if File.exist?(File.join(SPEC_DIR, 'test1.txt'))
+        FileUtils.rm File.join(SPEC_DIR, 'test2.txt') if File.exist?(File.join(SPEC_DIR, 'test2.txt'))
+        FileUtils.rm File.join(SPEC_DIR, 'new_file.txt') if File.exist?(File.join(SPEC_DIR, 'new_file.txt'))
+        FileUtils.rm File.join(SPEC_DIR, 'rename_file.txt') if File.exist?(File.join(SPEC_DIR, 'rename_file.txt'))
+        FileUtils.rm File.join(SPEC_DIR, 'deny.txt') if File.exist?(File.join(SPEC_DIR, 'deny.txt'))
+        FileUtils.rm File.join(SPEC_DIR, 'first.txt') if File.exist?(File.join(SPEC_DIR, 'first.txt'))
+        FileUtils.rm File.join(SPEC_DIR, 'second.txt') if File.exist?(File.join(SPEC_DIR, 'second.txt'))
+        FileUtils.rm_rf(File.join(SPEC_DIR, 'new_dir')) if File.exist?(File.join(SPEC_DIR, 'new_dir'))
+        FileUtils.rm_rf(File.join(SPEC_DIR, 'deny_dir')) if File.exist?(File.join(SPEC_DIR, 'deny_dir'))
+        FileUtils.rm_rf(File.join(SPEC_DIR, 'another_dir')) if File.exist?(File.join(SPEC_DIR, 'another_dir'))
+      end
+
+      def safe_write_topic(*args)
+        begin
+          Topic.write_topic(*args)
+        rescue RuntimeError
+          # Work around mock_redis hash issue
+          sleep(0.1)
+          retry
+        end
       end
 
       def setup(source_id:, destination_id:)
@@ -57,19 +78,25 @@ module OpenC3
         @rx_pdus = []
         @source_packets = []
         @receive_packets = []
+        @source_packet_mutex = Mutex.new
+        @receive_packet_mutex = Mutex.new
         allow_any_instance_of(CfdpSourceTransaction).to receive('cmd') do |source, tgt_name, pkt_name, params|
           # puts params["PDU"].formatted # Prints the raw bytes
-          @source_packets << [tgt_name, pkt_name, params]
-          begin
-            @tx_pdus << CfdpPdu.decom(params["PDU"])
-          rescue
+          @source_packet_mutex.synchronize do
+            @source_packets << [tgt_name, pkt_name, params]
+            begin
+              @tx_pdus << CfdpPdu.decom(params["PDU"])
+            rescue
+            end
           end
         end
         allow_any_instance_of(CfdpReceiveTransaction).to receive('cmd') do |source, tgt_name, pkt_name, params|
-          @receive_packets << [tgt_name, pkt_name, params]
-          begin
-            @rx_pdus << CfdpPdu.decom(params["PDU"])
-          rescue
+          @receive_packet_mutex.synchronize do
+            @receive_packets << [tgt_name, pkt_name, params]
+            begin
+              @rx_pdus << CfdpPdu.decom(params["PDU"])
+            rescue
+            end
           end
         end
       end
@@ -80,7 +107,7 @@ module OpenC3
                   transmission_mode: 'UNACKNOWLEDGED', closure: 'CLOSURE_NOT_REQUESTED',
                   send_closure: true, cancel: false, skip: false, duplicate_metadata: false,
                   duplicate_filedata: false, bad_seg_size: false, eof_size: nil,
-                  prompt: nil)
+                  prompt: nil, crcs_required: nil, cycles: 1)
         setup(source_id: 1, destination_id: 2) unless CfdpMib.entity(@destination_entity_id)
         CfdpMib.set_entity_value(@destination_entity_id, 'maximum_file_segment_length', 8)
         CfdpMib.root_path = @root_path
@@ -105,102 +132,132 @@ module OpenC3
         # Start user thread here so it has the chance to receive the closure PDU
         @user = CfdpUser.new
         @user.start
-        sleep 0.1 # Allow user thread to start
+        sleep 0.5 # Allow user thread to start
 
-        # Clear the tx transactions to simulate the receive side on the same system
-        tx_transactions = CfdpMib.transactions.clone
-        keys = CfdpMib.transactions.keys
-        keys.each do |key|
-          CfdpMib.transactions.delete(key)
-        end
-
-        i = -1
-        @source_packets.each do |target_name, cmd_name, cmd_params|
-          i += 1
-          # Skip is an array of segments to skip
-          # 1 based since segments start at packet 1, metadata is 0
-          next if skip and skip.include?(i)
-
-          if eof_size and i == 2
-            # See the cfdp_pdu_eof_spec.rb for the structure
-            cmd_params['PDU'][16] = [eof_size].pack('C') #"\x07" # Hack to be less than 8
-          end
-          if bad_seg_size and i == 2
-            # See the cfdp_pdu_file_data_spec.rb for the structure
-            cmd_params['PDU'][10] = "\x0A" # Hack to be more than 8
+        rx_transactions = {}
+        tx_transactions = {}
+        source_packet_index = 0
+        receive_packet_index = 0
+        cycles.times do
+          # Clear the tx transactions to simulate the receive side on the same system
+          tx_transactions = CfdpMib.transactions.clone
+          keys = CfdpMib.transactions.keys
+          keys.each do |key|
+            CfdpMib.transactions.delete(key)
           end
 
-          if prompt
-            # Need to sneak the prompt before the EOF PDU which is last
-            if i == @source_packets.length - 1
-              # Simlulate the prompt PDU
-              prompt_params = {}
-              prompt_params['PDU'] = CfdpPdu.build_prompt_pdu(
-                source_entity: CfdpMib.entity(@source_entity_id),
-                transaction_seq_num: 1,
-                destination_entity: CfdpMib.entity(@destination_entity_id),
-                transmission_mode: transmission_mode,
-                response_required: prompt
-              )
+          # Restore the rx transactions and send the receive_packets
+          rx_transactions.each do |key, value|
+            # puts "restore:#{key} val:#{value}"
+            CfdpMib.transactions[key] = value
+          end
+
+          CfdpMib.source_entity_id = @destination_entity_id
+          CfdpMib.set_entity_value(@destination_entity_id, 'crcs_required', true) if crcs_required
+
+          i = -1
+          @source_packet_mutex.synchronize do
+            @source_packets[source_packet_index..-1].each do |target_name, cmd_name, cmd_params|
+              i += 1
+              # Skip is an array of segments to skip
+              # 1 based since segments start at packet 1, metadata is 0
+              next if skip and skip.include?(i)
+
+              if eof_size and i == 2
+                # See the cfdp_pdu_eof_spec.rb for the structure
+                cmd_params['PDU'][16] = [eof_size].pack('C') #"\x07" # Hack to be less than 8
+              end
+              if bad_seg_size and i == 2
+                # See the cfdp_pdu_file_data_spec.rb for the structure
+                cmd_params['PDU'][10] = "\x0A" # Hack to be more than 8
+              end
+
+              if prompt
+                # Need to sneak the prompt before the EOF PDU which is last
+                if i == @source_packets.length - 1
+                  # Simlulate the prompt PDU
+                  prompt_params = {}
+                  prompt_params['PDU'] = CfdpPdu.build_prompt_pdu(
+                    source_entity: CfdpMib.entity(@source_entity_id),
+                    transaction_seq_num: 1,
+                    destination_entity: CfdpMib.entity(@destination_entity_id),
+                    transmission_mode: transmission_mode,
+                    response_required: prompt
+                  )
+                  msg_hash = {
+                    :time => Time.now.to_nsec_from_epoch,
+                    :stored => 'false',
+                    :target_name => "CFDPTEST",
+                    :packet_name => "CFDP_PDU",
+                    :received_count => 1,
+                    :json_data => JSON.generate(prompt_params.as_json(:allow_nan => true)),
+                  }
+                  safe_write_topic("DEFAULT__DECOM__{CFDPTEST}__CFDP_PDU", msg_hash, nil)
+                end
+              end
+
               msg_hash = {
                 :time => Time.now.to_nsec_from_epoch,
                 :stored => 'false',
-                :target_name => "CFDPTEST",
-                :packet_name => "CFDP_PDU",
+                :target_name => target_name,
+                :packet_name => cmd_name,
                 :received_count => 1,
-                :json_data => JSON.generate(prompt_params.as_json(:allow_nan => true)),
+                :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
               }
-              Topic.write_topic("DEFAULT__DECOM__{CFDPTEST}__CFDP_PDU", msg_hash, nil)
+              safe_write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
+              # Duplicate metadata should be ignored
+              if i == 0 and duplicate_metadata
+                safe_write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
+              end
+              if i == 1
+                if duplicate_filedata
+                  safe_write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
+                end
+                if cancel
+                  post "/cfdp/cancel", :params => {
+                    scope: "DEFAULT", transaction_id: "#{@source_entity_id}__1"
+                  }, as: :json
+                end
+              end
             end
+            source_packet_index = @source_packets.length
+          end
+          sleep 0.5 # Allow them to be processed
+
+          # Clear the rx transactions to simulate the transmit side on the same system
+          rx_transactions = CfdpMib.transactions.clone
+          keys = CfdpMib.transactions.keys
+          keys.each do |key|
+            CfdpMib.transactions.delete(key)
           end
 
-          msg_hash = {
-            :time => Time.now.to_nsec_from_epoch,
-            :stored => 'false',
-            :target_name => target_name,
-            :packet_name => cmd_name,
-            :received_count => 1,
-            :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
-          }
-          Topic.write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
-          # Duplicate metadata should be ignored
-          if i == 0 and duplicate_metadata
-            Topic.write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
+          # Restore the tx transactions and send the receive_packets
+          tx_transactions.each do |key, value|
+            # puts "restore:#{key} val:#{value}"
+            CfdpMib.transactions[key] = value
           end
-          if i == 1
-            if duplicate_filedata
-              Topic.write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
+          CfdpMib.source_entity_id = @source_entity_id
+
+          @receive_packet_mutex.synchronize do
+            @receive_packets[receive_packet_index..-1].each do |target_name, cmd_name, cmd_params|
+              if send_closure
+                msg_hash = {
+                  :time => Time.now.to_nsec_from_epoch,
+                  :stored => 'false',
+                  :target_name => target_name,
+                  :packet_name => cmd_name,
+                  :received_count => 1,
+                  :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
+                }
+                safe_write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
+              end
             end
-            if cancel
-              post "/cfdp/cancel", :params => {
-                scope: "DEFAULT", transaction_id: "#{@source_entity_id}__1"
-              }, as: :json
-            end
+            receive_packet_index = @receive_packets.length
           end
-        end
-        sleep 0.1 # Allow them to be processed
 
-        # Restore the tx transactions and send the receive_packets
-        tx_transactions.each do |key, value|
-          # puts "restore:#{key} val:#{value}"
-          CfdpMib.transactions[key] = value
+          sleep 0.5
         end
 
-        @receive_packets.each do |target_name, cmd_name, cmd_params|
-          if send_closure
-            msg_hash = {
-              :time => Time.now.to_nsec_from_epoch,
-              :stored => 'false',
-              :target_name => target_name,
-              :packet_name => cmd_name,
-              :received_count => 1,
-              :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
-            }
-            Topic.write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
-          end
-        end
-
-        sleep 0.1
         @user.stop
         sleep 0.1
 
@@ -246,11 +303,11 @@ module OpenC3
               expect(indications[3]['indication_type']).to eql 'Metadata-Recv'
               expect(indications[3]['source_file_name']).to eql 'test1.txt'
               expect(indications[3]['destination_file_name']).to eql 'test2.txt'
-              expect(indications[3]['file_size']).to eql '8'
-              expect(indications[3]['source_entity_id']).to eql '1'
+              expect(indications[3]['file_size']).to eql 8
+              expect(indications[3]['source_entity_id']).to eql 1
               expect(indications[4]['indication_type']).to eql 'File-Segment-Recv'
-              expect(indications[4]['offset']).to eql '0'
-              expect(indications[4]['length']).to eql '8'
+              expect(indications[4]['offset']).to eql 0
+              expect(indications[4]['length']).to eql 8
               expect(indications[5]['indication_type']).to eql 'EOF-Recv'
               expect(indications[6]['indication_type']).to eql 'Transaction-Finished'
               expect(indications[6]['condition_code']).to eql 'NO_ERROR'
@@ -305,7 +362,7 @@ module OpenC3
         expect(Logger).to receive(:error).exactly(3).times.with(/PDU without required CRC received/, scope: 'DEFAULT')
         data = ('a'..'z').to_a.shuffle[0,8].join
         File.write(File.join(SPEC_DIR, 'test1.txt'), data)
-        request(source: 'test1.txt', dest: 'test2.txt')
+        request(source: 'test1.txt', dest: 'test2.txt', crcs_required: true)
         expect(File.exist?(File.join(SPEC_DIR, 'test2.txt'))).to be false
         FileUtils.rm File.join(SPEC_DIR, 'test1.txt'), force: true
       end
@@ -331,11 +388,11 @@ module OpenC3
           expect(indications[3]['indication_type']).to eql 'Metadata-Recv'
           expect(indications[3]['source_file_name']).to eql 'test1.txt'
           expect(indications[3]['destination_file_name']).to eql 'test2.txt'
-          expect(indications[3]['file_size']).to eql '8'
-          expect(indications[3]['source_entity_id']).to eql '1'
+          expect(indications[3]['file_size']).to eql 8
+          expect(indications[3]['source_entity_id']).to eql 1
           expect(indications[4]['indication_type']).to eql 'File-Segment-Recv'
-          expect(indications[4]['offset']).to eql '0'
-          expect(indications[4]['length']).to eql '8'
+          expect(indications[4]['offset']).to eql 0
+          expect(indications[4]['length']).to eql 8
           expect(indications[5]['indication_type']).to eql 'EOF-Recv'
           expect(indications[6]['indication_type']).to eql 'Transaction-Finished'
           expect(indications[6]['condition_code']).to eql 'NO_ERROR'
@@ -386,16 +443,16 @@ module OpenC3
           expect(indications[3]['indication_type']).to eql 'Metadata-Recv'
           expect(indications[3]['source_file_name']).to eql 'test1.txt'
           expect(indications[3]['destination_file_name']).to eql 'test2.txt'
-          expect(indications[3]['file_size']).to eql '8'
-          expect(indications[3]['source_entity_id']).to eql '1'
+          expect(indications[3]['file_size']).to eql 8
+          expect(indications[3]['source_entity_id']).to eql 1
           expect(indications[4]['indication_type']).to eql 'File-Segment-Recv'
-          expect(indications[4]['offset']).to eql '0'
-          expect(indications[4]['length']).to eql '8'
+          expect(indications[4]['offset']).to eql 0
+          expect(indications[4]['length']).to eql 8
           expect(indications[5]['indication_type']).to eql 'EOF-Recv'
           # 4.6.1.2.8 d. File Checksum Failure fault
           expect(indications[6]['indication_type']).to eql 'Fault'
           expect(indications[6]['condition_code']).to eql 'FILE_CHECKSUM_FAILURE'
-          expect(indications[6]['progress']).to eql '8'
+          expect(indications[6]['progress']).to eql 8
           expect(indications[7]['indication_type']).to eql 'Transaction-Finished'
           expect(indications[7]['condition_code']).to eql 'FILE_CHECKSUM_FAILURE'
           expect(indications[7]['file_status']).to eql 'FILE_DISCARDED'
@@ -441,8 +498,8 @@ module OpenC3
           expect(indications[3]['indication_type']).to eql 'Metadata-Recv'
           expect(indications[3]['source_file_name']).to be nil
           expect(indications[3]['destination_file_name']).to be nil
-          expect(indications[3]['file_size']).to eql '0'
-          expect(indications[3]['source_entity_id']).to eql '1'
+          expect(indications[3]['file_size']).to eql 0
+          expect(indications[3]['source_entity_id']).to eql 1
           expect(indications[4]['indication_type']).to eql 'EOF-Recv'
           expect(indications[5]['indication_type']).to eql 'Transaction-Finished'
           expect(indications[5]['condition_code']).to eql 'NO_ERROR'
@@ -507,8 +564,8 @@ module OpenC3
         request(source: 'test1.txt', dest: 'test2.txt',
                 transmission_mode: 'UNACKNOWLEDGED',
                 messages: [
-                  ['This is a test'],
-                  ['Another message']
+                  'This is a test',
+                  'Another message'
                 ],
                 overrides: [
                   ['ACK_LIMIT_REACHED', 'ISSUE_NOTICE_OF_CANCELATION'],
@@ -532,16 +589,16 @@ module OpenC3
           expect(indications[3]['indication_type']).to eql 'Metadata-Recv'
           expect(indications[3]['source_file_name']).to eql 'test1.txt'
           expect(indications[3]['destination_file_name']).to eql 'test2.txt'
-          expect(indications[3]['file_size']).to eql '8'
-          expect(indications[3]['source_entity_id']).to eql '1'
-          expect(indications[3]['fault_handler_overrides']).to eql "{\"ACK_LIMIT_REACHED\"=>\"ISSUE_NOTICE_OF_CANCELATION\", \"FILE_CHECKSUM_FAILURE\"=>\"IGNORE_ERROR\"}"
+          expect(indications[3]['file_size']).to eql 8
+          expect(indications[3]['source_entity_id']).to eql 1
+          expect(indications[3]['fault_handler_overrides']).to eql({"ACK_LIMIT_REACHED"=>"ISSUE_NOTICE_OF_CANCELATION", "FILE_CHECKSUM_FAILURE"=>"IGNORE_ERROR"})
           # 4.6.1.2.6 Metadata-Recv includes messags to user
-          expect(indications[3]['messages_to_user']).to eql "[\"This is a test\", \"Another message\"]"
-          expect(indications[3]['filestore_requests']).to eql "[{\"ACTION_CODE\"=>\"CREATE_FILE\", \"FIRST_FILE_NAME\"=>\"temp.txt\", \"SECOND_FILE_NAME\"=>nil}, {\"ACTION_CODE\"=>\"DELETE_FILE\", \"FIRST_FILE_NAME\"=>\"temp.txt\", \"SECOND_FILE_NAME\"=>nil}]"
+          expect(indications[3]['messages_to_user']).to eql ["This is a test", "Another message"]
+          expect(indications[3]['filestore_requests']).to eql [{"ACTION_CODE"=>"CREATE_FILE", "FIRST_FILE_NAME"=>"temp.txt"}, {"ACTION_CODE"=>"DELETE_FILE", "FIRST_FILE_NAME"=>"temp.txt"}]
           expect(indications[3]['flow_label']).to eql "FLOW"
           expect(indications[4]['indication_type']).to eql 'File-Segment-Recv'
-          expect(indications[4]['offset']).to eql '0'
-          expect(indications[4]['length']).to eql '8'
+          expect(indications[4]['offset']).to eql 0
+          expect(indications[4]['length']).to eql 8
           expect(indications[5]['indication_type']).to eql 'EOF-Recv'
           expect(indications[6]['indication_type']).to eql 'Transaction-Finished'
           expect(indications[6]['condition_code']).to eql 'NO_ERROR'
@@ -626,11 +683,11 @@ module OpenC3
           expect(indications[2]['indication_type']).to eql 'Metadata-Recv'
           expect(indications[2]['source_file_name']).to eql 'test1.txt'
           expect(indications[2]['destination_file_name']).to eql 'test2.txt'
-          expect(indications[2]['file_size']).to eql '8'
-          expect(indications[2]['source_entity_id']).to eql '1'
+          expect(indications[2]['file_size']).to eql 8
+          expect(indications[2]['source_entity_id']).to eql 1
           expect(indications[3]['indication_type']).to eql 'File-Segment-Recv'
-          expect(indications[3]['offset']).to eql '0'
-          expect(indications[3]['length']).to eql '8'
+          expect(indications[3]['offset']).to eql 0
+          expect(indications[3]['length']).to eql 8
           expect(indications[4]['indication_type']).to eql 'EOF-Recv'
           expect(indications[5]['indication_type']).to eql 'Transaction-Finished'
           expect(indications[5]['condition_code']).to eql 'NO_ERROR'
@@ -686,7 +743,7 @@ module OpenC3
         # Validate the Rx PDUs
         expect(@rx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
         expect(@rx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
-        expect(@rx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @source_entity_id # Sent to ourselves
+        expect(@rx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
         expect(@rx_pdus[0]['TRANSMISSION_MODE']).to eql 'ACKNOWLEDGED'
         # 4.6.4.3.5 ACK the EOF
         expect(@rx_pdus[0]['DIRECTIVE_CODE']).to eql 'ACK'
@@ -696,7 +753,7 @@ module OpenC3
 
         expect(@rx_pdus[1]['TYPE']).to eql 'FILE_DIRECTIVE'
         expect(@rx_pdus[1]['SOURCE_ENTITY_ID']).to eql @source_entity_id
-        expect(@rx_pdus[1]['DESTINATION_ENTITY_ID']).to eql @source_entity_id
+        expect(@rx_pdus[1]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
         expect(@rx_pdus[1]['TRANSMISSION_MODE']).to eql 'ACKNOWLEDGED'
         # 4.6.4.3.4 Finished PDU when complete
         expect(@rx_pdus[1]['DIRECTIVE_CODE']).to eql 'FINISHED'
@@ -712,7 +769,7 @@ module OpenC3
         File.write(File.join(SPEC_DIR, 'test1.txt'), data)
         request(source: 'test1.txt', dest: 'test2.txt',
                 transmission_mode: 'ACKNOWLEDGED',
-                skip: [1]) do |indications|
+                skip: [1], cycles: 2) do |indications|
           # First the transmit indications
           expect(indications[0]['indication_type']).to eql 'Transaction'
           expect(indications[1]['indication_type']).to eql 'EOF-Sent'
@@ -721,27 +778,15 @@ module OpenC3
           expect(indications[2]['indication_type']).to eql 'Metadata-Recv'
           expect(indications[2]['source_file_name']).to eql 'test1.txt'
           expect(indications[2]['destination_file_name']).to eql 'test2.txt'
-          expect(indications[2]['file_size']).to eql '8'
-          expect(indications[2]['source_entity_id']).to eql '1'
+          expect(indications[2]['file_size']).to eql 8
+          expect(indications[2]['source_entity_id']).to eql 1
           expect(indications[3]['indication_type']).to eql 'EOF-Recv'
-          # TODO: After not receiving any data we just say NO_ERROR and UNREPORTED status??
-          expect(indications[4]['indication_type']).to eql 'Transaction-Finished'
-          expect(indications[4]['condition_code']).to eql 'NO_ERROR'
-          expect(indications[4]['file_status']).to eql 'UNREPORTED' # vs FILESTORE_SUCCESS
-          expect(indications[4]['delivery_code']).to eql 'DATA_COMPLETE'
-          expect(indications[4]['status_report']).to eql 'FINISHED'
-          # 4.6.3.2.1 Transmission of EOF causes Notice of Completion
-          expect(indications[5]['indication_type']).to eql 'Transaction-Finished'
-          expect(indications[5]['condition_code']).to eql 'NO_ERROR'
-          expect(indications[5]['file_status']).to eql 'UNREPORTED' # vs FILESTORE_SUCCESS
-          expect(indications[5]['delivery_code']).to eql 'DATA_COMPLETE'
-          expect(indications[5]['status_report']).to eql 'FINISHED'
         end
-        expect(File.exist?(File.join(SPEC_DIR, 'test2.txt'))).to be false
+        expect(File.exist?(File.join(SPEC_DIR, 'test2.txt'))).to be true
         FileUtils.rm File.join(SPEC_DIR, 'test1.txt'), force: true
 
         # Validate the Tx PDUs
-        expect(@tx_pdus.length).to eql 4
+        expect(@tx_pdus.length).to eql 5
         expect(@tx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
         expect(@tx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
         expect(@tx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
@@ -763,24 +808,24 @@ module OpenC3
         expect(@tx_pdus[2]['CONDITION_CODE']).to eql 'NO_ERROR'
         expect(@tx_pdus[2]['TRANSMISSION_MODE']).to eql 'ACKNOWLEDGED'
 
-        expect(@tx_pdus[3]['TYPE']).to eql 'FILE_DIRECTIVE'
+        expect(@tx_pdus[3]['TYPE']).to eql 'FILE_DATA'
         expect(@tx_pdus[3]['SOURCE_ENTITY_ID']).to eql @source_entity_id
         expect(@tx_pdus[3]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
-        # 4.6.4.2.4 ACK Finished
-        expect(@tx_pdus[3]['DIRECTIVE_CODE']).to eql 'ACK'
-        expect(@tx_pdus[3]['ACK_DIRECTIVE_CODE']).to eql 'FINISHED'
-        expect(@tx_pdus[3]['ACK_DIRECTIVE_SUBTYPE']).to eql 1
-        expect(@tx_pdus[3]['CONDITION_CODE']).to eql 'NO_ERROR'
+        expect(@tx_pdus[3]['FILE_DATA']).to eql data
         expect(@tx_pdus[3]['TRANSMISSION_MODE']).to eql 'ACKNOWLEDGED'
-        expect(@tx_pdus[3]['TRANSACTION_STATUS']).to eql 'ACTIVE' # TODO: ACTIVE?
 
-        # TODO: NO Rx NAK PDUs?
+        expect(@tx_pdus[4]['TYPE']).to eql 'FILE_DIRECTIVE'
+        expect(@tx_pdus[4]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+        expect(@tx_pdus[4]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
+        expect(@tx_pdus[4]['TRANSMISSION_MODE']).to eql 'ACKNOWLEDGED'
+        expect(@tx_pdus[4]['DIRECTIVE_CODE']).to eql 'ACK'
+        expect(@tx_pdus[4]['ACK_DIRECTIVE_CODE']).to eql 'FINISHED'
 
         # Validate the Rx PDUs
-        expect(@rx_pdus.length).to eql 2
+        expect(@rx_pdus.length).to eql 3
         expect(@rx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
         expect(@rx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
-        expect(@rx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @source_entity_id # Sent to ourselves
+        expect(@rx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
         expect(@rx_pdus[0]['TRANSMISSION_MODE']).to eql 'ACKNOWLEDGED'
         # 4.6.4.3.5 ACK the EOF
         expect(@rx_pdus[0]['DIRECTIVE_CODE']).to eql 'ACK'
@@ -790,13 +835,24 @@ module OpenC3
 
         expect(@rx_pdus[1]['TYPE']).to eql 'FILE_DIRECTIVE'
         expect(@rx_pdus[1]['SOURCE_ENTITY_ID']).to eql @source_entity_id
-        expect(@rx_pdus[1]['DESTINATION_ENTITY_ID']).to eql @source_entity_id
+        expect(@rx_pdus[1]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
         expect(@rx_pdus[1]['TRANSMISSION_MODE']).to eql 'ACKNOWLEDGED'
+        expect(@rx_pdus[1]['DIRECTIVE_CODE']).to eql 'NAK'
+        expect(@rx_pdus[1]['START_OF_SCOPE']).to eql 0
+        expect(@rx_pdus[1]['END_OF_SCOPE']).to eql 8
+        expect(@rx_pdus[1]['SEGMENT_REQUESTS'].length).to eql 1
+        expect(@rx_pdus[1]['SEGMENT_REQUESTS'][0]["START_OFFSET"]).to eql 0
+        expect(@rx_pdus[1]['SEGMENT_REQUESTS'][0]["END_OFFSET"]).to eql 8
+
+        expect(@rx_pdus[2]['TYPE']).to eql 'FILE_DIRECTIVE'
+        expect(@rx_pdus[2]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+        expect(@rx_pdus[2]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
+        expect(@rx_pdus[2]['TRANSMISSION_MODE']).to eql 'ACKNOWLEDGED'
         # 4.6.4.3.4 Finished PDU when complete
-        expect(@rx_pdus[1]['DIRECTIVE_CODE']).to eql 'FINISHED'
-        expect(@rx_pdus[1]['CONDITION_CODE']).to eql 'NO_ERROR'
-        expect(@rx_pdus[1]['DELIVERY_CODE']).to eql 'DATA_COMPLETE'
-        expect(@rx_pdus[1]['FILE_STATUS']).to eql 'UNREPORTED' # vs FILESTORE_SUCCESS
+        expect(@rx_pdus[2]['DIRECTIVE_CODE']).to eql 'FINISHED'
+        expect(@rx_pdus[2]['CONDITION_CODE']).to eql 'NO_ERROR'
+        expect(@rx_pdus[2]['DELIVERY_CODE']).to eql 'DATA_COMPLETE'
+        expect(@rx_pdus[2]['FILE_STATUS']).to eql 'FILESTORE_SUCCESS'
       end
 
       # 4.6.1.2.7 a. Repeated data is discarded
@@ -854,22 +910,22 @@ module OpenC3
           expect(indications[2]['status_report']).to eql 'FINISHED'
           # Receive indications
           expect(indications[3]['indication_type']).to eql 'Metadata-Recv'
-          expect(indications[3]['file_size']).to eql '9'
+          expect(indications[3]['file_size']).to eql 9
           expect(indications[4]['indication_type']).to eql 'File-Segment-Recv'
-          expect(indications[4]['offset']).to eql '0'
-          expect(indications[4]['length']).to eql '8'
+          expect(indications[4]['offset']).to eql 0
+          expect(indications[4]['length']).to eql 8
           # 4.6.1.2.7 c. Sum of offset and segment exceeds File Size Error fault
           expect(indications[5]['indication_type']).to eql 'Fault'
           expect(indications[5]['condition_code']).to eql 'FILE_SIZE_ERROR'
           # 11 which is hacked length of 10 plus file size of 1
-          expect(indications[5]['progress']).to eql '11'
+          expect(indications[5]['progress']).to eql 11
           expect(indications[6]['indication_type']).to eql 'File-Segment-Recv'
-          expect(indications[6]['offset']).to eql '10'
-          expect(indications[6]['length']).to eql '1'
+          expect(indications[6]['offset']).to eql 10
+          expect(indications[6]['length']).to eql 1
           # 4.6.1.2.9 EOF generates File Size Error fault
           expect(indications[7]['indication_type']).to eql 'Fault'
           expect(indications[7]['condition_code']).to eql 'FILE_SIZE_ERROR'
-          expect(indications[7]['progress']).to eql '11'
+          expect(indications[7]['progress']).to eql 11
           expect(indications[8]['indication_type']).to eql 'EOF-Recv'
         end
         expect(File.exist?(File.join(SPEC_DIR, 'test2.txt'))).to be false
@@ -895,14 +951,14 @@ module OpenC3
           expect(indications[2]['status_report']).to eql 'FINISHED'
           # Receive indications
           expect(indications[3]['indication_type']).to eql 'Metadata-Recv'
-          expect(indications[3]['file_size']).to eql '8'
+          expect(indications[3]['file_size']).to eql 8
           expect(indications[4]['indication_type']).to eql 'File-Segment-Recv'
-          expect(indications[4]['offset']).to eql '0'
-          expect(indications[4]['length']).to eql '8'
+          expect(indications[4]['offset']).to eql 0
+          expect(indications[4]['length']).to eql 8
           # 4.6.1.2.9 EOF generates File Size Error fault
           expect(indications[5]['indication_type']).to eql 'Fault'
           expect(indications[5]['condition_code']).to eql 'FILE_SIZE_ERROR'
-          expect(indications[5]['progress']).to eql '8'
+          expect(indications[5]['progress']).to eql 8
           expect(indications[6]['indication_type']).to eql 'EOF-Recv'
         end
         expect(File.exist?(File.join(SPEC_DIR, 'test2.txt'))).to be false
@@ -998,26 +1054,26 @@ module OpenC3
               expect(indications[3]['indication_type']).to eql 'Metadata-Recv'
               expect(indications[3]['source_file_name']).to eql 'test1.txt'
               expect(indications[3]['destination_file_name']).to eql 'test2.txt'
-              expect(indications[3]['file_size']).to eql '17'
-              expect(indications[3]['source_entity_id']).to eql '1'
+              expect(indications[3]['file_size']).to eql 17
+              expect(indications[3]['source_entity_id']).to eql 1
               # Segment indications
               i = 4
               unless segments.include?(1)
                 expect(indications[i]['indication_type']).to eql 'File-Segment-Recv'
-                expect(indications[i]['offset']).to eql '0'
-                expect(indications[i]['length']).to eql '8'
+                expect(indications[i]['offset']).to eql 0
+                expect(indications[i]['length']).to eql 8
                 i += 1
               end
               unless segments.include?(2)
                 expect(indications[i]['indication_type']).to eql 'File-Segment-Recv'
-                expect(indications[i]['offset']).to eql '8'
-                expect(indications[i]['length']).to eql '8'
+                expect(indications[i]['offset']).to eql 8
+                expect(indications[i]['length']).to eql 8
                 i += 1
               end
               unless segments.include?(3)
                 expect(indications[i]['indication_type']).to eql 'File-Segment-Recv'
-                expect(indications[i]['offset']).to eql '16'
-                expect(indications[i]['length']).to eql '1'
+                expect(indications[i]['offset']).to eql 16
+                expect(indications[i]['length']).to eql 1
                 i += 1
               end
               expect(indications[i]['indication_type']).to eql 'EOF-Recv'
@@ -1026,7 +1082,7 @@ module OpenC3
             FileUtils.rm File.join(SPEC_DIR, 'test1.txt'), force: true
 
             # Validate the TX PDUs
-            expect(@tx_pdus.length).to eql 5
+            expect(@tx_pdus.length).to eql (5 + segments.length)
             expect(@tx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
             expect(@tx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
             expect(@tx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
@@ -1055,11 +1111,26 @@ module OpenC3
             expect(@tx_pdus[4]['DIRECTIVE_CODE']).to eql 'EOF'
             expect(@tx_pdus[4]['CONDITION_CODE']).to eql 'NO_ERROR'
 
+            index = 0
+            segments.each do |segment|
+              expect(@tx_pdus[5 + index]['TYPE']).to eql 'FILE_DATA'
+              expect(@tx_pdus[5 + index]['SOURCE_ENTITY_ID']).to eql @source_entity_id
+              expect(@tx_pdus[5 + index]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
+              if segment == 1
+                expect(@tx_pdus[5 + index]['FILE_DATA']).to eql data[0..7]
+              elsif segment == 2
+                expect(@tx_pdus[5 + index]['FILE_DATA']).to eql data[8..15]
+              else
+                expect(@tx_pdus[5 + index]['FILE_DATA']).to eql data[16..-1]
+              end
+              index += 1
+            end
+
             # Validate the RX PDUs
             expect(@rx_pdus.length).to eql 1
             expect(@rx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
             expect(@rx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
-            expect(@rx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @source_entity_id # Sent to ourselves
+            expect(@rx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
             # 4.6.4.4.2 Immediate NAK mode
             expect(@rx_pdus[0]['DIRECTIVE_CODE']).to eql 'NAK'
             # 4.6.4.3.3 a Scope of the NAK is start and end offset
@@ -1137,11 +1208,11 @@ module OpenC3
           expect(indications[2]['indication_type']).to eql 'Metadata-Recv'
           expect(indications[2]['source_file_name']).to eql 'test1.txt'
           expect(indications[2]['destination_file_name']).to eql 'test2.txt'
-          expect(indications[2]['file_size']).to eql '8'
-          expect(indications[2]['source_entity_id']).to eql '1'
+          expect(indications[2]['file_size']).to eql 8
+          expect(indications[2]['source_entity_id']).to eql 1
           expect(indications[3]['indication_type']).to eql 'File-Segment-Recv'
-          expect(indications[3]['offset']).to eql '0'
-          expect(indications[3]['length']).to eql '8'
+          expect(indications[3]['offset']).to eql 0
+          expect(indications[3]['length']).to eql 8
           expect(indications[4]['indication_type']).to eql 'EOF-Recv'
           # 4.6.3.2.3 Notice of completion
           expect(indications[5]['indication_type']).to eql 'Transaction-Finished'
@@ -1180,7 +1251,7 @@ module OpenC3
 
         expect(@rx_pdus[0]['TYPE']).to eql 'FILE_DIRECTIVE'
         expect(@rx_pdus[0]['SOURCE_ENTITY_ID']).to eql @source_entity_id
-        expect(@rx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @source_entity_id # Sent to ourselves
+        expect(@rx_pdus[0]['DESTINATION_ENTITY_ID']).to eql @destination_entity_id
         expect(@rx_pdus[0]['DIRECTIVE_CODE']).to eql 'FINISHED'
         expect(@rx_pdus[0]['CONDITION_CODE']).to eql 'NO_ERROR'
         expect(@rx_pdus[0]['DELIVERY_CODE']).to eql 'DATA_COMPLETE'
@@ -1191,6 +1262,8 @@ module OpenC3
       it "times out waiting for a closure" do
         data = ('a'..'z').to_a.shuffle[0,8].join
         File.write(File.join(SPEC_DIR, 'test1.txt'), data)
+        setup(source_id: 1, destination_id: 2)
+        CfdpMib.set_entity_value(@source_entity_id, 'check_interval', 0.1)
         request(source: 'test1.txt', dest: 'test2.txt',
                 closure: 'CLOSURE_REQUESTED', send_closure: false) do |indications|
           # First the transmit indications
@@ -1200,11 +1273,11 @@ module OpenC3
           expect(indications[2]['indication_type']).to eql 'Metadata-Recv'
           expect(indications[2]['source_file_name']).to eql 'test1.txt'
           expect(indications[2]['destination_file_name']).to eql 'test2.txt'
-          expect(indications[2]['file_size']).to eql '8'
-          expect(indications[2]['source_entity_id']).to eql '1'
+          expect(indications[2]['file_size']).to eql 8
+          expect(indications[2]['source_entity_id']).to eql 1
           expect(indications[3]['indication_type']).to eql 'File-Segment-Recv'
-          expect(indications[3]['offset']).to eql '0'
-          expect(indications[3]['length']).to eql '8'
+          expect(indications[3]['offset']).to eql 0
+          expect(indications[3]['length']).to eql 8
           expect(indications[4]['indication_type']).to eql 'EOF-Recv'
           expect(indications[5]['indication_type']).to eql 'Transaction-Finished'
           expect(indications[5]['condition_code']).to eql 'NO_ERROR'
@@ -1234,9 +1307,9 @@ module OpenC3
 
         cmd_params = {}
         cmd_params["PDU"] = CfdpPdu.build_eof_pdu(
-          source_entity: CfdpMib.entity(@source_entity_id),
+          source_entity: CfdpMib.entity(@destination_entity_id),
           transaction_seq_num: 1,
-          destination_entity: CfdpMib.entity(@destination_entity_id),
+          destination_entity: CfdpMib.entity(@source_entity_id),
           file_size: 8,
           file_checksum: 0,
           condition_code: "NO_ERROR",
@@ -1256,7 +1329,7 @@ module OpenC3
           error_message = msg
         end
 
-        Topic.write_topic("DEFAULT__DECOM__{CFDPTEST}__CFDP_PDU", msg_hash, nil)
+        safe_write_topic("DEFAULT__DECOM__{CFDPTEST}__CFDP_PDU", msg_hash, nil)
         sleep 0.1
         # Thread is still running even after the bad transaction
         expect(thread.alive?).to be true
@@ -1327,11 +1400,11 @@ module OpenC3
           expect(indications[3]['indication_type']).to eql 'Metadata-Recv'
           expect(indications[3]['source_file_name']).to eql 'test1.txt'
           expect(indications[3]['destination_file_name']).to eql 'test2.txt'
-          expect(indications[3]['file_size']).to eql '8'
-          expect(indications[3]['source_entity_id']).to eql '1'
+          expect(indications[3]['file_size']).to eql 8
+          expect(indications[3]['source_entity_id']).to eql 1
           expect(indications[4]['indication_type']).to eql 'File-Segment-Recv'
-          expect(indications[4]['offset']).to eql '0'
-          expect(indications[4]['length']).to eql '8'
+          expect(indications[4]['offset']).to eql 0
+          expect(indications[4]['length']).to eql 8
           expect(indications[5]['indication_type']).to eql 'EOF-Recv'
           expect(indications[6]['indication_type']).to eql 'Transaction-Finished'
           expect(indications[6]['condition_code']).to eql 'NO_ERROR'
@@ -1371,11 +1444,11 @@ module OpenC3
           expect(indications[3]['indication_type']).to eql 'Metadata-Recv'
           expect(indications[3]['source_file_name']).to eql 'test1.txt'
           expect(indications[3]['destination_file_name']).to eql 'test2.txt'
-          expect(indications[3]['file_size']).to eql '8'
-          expect(indications[3]['source_entity_id']).to eql '1'
+          expect(indications[3]['file_size']).to eql 8
+          expect(indications[3]['source_entity_id']).to eql 1
           expect(indications[4]['indication_type']).to eql 'File-Segment-Recv'
-          expect(indications[4]['offset']).to eql '0'
-          expect(indications[4]['length']).to eql '8'
+          expect(indications[4]['offset']).to eql 0
+          expect(indications[4]['length']).to eql 8
           expect(indications[5]['indication_type']).to eql 'EOF-Recv'
           # 4.6.1.2.5 Filestore Rejection Fault
           expect(indications[6]['indication_type']).to eql 'Fault'

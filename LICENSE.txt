@@ -1,5 +1,7 @@
 # OpenC3 Evaluation and Educational License
 #
+# Copyright 2023 OpenC3, Inc.
+#
 # This work is licensed for evaluation and educational purposes only.
 # It may NOT be used for formal development, integration and test, operations
 # or any other commercial purpose without the purchase of a commercial license

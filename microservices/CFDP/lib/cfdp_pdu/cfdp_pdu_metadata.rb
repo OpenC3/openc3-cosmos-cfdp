@@ -25,14 +25,14 @@ class CfdpPdu < OpenC3::Packet
     s.buffer = variable_data[0..(s.defined_length + source_file_name_length - 1)]
     pdu_hash["SOURCE_FILE_NAME"] = s.read("SOURCE_FILE_NAME")
     variable_data = variable_data[(s.defined_length + source_file_name_length)..-1]
-    if variable_data.length > 0
+    if variable_data and variable_data.length > 0
       s2.buffer = variable_data
       destination_file_name_length = s2.read("DESTINATION_FILE_NAME_LENGTH")
       s2.buffer = variable_data[0..(s2.defined_length + destination_file_name_length - 1)]
       pdu_hash["DESTINATION_FILE_NAME"] = s2.read("DESTINATION_FILE_NAME")
       variable_data = variable_data[(s2.defined_length + destination_file_name_length)..-1]
     end
-    while variable_data.length > 0
+    while variable_data and variable_data.length > 0
       variable_data = decom_tlv(pdu, pdu_hash, variable_data)
     end
   end

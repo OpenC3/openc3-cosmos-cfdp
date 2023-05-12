@@ -47,6 +47,7 @@ class CfdpReceiveTransaction < CfdpTransaction
     @keep_alive_timeout = Time.now + CfdpMib.source_entity['keep_alive_interval'] if @transmission_mode == 'ACKNOWLEDGED'
     @keep_alive_count = 0
     @finished_count = 0
+    @source_entity_id = nil
     CfdpMib.transactions[@id] = self
     handle_pdu(pdu_hash)
   end
@@ -329,7 +330,7 @@ class CfdpReceiveTransaction < CfdpTransaction
   end
 
   def send_naks(force = false)
-    source_entity = CfdpMib.entity(@metadata_pdu_hash['SOURCE_ENTITY_ID'])
+    source_entity = CfdpMib.entity(@source_entity_id)
     destination_entity = CfdpMib.source_entity
     target_name, packet_name, item_name = source_entity["cmd_info"]
 
@@ -432,6 +433,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       @metadata_pdu_count += 1
       return if @metadata_pdu_hash # Discard repeats
       @metadata_pdu_hash = pdu_hash
+      @source_entity_id = @metadata_pdu_hash['SOURCE_ENTITY_ID']
       kw_args = {}
       tlvs = pdu_hash['TLVS']
       if tlvs
@@ -441,7 +443,7 @@ class CfdpReceiveTransaction < CfdpTransaction
             filestore_request = {}
             filestore_request["ACTION_CODE"] = tlv["ACTION_CODE"]
             filestore_request["FIRST_FILE_NAME"] = tlv["FIRST_FILE_NAME"]
-            filestore_request["SECOND_FILE_NAME"] = tlv["SECOND_FILE_NAME"]
+            filestore_request["SECOND_FILE_NAME"] = tlv["SECOND_FILE_NAME"] if tlv["SECOND_FILE_NAME"]
             @filestore_requests << filestore_request
 
           when "MESSAGE_TO_USER"
@@ -545,6 +547,8 @@ class CfdpReceiveTransaction < CfdpTransaction
       end
 
     else # File Data
+      @source_entity_id = @metadata_pdu_hash['SOURCE_ENTITY_ID']
+
       @tmp_file ||= Tempfile.new('cfdp')
       offset = pdu_hash['OFFSET']
       file_data = pdu_hash['FILE_DATA']

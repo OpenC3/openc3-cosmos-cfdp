@@ -687,7 +687,7 @@ class CfdpPdu < OpenC3::Packet
   def decom_message_to_user(message_to_user)
     s1 = define_reserved_cfdp_message_header()
     if message_to_user.length > 5 # Minimum size
-      s1.buffer = message_to_user
+      s1.buffer = message_to_user[0..(s1.defined_length - 1)]
       if s1.read("MSG_ID") == 'cfdp'
         case s1.read("MSG_TYPE")
         when "PROXY_PUT_REQUEST"

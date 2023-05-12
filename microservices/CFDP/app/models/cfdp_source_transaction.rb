@@ -285,7 +285,7 @@ class CfdpSourceTransaction < CfdpTransaction
     # Wait for Finished if Closure Requested or Acknowledged Mode
     if closure_requested == "CLOSURE_REQUESTED" or @transmission_mode == "ACKNOWLEDGED"
       start_time = Time.now
-      while (Time.now - start_time) < @source_entity['check_limit']
+      while (Time.now - start_time) < @source_entity['check_interval']
         sleep(1)
         break if @finished_pdu_hash
       end

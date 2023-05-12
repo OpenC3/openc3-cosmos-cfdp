@@ -156,7 +156,6 @@ class CfdpController < ApplicationController
     end
 
     if cmd_entity
-      STDOUT.puts cmd_entity.inspect(1000)
       target_name, packet_name, item_name = cmd_entity["cmd_info"]
       unless target_name and packet_name and item_name
         tlm_packets = cmd_entity["tlm_info"]
