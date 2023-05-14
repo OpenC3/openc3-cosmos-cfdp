@@ -1,9 +1,5 @@
 Rails.application.routes.draw do
-  if ENV['RAILS_ENV'] == 'test'
-    prefix = "/cfdp" # Default from plugin.txt
-  else
-    prefix = "<%= cfdp_route_prefix %>"
-  end
+  prefix = ENV['OPENC3_ROUTE_PREFIX'] || "/cfdp"
   prefix = prefix[1..-1] if prefix[0] == '/'
   scope prefix do
     post "/put" => "cfdp#put"
@@ -12,7 +8,9 @@ Rails.application.routes.draw do
     post "/resume" => "cfdp#resume"
     post "/report" => "cfdp#report"
     post "/directorylisting" => "cfdp#directory_listing"
+    get "/subscribe" => "cfdp#subscribe"
     get "/indications/:transaction_id" => "cfdp#indications"
     get "/indications" => "cfdp#indications"
+    get "/transactions" => "cfdp#transactions"
   end
 end

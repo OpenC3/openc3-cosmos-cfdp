@@ -4,7 +4,7 @@
 *.bundle
 *.gem
 Makefile
-*Gemfile.lock
+Gemfile.lock
 .yardoc
 .DS_Store
 desktop.ini

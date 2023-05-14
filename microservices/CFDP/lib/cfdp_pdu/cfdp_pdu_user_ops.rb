@@ -686,7 +686,7 @@ class CfdpPdu < OpenC3::Packet
 
   def decom_message_to_user(message_to_user)
     s1 = define_reserved_cfdp_message_header()
-    if message_to_user.length > 5 # Minimum size
+    if message_to_user.length >= 5 # Minimum size
       s1.buffer = message_to_user[0..(s1.defined_length - 1)]
       if s1.read("MSG_ID") == 'cfdp'
         case s1.read("MSG_TYPE")
@@ -732,7 +732,7 @@ class CfdpPdu < OpenC3::Packet
         when "REMOTE_RESUME_RESPONSE"
           return decom_remote_resume_response_message(message_to_user)
         else
-          return {"MSG_TYPE" => "UNKNOWN", "DATA" => message_to_user}
+          return {"MSG_TYPE" => "UNKNOWN", "MSG_TYPE_VALUE" => s1.read("MSG_TYPE"), "DATA" => message_to_user}
         end
       else
         return {"MSG_TYPE" => "UNKNOWN", "DATA" => message_to_user}

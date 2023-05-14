@@ -12,8 +12,8 @@ VARIABLE cfdp_tlm_item_name PDU
 
 VARIABLE source_entity_id 1
 VARIABLE destination_entity_id 2
-VARIABLE root_path /tmp
-VARIABLE bucket ""
+VARIABLE root_path /DEFAULT/targets_modified/CFDP/tmp
+VARIABLE bucket config
 
 # Set to true to enable a test configuration
 VARIABLE plugin_test_mode "false"
@@ -21,6 +21,7 @@ VARIABLE plugin_test_mode "false"
 MICROSERVICE CFDP <%= cfdp_microservice_name %>
   WORK_DIR .
   ROUTE_PREFIX <%= cfdp_route_prefix %>
+  ENV OPENC3_ROUTE_PREFIX <%= cfdp_route_prefix %>
   PORT <%= cfdp_port %>
   CMD rails s -b 0.0.0.0 -p <%= cfdp_port %> -e production
   # MIB Options Follow -
@@ -42,6 +43,7 @@ MICROSERVICE CFDP <%= cfdp_microservice_name %>
   MICROSERVICE CFDP CFDP2
     WORK_DIR .
     ROUTE_PREFIX /cfdp2
+    ENV OPENC3_ROUTE_PREFIX /cfdp2
     PORT 2906
     CMD rails s -b 0.0.0.0 -p 2906 -e production
     OPTION source_entity_id <%= destination_entity_id %>

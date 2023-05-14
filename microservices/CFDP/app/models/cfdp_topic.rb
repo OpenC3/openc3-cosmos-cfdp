@@ -28,11 +28,13 @@ class CfdpTopic < OpenC3::Topic
       msg_hash[key] = value
     end
 
-    OpenC3::Topic.write_topic("#{ENV['OPENC3_MICROSERVICE_NAME']}__CFDP", {"data" => JSON.generate(msg_hash.as_json(allow_nan: true), allow_nan: true)}, '*', 1000)
+    data_hash = {"data" => JSON.generate(msg_hash.as_json(allow_nan: true), allow_nan: true)}
+    OpenC3::Topic.write_topic("#{ENV['OPENC3_MICROSERVICE_NAME']}__CFDP", data_hash, '*', 1000)
   end
 
-  def self.read_indications(transaction_id: nil, continuation: nil, limit: 100)
+  def self.read_indications(transaction_id: nil, continuation: nil, limit: 1000)
     continuation = '0-0' unless continuation
+    limit = 1000 unless limit
     xread = OpenC3::Topic.read_topics(["#{ENV['OPENC3_MICROSERVICE_NAME']}__CFDP"], [continuation], nil, limit) # Always don't block
     # Return the original continuation and and empty array if we didn't get anything
     indications = []
@@ -47,5 +49,10 @@ class CfdpTopic < OpenC3::Topic
       end
     end
     return {continuation: continuation, indications: indications}
+  end
+
+  def self.subscribe_indications
+    id, _ = OpenC3::Topic.get_newest_message("#{ENV['OPENC3_MICROSERVICE_NAME']}__CFDP")
+    return id || '0-0'
   end
 end

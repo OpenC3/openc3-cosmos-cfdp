@@ -217,6 +217,7 @@ module OpenC3
                   post "/cfdp/cancel", :params => {
                     scope: "DEFAULT", transaction_id: "#{@source_entity_id}__1"
                   }, as: :json
+                  sleep 0.5
                 end
               end
             end
@@ -568,7 +569,7 @@ module OpenC3
                   'Another message'
                 ],
                 overrides: [
-                  ['ACK_LIMIT_REACHED', 'ISSUE_NOTICE_OF_CANCELATION'],
+                  ['ACK_LIMIT_REACHED', 'ISSUE_NOTICE_OF_CANCELLATION'],
                   ['FILE_CHECKSUM_FAILURE', 'IGNORE_ERROR']
                 ],
                 requests: [
@@ -591,7 +592,7 @@ module OpenC3
           expect(indications[3]['destination_file_name']).to eql 'test2.txt'
           expect(indications[3]['file_size']).to eql 8
           expect(indications[3]['source_entity_id']).to eql 1
-          expect(indications[3]['fault_handler_overrides']).to eql({"ACK_LIMIT_REACHED"=>"ISSUE_NOTICE_OF_CANCELATION", "FILE_CHECKSUM_FAILURE"=>"IGNORE_ERROR"})
+          expect(indications[3]['fault_handler_overrides']).to eql({"ACK_LIMIT_REACHED"=>"ISSUE_NOTICE_OF_CANCELLATION", "FILE_CHECKSUM_FAILURE"=>"IGNORE_ERROR"})
           # 4.6.1.2.6 Metadata-Recv includes messags to user
           expect(indications[3]['messages_to_user']).to eql ["This is a test", "Another message"]
           expect(indications[3]['filestore_requests']).to eql [{"ACTION_CODE"=>"CREATE_FILE", "FIRST_FILE_NAME"=>"temp.txt"}, {"ACTION_CODE"=>"DELETE_FILE", "FIRST_FILE_NAME"=>"temp.txt"}]
@@ -621,7 +622,7 @@ module OpenC3
         # 4.6.1.1.3 c. Metadata PDU contents Fault handler overrides
         expect(@tx_pdus[0]['TLVS'][0]['TYPE']).to eql 'FAULT_HANDLER_OVERRIDE'
         expect(@tx_pdus[0]['TLVS'][0]['CONDITION_CODE']).to eql 'ACK_LIMIT_REACHED'
-        expect(@tx_pdus[0]['TLVS'][0]['HANDLER_CODE']).to eql 'ISSUE_NOTICE_OF_CANCELATION'
+        expect(@tx_pdus[0]['TLVS'][0]['HANDLER_CODE']).to eql 'ISSUE_NOTICE_OF_CANCELLATION'
         expect(@tx_pdus[0]['TLVS'][1]['TYPE']).to eql 'FAULT_HANDLER_OVERRIDE'
         expect(@tx_pdus[0]['TLVS'][1]['CONDITION_CODE']).to eql 'FILE_CHECKSUM_FAILURE'
         expect(@tx_pdus[0]['TLVS'][1]['HANDLER_CODE']).to eql 'IGNORE_ERROR'

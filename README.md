@@ -29,24 +29,28 @@ transaction_id, indication = cfdp_put(destination_entity_id: 1, source_file_name
 transaction_id, indication = cfdp_put(destination_entity_id: 1, source_file_name: "file_to_send.bin", destination_file_name: "received_file.bin", transmission_mode: "ACKNOWLEDGED")
 
 # Send a file and don't wait
+continuation = cfdp_subscribe()
 transaction_id = cfdp_put(destination_entity_id: 1, source_file_name: "file_to_send.bin", destination_file_name: "received_file.bin", timeout: nil)
 ...
 DO_OTHER_THINGS
 ...
-indication = cfdp_indications(transaction_id: transaction_id, indication_type: 'Transaction-Finished')
+indication = cfdp_indications(transaction_id: transaction_id, indication_type: 'Transaction-Finished', continuation: continuation)
 
 # Cancel a transaction
-cfdp_cancel(transaction_id: transaction_id)
+indication = cfdp_cancel(transaction_id: transaction_id)
 
 # Suspend a transaction
-cfdp_suspend(transaction_id: transaction_id)
+indication = cfdp_suspend(transaction_id: transaction_id)
 
 # Resume a suspended transaction
-cfdp_resume(transaction_id: transaction_id)
+indication = cfdp_resume(transaction_id: transaction_id)
 
 # Get a report on a transaction
 indication = cfdp_report(transaction_id: transaction_id)
 puts indication["status_report"]
+
+# Get a list of transactions
+transactions = cfdp_transactions(active: true)
 
 # Filestore requests
 requests = []
@@ -70,26 +74,80 @@ end
 # Get a file (using proxy put) and wait for it to be received
 remote_entity_id = 1
 my_entity_id = 2
-cfdp_put(remote_entity_id: remote_entity_id, destination_entity_id: my_entity_id, source_file_name: "file_to_send.bin", destination_file_name: "received_file.bin")
+transaction_id, indication = cfdp_put(remote_entity_id: remote_entity_id, destination_entity_id: my_entity_id, source_file_name: "file_to_send.bin", destination_file_name: "received_file.bin")
 
 # Cancel a proxy put transaction
-cfdp_cancel(transaction_id: transaction_id, remote_entity_id: 1)
+indication = cfdp_cancel(transaction_id: transaction_id, remote_entity_id: 1)
 
 # Suspend a remote transaction
-cfdp_suspend(transaction_id: transaction_id, remote_entity_id: 1)
+indication = cfdp_suspend(transaction_id: transaction_id, remote_entity_id: 1)
 
 # Resume a remote transaction
-cfdp_resume(transaction_id: transaction_id, remote_entity_id: 1)
+indication = cfdp_resume(transaction_id: transaction_id, remote_entity_id: 1)
 
 # Get a status report on a remote transaction
-cfdp_report(transaction_id: transaction_id, remote_entity_id: 1, report_file_name: "my_report.txt")
+indication = cfdp_report(transaction_id: transaction_id, remote_entity_id: 1, report_file_name: "my_report.txt")
 
 # Get a remote directory listing
-cfdp_directory_listing(remote_entity_id: 1, directory_name: "/files", directory_file_name: "my_listing.txt")
+indications = cfdp_directory_listing(remote_entity_id: 1, directory_name: "/files", directory_file_name: "my_listing.txt")
 
 ```
 
 ## MIB Configuration
+
+The CFDP Management Information Base (MIB) is configured by passing options to the CFDP microservice in plugin.txt.
+Note: This will always need to be configured for your application
+
+Most settings are associated with the most recently mentioned source_entity_id or destination_entity_id.
+
+Minimum required settings:
+
+- A source_entity_id and corresponding tlm_info must be given.
+- At least one destination_entity_id must be defined with a corresponding cmd_info.
+- root_path must be defined
+- bucket should be set if the root_path is in a bucket. Otherwise the root path is assumed to be a mounted volume.
+
+### Source Entity Configuration
+
+| Setting Name | Description | Allowed Values | Default Value|
+| root_path | The path to send/receive files from | Valid directory | N/A - Must be given |
+| bucket | The bucket to send/receive files from | Valid bucket Name | nil - Serve from mounted volume |
+| source_entity_id | The entity id for this CFDP microservice | Any integer | N/A - Must be given |
+| tlm_info | A target_name, packet_name, and item_name to receive PDUs. Multiple tlm_info options can be given | COSMOS packet information | N/A - Must be given |
+eof_sent_indication
+eof_recv_indication
+file_segment_recv_indication
+transaction_finished_indication
+suspended_indication
+resume_indication
+
+### Remote Entity Configuration
+
+| destination_entity_id | Id of a remote entity to configure | Any integer | N/A - Must be given |
+| cmd_info | The target_name, packet_name, and item_name to send PDUs for the destination entity | COSMOS packet information | N/A - Must be given |
+| protocol_version_number | CFDP Version Number Needed at Destination | 0 or 1 | 1 - CFDP Blue Book Rev 5+ |
+| ack_timer_interval | Ack timeout in seconds | Any integer | 600 seconds |
+| nak_timer_interval | Nak timeout in seconds | Any integer | 600 seconds |
+| keep_alive_interval | Keep Alive Period in seconds | Any integer | 600 seconds |
+| check_interval | Interval to check for transaction complete in seconds | Any integer | 600 seconds |
+| maximum_file_segment_length | Maximum amount of file data in a segment in bytes | Any integer | 1024 bytes |
+| ack_timer_expiration_limit | Number of times to wait for the ack timeout before declaring a fault | Any integer | 1 |
+| transaction_inactivity_limit | Number of times to wait for the keep alive timeout before declaring the transaction inactive fault | Any integer | 1 |
+| check_limit | Number of times to check for transaction complete before declaring a fault | Any integer | 1 |
+| keep_alive_discrepancy_limit | Maximum difference between keep alive progress and source progress allowed before declaring a fault. | Any integer | 1024000 bytes |
+| immediate_nak_mode | Send NAKs as soon as something is noticed missing | true or false | true |
+| crcs_required | Does this entity want PDUs with CRCs | true or false | true |
+| enable_acks | Send Acks in Acknowledged mode | true or false | true |
+| enable_keep_alive | Send Keep Alives in Acknowledged mode | true or false | true |
+| enable_finished | Send Finished PDU if closure requested or acknowledged mode | true or false | true |
+| enable_eof_nak | Send A NAK in response to EOF | true of false | false |
+| default_transmission_mode | Default put mode | ACKNOWLEDGED or UNACKNOWLEDGED | UNACKNOWLEDGED |
+| entity_id_length | Size of entity ids in bytes minus one | 0 to 7 | 0 = 1 byte |
+| sequence_number_length | Size of sequence numbers in bytes minus one | 0 to 7 | 0 = 1 byte |
+| default_checksum_type | Checksum type number | 0 to 15 | 0 = Default CFDP checksum |
+| transaction_closure_requested | Default closure requested setting | CLOSURE_REQUESTED or CLOSURE_NOT_REQUESTED | CLOSURE_REQUESTED |
+| incomplete_file_disposition | What to do with an incomplete file | DISCARD or RETAIN | DISCARD |
+| fault_handler | Fault handler setting | (ACK_LIMIT_REACHED, KEEP_ALIVE_LIMIT_REACHED, INVALID_TRANSMISSION_MODE, FILESTORE_REJECTION, FILE_CHECKSUM_FAILURE, FILE_SIZE_ERROR, NAK_LIMIT_REACHED, INACTIVITY_DETECTED, INVALID_FILE_STRUCTURE, CHECK_LIMIT_REACHED, or UNSUPPORTED_CHECKSUM_TYPE) followed by (ISSUE_NOTICE_OF_CANCELLATION, ISSUE_NOTICE_OF_SUSPENSION, IGNORE_ERROR, or ABANDON_TRANSACTION) | See Code |
 
 ## Known Limitations
 

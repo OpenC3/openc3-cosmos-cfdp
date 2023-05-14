@@ -1,5 +1,7 @@
 PLUGIN_NAME = Dir['*.gemspec'][0].split('.')[0..-2].join('.')
 
+require 'fileutils'
+
 task :require_version do
   unless ENV['VERSION']
     puts "VERSION is required: rake build VERSION=X.Y.Z"
@@ -26,6 +28,9 @@ task :build => [:require_version] do
 
   # Build using sh built into Rake:
   # https://rubydoc.info/gems/rake/FileUtils#sh-instance_method
+  if File.exist?("./microservices/CFDP/Gemfile.lock")
+    FileUtils.rm("./microservices/CFDP/Gemfile.lock")
+  end
   sh('gem', 'build', PLUGIN_NAME)
   sh("openc3cli validate #{gem_name}") do |ok, status|
     if !ok && status.exitstatus == 127 # command not found

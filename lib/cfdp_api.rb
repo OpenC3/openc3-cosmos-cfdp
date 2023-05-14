@@ -75,7 +75,7 @@ class CfdpApi < OpenC3::JsonApi
       response = _request('post', endpoint, data: data, scope: scope)
       if response.nil? || response.code != 200
         if response
-          raise "CFDP put error: #{response.body}"
+          raise "CFDP put error: #{response.code}: #{response.body}"
         else
           raise "CFDP put failed"
         end
@@ -102,6 +102,24 @@ class CfdpApi < OpenC3::JsonApi
     transaction_id_post(method_name: "report", transaction_id: transaction_id, remote_entity_id: remote_entity_id, report_file_name: report_file_name, scope: $openc3_scope)
   end
 
+  def subscribe(scope: $openc3_scope)
+    begin
+      endpoint = "/subscribe"
+      response = _request('get', endpoint, scope: scope)
+      if response.nil? || response.code != 200
+        if response
+          raise "CFDP subscribe error: #{response.code}: #{response.body}"
+        else
+          raise "CFDP subscribe failed"
+        end
+      end
+      # Most recent topic id
+      return response.body
+    rescue => error
+      raise "CFDP subscribe failed due to #{error.formatted}"
+    end
+  end
+
   def indications(transaction_id: nil, continuation: nil, limit: 100, scope: $openc3_scope)
     begin
       endpoint = "/indications"
@@ -112,7 +130,7 @@ class CfdpApi < OpenC3::JsonApi
       response = _request('get', endpoint, query: query, scope: scope)
       if response.nil? || response.code != 200
         if response
-          raise "CFDP indications error: #{response.body}"
+          raise "CFDP indications error: #{response.code}: #{response.body}"
         else
           raise "CFDP indications failed"
         end
@@ -131,7 +149,7 @@ class CfdpApi < OpenC3::JsonApi
       response = _request('post', endpoint, data: data, scope: scope)
       if response.nil? || response.code != 200
         if response
-          raise "CFDP directory listing error: #{response.body}"
+          raise "CFDP directory listing error: #{response.code}: #{response.body}"
         else
           raise "CFDP  directory listing failed"
         end
@@ -139,6 +157,26 @@ class CfdpApi < OpenC3::JsonApi
       return response.body
     rescue => error
       raise "CFDP  directory listing failed due to #{error.formatted}"
+    end
+  end
+
+  def transactions(active: true, scope: $openc3_scope)
+    begin
+      endpoint = "/transactions"
+      query = {}
+      query[:active] = active if active
+      response = _request('get', endpoint, query: query, scope: scope)
+      if response.nil? || response.code != 200
+        if response
+          raise "CFDP transactions error: #{response.code}: #{response.body}"
+        else
+          raise "CFDP transactions failed"
+        end
+      end
+      # Array of Transaction Hashes
+      return JSON.parse(response.body)
+    rescue => error
+      raise "CFDP transactions failed due to #{error.formatted}"
     end
   end
 
@@ -153,7 +191,7 @@ class CfdpApi < OpenC3::JsonApi
       response = _request('post', endpoint, data: data, scope: scope)
       if response.nil? || response.code != 200
         if response
-          raise "CFDP #{method_name} error: #{response.body}"
+          raise "CFDP #{method_name} error: #{response.code}: #{response.body}"
         else
           raise "CFDP #{method_name} failed"
         end

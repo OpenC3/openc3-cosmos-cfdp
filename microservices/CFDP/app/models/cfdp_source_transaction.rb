@@ -29,8 +29,6 @@ class CfdpSourceTransaction < CfdpTransaction
     @id = CfdpTransaction.build_transaction_id(@source_entity['id'], @transaction_seq_num)
     CfdpMib.transactions[@id] = self
     @finished_pdu_hash = nil
-    @source_file_name = nil
-    @destination_file_name = nil
     @destination_entity = nil
     @eof_count = 0
     @filestore_responses = []
@@ -76,7 +74,7 @@ class CfdpSourceTransaction < CfdpTransaction
         filestore_requests: filestore_requests
       )
     rescue => err
-      # TODO: Gracefully cancel on fatal exceptions
+      abandon()
       raise err
     end
   end
@@ -87,26 +85,26 @@ class CfdpSourceTransaction < CfdpTransaction
   end
 
   def handle_suspend
-    while @status == "SUSPENDED" or @freeze
+    while @state == "SUSPENDED" or @freeze
       sleep(1)
     end
   end
 
   def update
-    if @status != "SUSPENDED"
-      if @eof_ack_timeout and Time.now > @eof_ack_timeout
+    if @state != "SUSPENDED"
+      if @eof_ack_timeout and Time.now > @eof_ack_timeout and @destination_entity['enable_acks']
         # Resend eof pdu
         cmd_params = {}
         cmd_params[@item_name] = @eof_pdu
         cmd(@target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
         @eof_count += 1
-        if @eof_count > CfdpMib.source_entity['ack_timer_expiration_limit']
+        if @eof_count > @destination_entity['ack_timer_expiration_limit']
           # Positive ACK Limit Reached Fault
           @condition_code = "ACK_LIMIT_REACHED"
           handle_fault()
           @eof_ack_timeout = nil
         else
-          @eof_ack_timeout = Time.now + CfdpMib.source_entity['ack_timer_interval']
+          @eof_ack_timeout = Time.now + @destination_entity['ack_timer_interval']
         end
       end
     end
@@ -142,6 +140,11 @@ class CfdpSourceTransaction < CfdpTransaction
       else
         source_file = CfdpMib.get_source_file(source_file_name)
       end
+      unless source_file
+        abandon()
+        raise "Source file: #{source_file_name} does not exist"
+      end
+
       file_size = source_file.size
       read_size = @destination_entity['maximum_file_segment_length']
     else
@@ -187,7 +190,7 @@ class CfdpSourceTransaction < CfdpTransaction
     end
 
     handle_suspend()
-    return if @status == "ABANDONED"
+    return if @state == "ABANDONED"
 
     # Send Metadata PDU
     @metadata_pdu = CfdpPdu.build_metadata_pdu(
@@ -217,9 +220,9 @@ class CfdpSourceTransaction < CfdpTransaction
       # Send File Data PDUs
       offset = 0
       while true
-        break if @status == "CANCELED"
+        break if @state == "CANCELED"
         handle_suspend()
-        return if @status == "ABANDONED"
+        return if @state == "ABANDONED"
         file_data = source_file.read(read_size)
         break if file_data.nil? or file_data.length <= 0
         file_data_pdu = CfdpPdu.build_file_data_pdu(
@@ -241,7 +244,7 @@ class CfdpSourceTransaction < CfdpTransaction
     end
 
     handle_suspend()
-    return if @status == "ABANDONED"
+    return if @state == "ABANDONED"
 
     # Send EOF PDU
     if source_file
@@ -275,15 +278,15 @@ class CfdpSourceTransaction < CfdpTransaction
     end
 
     # Issue EOF-Sent.indication
-    CfdpTopic.write_indication("EOF-Sent", transaction_id: transaction_id)
+    CfdpTopic.write_indication("EOF-Sent", transaction_id: transaction_id) if CfdpMib.source_entity['eof_sent_indication']
 
-    @eof_ack_timeout = Time.now + CfdpMib.source_entity['ack_timer_interval'] if @transmission_mode == "ACKNOWLEDGED"
+    @eof_ack_timeout = Time.now + @destination_entity['ack_timer_interval'] if @transmission_mode == "ACKNOWLEDGED"
 
     @file_status = "UNREPORTED"
     @delivery_code = "DATA_COMPLETE"
 
     # Wait for Finished if Closure Requested or Acknowledged Mode
-    if closure_requested == "CLOSURE_REQUESTED" or @transmission_mode == "ACKNOWLEDGED"
+    if @destination_entity['enable_finished'] and (closure_requested == "CLOSURE_REQUESTED" or @transmission_mode == "ACKNOWLEDGED")
       start_time = Time.now
       while (Time.now - start_time) < @source_entity['check_interval']
         sleep(1)
@@ -322,18 +325,21 @@ class CfdpSourceTransaction < CfdpTransaction
         end
       end
     end
-    @status = "FINISHED" unless @status == "CANCELED" or @status == "ABANDONED"
+    @state = "FINISHED" unless @state == "CANCELED" or @state == "ABANDONED"
     @transaction_status = "TERMINATED"
+    OpenC3::Logger.info("CFDP Finished Source Transaction #{@id}, #{@condition_code}", scope: ENV['OPENC3_SCOPE'])
 
-    if @filestore_responses.length > 0
-      CfdpTopic.write_indication("Transaction-Finished",
-        transaction_id: @id, condition_code: @condition_code,
-        file_status: @file_status, delivery_code: @delivery_code, status_report: @status,
-        filestore_responses: @filestore_responses)
-    else
-      CfdpTopic.write_indication("Transaction-Finished",
-        transaction_id: @id, condition_code: @condition_code,
-        file_status: @file_status, status_report: @status, delivery_code: @delivery_code)
+    if CfdpMib.source_entity['transaction_finished_indication']
+      if @filestore_responses.length > 0
+        CfdpTopic.write_indication("Transaction-Finished",
+          transaction_id: @id, condition_code: @condition_code,
+          file_status: @file_status, delivery_code: @delivery_code, status_report: @state,
+          filestore_responses: @filestore_responses)
+      else
+        CfdpTopic.write_indication("Transaction-Finished",
+          transaction_id: @id, condition_code: @condition_code,
+          file_status: @file_status, status_report: @state, delivery_code: @delivery_code)
+      end
     end
     @proxy_response_needed = true if @proxy_response_info
   end
@@ -346,11 +352,11 @@ class CfdpSourceTransaction < CfdpTransaction
     when "FINISHED"
       @finished_pdu_hash = pdu_hash
 
-      if @finished_pdu_hash["CONDITION_CODE"] == "CANCEL_REQUEST_RECEIVED" and @status != "CANCELED"
+      if @finished_pdu_hash["CONDITION_CODE"] == "CANCEL_REQUEST_RECEIVED" and @state != "CANCELED"
         cancel(@destination_entity.id)
       end
 
-      if @transmission_mode == "ACKNOWLEDGED"
+      if @transmission_mode == "ACKNOWLEDGED" and @destination_entity['enable_acks']
         # Ack Finished PDU
         ack_pdu = CfdpPdu.build_ack_pdu(
           source_entity: @source_entity,
@@ -360,7 +366,7 @@ class CfdpSourceTransaction < CfdpTransaction
           transmission_mode: @transmission_mode,
           condition_code: @finished_pdu_hash["CONDITION_CODE"],
           ack_directive_code: "FINISHED",
-          transaction_status: "ACTIVE")
+          transaction_status: @transaction_status)
         cmd_params = {}
         cmd_params[@item_name] = ack_pdu
         cmd(@target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])

@@ -41,6 +41,7 @@
 require 'openc3/models/microservice_model'
 require 'openc3/utilities/bucket'
 require 'openc3/utilities/logger'
+require 'openc3/config/config_parser'
 require 'tempfile'
 require 'fileutils'
 require 'json'
@@ -53,10 +54,31 @@ class Tempfile
 end
 
 class CfdpMib
+
+  KNOWN_FAULT_TYPES = [
+    "ACK_LIMIT_REACHED",
+    "KEEP_ALIVE_LIMIT_REACHED",
+    "INVALID_TRANSMISSION_MODE",
+    "FILESTORE_REJECTION",
+    "FILE_CHECKSUM_FAILURE",
+    "FILE_SIZE_ERROR",
+    "NAK_LIMIT_REACHED",
+    "INACTIVITY_DETECTED",
+    "INVALID_FILE_STRUCTURE",
+    "CHECK_LIMIT_REACHED",
+    "UNSUPPORTED_CHECKSUM_TYPE",
+  ]
+
+  KNOWN_FAULT_RESPONSES = [
+    "ISSUE_NOTICE_OF_CANCELLATION",
+    "ISSUE_NOTICE_OF_SUSPENSION",
+    "IGNORE_ERROR",
+    "ABANDON_TRANSACTION",
+  ]
+
   KNOWN_FIELD_NAMES = [
     'protocol_version_number',
     'cmd_info',
-    'tlm_info',
     'ack_timer_interval',
     'nak_timer_interval',
     'keep_alive_interval',
@@ -74,7 +96,19 @@ class CfdpMib
     'nak_timer_expiration_limit',
     'transaction_inactivity_limit',
     'entity_id_length',
-    'sequence_number_length'
+    'sequence_number_length',
+    'enable_acks',
+    'enable_keep_alive',
+    'enable_finished',
+    'enable_eof_nak',
+    'tlm_info',
+    'eof_sent_indication',
+    'eof_recv_indication',
+    'file_segment_recv_indication',
+    'transaction_finished_indication',
+    'suspended_indication',
+    'resume_indication',
+    'fault_handler'
   ]
 
   @@source_entity_id = 0
@@ -123,10 +157,11 @@ class CfdpMib
     entity_id = Integer(entity_id)
     entity = {}
     entity['id'] = entity_id
-    entity['protocol_version_number'] = 0
-    # These two settings map to UT address in COSMOS
+
+    # Remote Entity Settings
+    # Blue Book Version 5 upped this number to 1
+    entity['protocol_version_number'] = 1
     entity['cmd_info'] = nil
-    entity['tlm_info'] = []
     entity['ack_timer_interval'] = 600
     entity['nak_timer_interval'] = 600
     entity['keep_alive_interval'] = 600
@@ -145,6 +180,32 @@ class CfdpMib
     entity['check_limit'] = 1
     entity['entity_id_length'] = 0 # 0 = 1 byte
     entity['sequence_number_length'] = 0 # 0 = 1 byte
+    entity['enable_acks'] = true
+    entity['enable_keep_alive'] = true
+    entity['enable_finished'] = true
+    entity['enable_eof_nak'] = false
+
+    # Local Entity Settings
+    entity['tlm_info'] = []
+    entity['eof_sent_indication'] = true
+    entity['eof_recv_indication'] = true
+    entity['file_segment_recv_indication'] = true
+    entity['transaction_finished_indication'] = true
+    entity['suspended_indication'] = true
+    entity['resume_indication'] = true
+    entity['fault_handler'] = {}
+    entity['fault_handler']["ACK_LIMIT_REACHED"] = "IGNORE_ERROR"
+    entity['fault_handler']["KEEP_ALIVE_LIMIT_REACHED"] = "IGNORE_ERROR"
+    entity['fault_handler']["INVALID_TRANSMISSION_MODE"] = "IGNORE_ERROR"
+    entity['fault_handler']["FILESTORE_REJECTION"] = "IGNORE_ERROR"
+    entity['fault_handler']["FILE_CHECKSUM_FAILURE"] = "IGNORE_ERROR"
+    entity['fault_handler']["FILE_SIZE_ERROR"] = "IGNORE_ERROR"
+    entity['fault_handler']["NAK_LIMIT_REACHED"] = "IGNORE_ERROR"
+    entity['fault_handler']["INACTIVITY_DETECTED"] = "ISSUE_NOTICE_OF_CANCELLATION"
+    entity['fault_handler']["INVALID_FILE_STRUCTURE"] = "IGNORE_ERROR"
+    entity['fault_handler']["CHECK_LIMIT_REACHED"] = "IGNORE_ERROR"
+    entity['fault_handler']["UNSUPPORTED_CHECKSUM_TYPE"] = "IGNORE_ERROR"
+
     # TODO: Use interface connected? to limit opportunities?
     @@entities[entity_id] = entity
     return entity
@@ -182,7 +243,7 @@ class CfdpMib
     end
     file
   rescue Errno::ENOENT => error
-    OpenC3::Logger.error(error.message)
+    OpenC3::Logger.error(error.message, scope: ENV['OPENC3_SCOPE'])
     nil
   end
 
@@ -428,7 +489,71 @@ class CfdpMib
         CfdpMib.root_path = value
       else
         if current_entity_id
-          CfdpMib.set_entity_value(current_entity_id, field_name, value)
+          case field_name
+          when 'protocol_version_number', 'ack_timer_interval', 'nak_timer_interval', 'keep_alive_interval', 'check_interval', 'maximum_file_segment_length',
+            'ack_timer_expiration_limit', 'nak_timer_expiration_limit', 'transaction_inactivity_limit', 'check_limit', 'keep_alive_discrepancy_limit'
+            CfdpMib.set_entity_value(current_entity_id, field_name, Integer(value))
+          when 'cmd_info', 'tlm_info'
+            if value.length == 3
+              CfdpMib.set_entity_value(current_entity_id, field_name, value)
+            else
+              raise "Value for MIB setting #{field_name} must be a three part array of target_name, packet_name, item_name"
+            end
+          when 'immediate_nak_mode', 'crcs_required', 'eof_sent_indication', 'eof_recv_indication', 'file_segment_recv_indication', 'transaction_finished_indication', 'suspended_indication', 'resume_indication',
+            'enable_acks', 'enable_keep_alive', 'enable_finished', 'enable_eof_nak'
+            value = OpenC3::ConfigParser.handle_true_false(value)
+            if value == true or value == false
+              CfdpMib.set_entity_value(current_entity_id, field_name, value)
+            else
+              raise "Value for MIB setting #{field_name} must be true or false"
+            end
+          when 'default_transmission_mode'
+            value = value.to_s.upcase
+            if ['ACKNOWLEDGED', 'UNACKNOWLEDGED'].include?(value)
+              CfdpMib.set_entity_value(current_entity_id, field_name, value)
+            else
+              raise "Value for MIB setting #{field_name} must be ACKNOWLEDGED or UNACKNOWLEDGED"
+            end
+          when 'entity_id_length', 'sequence_number_length'
+            value = Integer(value)
+            if value >= 0 and value <= 7
+              CfdpMib.set_entity_value(current_entity_id, field_name, value)
+            else
+              raise "Value for MIB setting #{field_name} must be between 0 and 7"
+            end
+          when 'default_checksum_type'
+            value = Integer(value)
+            if value >= 0 and value <= 15
+              CfdpMib.set_entity_value(current_entity_id, field_name, value)
+            else
+              raise "Value for MIB setting #{field_name} must be between 0 and 15"
+            end
+          when 'transaction_closure_requested'
+            value = value.to_s.upcase
+            if ['CLOSURE_REQUESTED', 'CLOSURE_NOT_REQUESTED'].include?(value)
+              CfdpMib.set_entity_value(current_entity_id, field_name, value)
+            else
+              raise "Value for MIB setting #{field_name} must be CLOSURE_REQUESTED or CLOSURE_NOT_REQUESTED"
+            end
+          when 'incomplete_file_disposition'
+            value = value.to_s.upcaseD
+            if ['DISCARD', 'RETAIN'].include?(value)
+              CfdpMib.set_entity_value(current_entity_id, field_name, value)
+            else
+              raise "Value for MIB setting #{field_name} must be DISCARD or RETAIN"
+            end
+          when 'fault_handler'
+            fault_type = value[0].to_s.upcase
+            fault_response = value[1].to_s.upcase
+
+            raise "Value for MIB setting #{field_name} fault_type must be #{KNOWN_FAULT_TYPES.join(", ")}" unless KNOWN_FAULT_TYPES.include?(fault_type)
+            raise "Value for MIB setting #{field_name} fault_response must be #{KNOWN_FAULT_RESPONSES.join(", ")}" unless KNOWN_FAULT_RESPONSES.include?(fault_type)
+            entity = CfdpMib.entity(current_entity_id)
+            entity['fault_handler'][fault_type] = fault_response
+
+          else
+            raise "Unknown MIB setting #{field_name}"
+          end
         else
           raise "Must declare source_entity_id or destination_entity_id before other options"
         end

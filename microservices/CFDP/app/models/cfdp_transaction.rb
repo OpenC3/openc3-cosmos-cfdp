@@ -28,7 +28,7 @@ class CfdpTransaction
   include OpenC3::Api
   attr_reader :id
   attr_reader :frozen
-  attr_reader :status
+  attr_reader :state
   attr_reader :transaction_status
   attr_reader :progress
   attr_reader :transaction_seq_num
@@ -46,104 +46,117 @@ class CfdpTransaction
 
   def initialize
     @frozen = false
-    @status = "ACTIVE" # ACTIVE, FINISHED, CANCELED, SUSPENDED
-    @transaction_status = "ACTIVE"
+    @state = "ACTIVE" # ACTIVE, FINISHED, CANCELED, SUSPENDED, ABANDONED
+    @transaction_status = "ACTIVE" # UNDEFINED, ACTIVE, TERMINATED, UNRECOGNIZED
     @progress = 0
     @condition_code = "NO_ERROR"
+    @delivery_code = nil
     @canceling_entity_id = nil
     @fault_handler_overrides = {}
     @metadata_pdu_hash = nil
     @metadata_pdu_count = 0
     @proxy_response_info = nil
     @proxy_response_needed = false
+    @source_file_name = nil
+    @destination_file_name = nil
+  end
+
+  def as_json(*args)
+    return {
+      "id" => @id,
+      "frozen" => @frozen,
+      "state" => @state,
+      "transaction_status" => @transaction_status,
+      "progress" => @progress,
+      "condition_code" => @condition_code,
+      "source_file_name" => @source_file_name,
+      "destination_file_name" => @destination_file_name
+    }
   end
 
   def suspend
-    if @status == "ACTIVE"
+    OpenC3::Logger.info("CFDP Suspend Transaction #{@id}", scope: ENV['OPENC3_SCOPE'])
+    if @state == "ACTIVE"
       @condition_code = "SUSPEND_REQUEST_RECEIVED"
-      @status = "SUSPENDED"
-      CfdpTopic.write_indication("Suspended", transaction_id: @id, condition_code: @condition_code)
+      @state = "SUSPENDED"
+      CfdpTopic.write_indication("Suspended", transaction_id: @id, condition_code: @condition_code) if CfdpMib.source_entity['suspended_indication']
     end
   end
 
   def resume
-    if @status == "SUSPENDED"
-      @status = "ACTIVE"
+    OpenC3::Logger.info("CFDP Resume Transaction #{@id}", scope: ENV['OPENC3_SCOPE'])
+    if @state == "SUSPENDED"
+      @state = "ACTIVE"
       @condition_code = "NO_ERROR"
       @inactivity_timeout = Time.now + CfdpMib.source_entity['keep_alive_interval']
-      CfdpTopic.write_indication("Resumed", transaction_id: @id, progress: @progress)
+      CfdpTopic.write_indication("Resumed", transaction_id: @id, progress: @progress) if CfdpMib.source_entity['resume_indication']
     end
   end
 
   def cancel(canceling_entity_id = nil)
-    if @status != "FINISHED"
+    OpenC3::Logger.info("CFDP Cancel Transaction #{@id}", scope: ENV['OPENC3_SCOPE'])
+    if @state != "FINISHED"
       @condition_code = "CANCEL_REQUEST_RECEIVED" if @condition_code == "NO_ERROR"
       if canceling_entity_id
         @canceling_entity_id = canceling_entity_id
       else
         @canceling_entity_id = CfdpMib.source_entity['id']
       end
-      @status = "CANCELED"
+      @state = "CANCELED"
       @transaction_status = "TERMINATED"
     end
   end
 
   def abandon
-    if @status != "FINISHED"
-      @status = "ABANDONED"
+    OpenC3::Logger.info("CFDP Abandon Transaction #{@id}", scope: ENV['OPENC3_SCOPE'])
+    if @state != "FINISHED"
+      @state = "ABANDONED"
       @transaction_status = "TERMINATED"
       CfdpTopic.write_indication("Abandoned", transaction_id: @id, condition_code: @condition_code, progress: @progress)
     end
   end
 
   def report
-    CfdpTopic.write_indication("Report", transaction_id: @id, status_report: @status)
+    CfdpTopic.write_indication("Report", transaction_id: @id, status_report: build_report())
   end
 
   def freeze
+    OpenC3::Logger.info("CFDP Freeze Transaction #{@id}", scope: ENV['OPENC3_SCOPE'])
     @freeze = true
   end
 
   def unfreeze
+    OpenC3::Logger.info("CFDP Unfreeze Transaction #{@id}", scope: ENV['OPENC3_SCOPE'])
     @freeze = false
   end
 
+  def build_report
+    JSON.generate(as_json(allow_nan: true), allow_nan: true)
+  end
+
   def handle_fault
+    OpenC3::Logger.error("CFDP Fault Transaction #{@id}, #{@condition_code}", scope: ENV['OPENC3_SCOPE'])
     if @fault_handler_overrides[@condition_code]
       case @fault_handler_overrides[@condition_code]
-      when "ISSUE_NOTICE_OF_CANCELATION"
+      when "ISSUE_NOTICE_OF_CANCELLATION"
         cancel()
       when "ISSUE_NOTICE_OF_SUSPENSION"
         suspend()
       when "IGNORE_ERROR"
         ignore_fault()
-      when "ABONDON_TRANSACTION"
+      when "ABANDON_TRANSACTION"
         abandon()
       end
     else
-      case @condition_code
-      when "ACK_LIMIT_REACHED"
-        ignore_fault()
-      when "KEEP_ALIVE_LIMIT_REACHED"
-        ignore_fault()
-      when "INVALID_TRANSMISSION_MODE"
-        ignore_fault()
-      when "FILESTORE_REJECTION"
-        ignore_fault()
-      when "FILE_CHECKSUM_FAILURE"
-        ignore_fault()
-      when "FILE_SIZE_ERROR"
-        ignore_fault()
-      when "NAK_LIMIT_REACHED"
-        ignore_fault()
-      when "INACTIVITY_DETECTED"
+      case CfdpMib.source_entity['fault_handler'][@condition_code]
+      when "ISSUE_NOTICE_OF_CANCELLATION"
         cancel()
-      when "INVALID_FILE_STRUCTURE"
+      when "ISSUE_NOTICE_OF_SUSPENSION"
+        suspend()
+      when "IGNORE_ERROR"
         ignore_fault()
-      when "CHECK_LIMIT_REACHED"
-        ignore_fault()
-      when "UNSUPPORTED_CHECKSUM_TYPE"
-        ignore_fault()
+      when "ABANDON_TRANSACTION"
+        abandon()
       end
     end
   end

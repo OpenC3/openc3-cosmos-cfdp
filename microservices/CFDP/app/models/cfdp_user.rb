@@ -186,6 +186,7 @@ class CfdpUser
           if params[:closure_requested]
             messages_to_user << pdu.build_proxy_closure_request_message(closure_requested: params[:closure_requested])
           end
+          OpenC3::Logger.info("CFDP Transaction #{transaction.id} Proxy Put to Remote Entity #{params[:remote_entity_id]}, Destination Entity #{params[:destination_entity_id]}\nSource File Name: #{params[:source_file_name]}\nDestination File Name: #{params[:destination_file_name]}", scope: ENV['OPENC3_SCOPE'])
           transaction.put(
             destination_entity_id: Integer(params[:remote_entity_id]),
             closure_requested: params[:closure_requested],
@@ -195,6 +196,7 @@ class CfdpUser
           )
         else
           # Regular Put
+          OpenC3::Logger.info("CFDP Transaction #{transaction.id} Put to Entity #{params[:destination_entity_id]}\nSource File Name: #{params[:source_file_name]}\nDestination File Name: #{params[:destination_file_name]}", scope: ENV['OPENC3_SCOPE'])
           transaction.put(
             destination_entity_id: Integer(params[:destination_entity_id]),
             source_file_name: params[:source_file_name],
@@ -437,9 +439,9 @@ class CfdpUser
       when "UNKNOWN"
         # Unknown Message - Ignore
         if message_to_user["DATA"].to_s.is_printable?
-          OpenC3::Logger.warn("Received Unknown Message to User: '#{message_to_user["DATA"].to_s}'", scope: ENV['OPENC3_SCOPE'])
+          OpenC3::Logger.warn("Received Unknown #{message_to_user["DATA"].length} Byte Message to User (#{message_to_user["MSG_TYPE_VALUE"]}): '#{message_to_user["DATA"].to_s}'", scope: ENV['OPENC3_SCOPE'])
         else
-          OpenC3::Logger.warn("Received Unknown Message to User: #{message_to_user["DATA"].to_s.simple_formatted}", scope: ENV['OPENC3_SCOPE'])
+          OpenC3::Logger.warn("Received Unknown #{message_to_user["DATA"].length} Byte Message to User (#{message_to_user["MSG_TYPE_VALUE"]}): #{message_to_user["DATA"].to_s.simple_formatted}", scope: ENV['OPENC3_SCOPE'])
         end
       end
     end
@@ -514,7 +516,7 @@ class CfdpUser
         if transaction
           params = {}
           params[:destination_entity_id] = metadata_pdu_hash["SOURCE_ENTITY_ID"]
-          params[:source_file_name] = StringIO.new(transaction.status)
+          params[:source_file_name] = StringIO.new(transaction.build_report)
           params[:destination_file_name] = report_file_name
           params[:messages_to_user] = []
           destination_entity = CfdpMib.entity(metadata_pdu_hash["SOURCE_ENTITY_ID"])
@@ -553,7 +555,7 @@ class CfdpUser
             transaction.resume
           end
           transaction_status = transaction.transaction_status
-          suspension_indicator = "SUSPENDED" if transaction.status == "SUSPENDED"
+          suspension_indicator = "SUSPENDED" if transaction.state == "SUSPENDED"
         end
         params = {}
         params[:destination_entity_id] = metadata_pdu_hash["SOURCE_ENTITY_ID"]

@@ -14,6 +14,8 @@
 #
 # The development of this software was funded in-whole or in-part by MethaneSAT LLC.
 
+require 'openc3/config/config_parser'
+
 class CfdpController < ApplicationController
   # Put.request (destination CFDP entity ID,
   #   [source file name],
@@ -32,6 +34,8 @@ class CfdpController < ApplicationController
     render json: transaction.id
   rescue ActionController::ParameterMissing => error
     render :json => { :status => 'error', :message => error.message }, :status => 400
+  rescue => error
+    render :json => { :status => 'error', :message => error.message }, :status => 500
   end
 
   # Cancel.request (transaction ID)
@@ -44,6 +48,8 @@ class CfdpController < ApplicationController
     else
       render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }, :status => 404
     end
+  rescue => error
+    render :json => { :status => 'error', :message => error.message }, :status => 500
   end
 
   # Suspend.request (transaction ID)
@@ -56,6 +62,8 @@ class CfdpController < ApplicationController
     else
       render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }, :status => 404
     end
+  rescue => error
+    render :json => { :status => 'error', :message => error.message }, :status => 500
   end
 
   # Resume.request (transaction ID)
@@ -68,6 +76,8 @@ class CfdpController < ApplicationController
     else
       render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }, :status => 404
     end
+  rescue => error
+    render :json => { :status => 'error', :message => error.message }, :status => 500
   end
 
   # Report.request (transaction ID)
@@ -80,6 +90,8 @@ class CfdpController < ApplicationController
     else
       render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }, :status => 404
     end
+  rescue => error
+    render :json => { :status => 'error', :message => error.message }, :status => 500
   end
 
   def directory_listing
@@ -89,6 +101,16 @@ class CfdpController < ApplicationController
     render json: transaction.id
   rescue ActionController::ParameterMissing => error
     render :json => { :status => 'error', :message => error.message }, :status => 400
+  rescue => error
+    render :json => { :status => 'error', :message => error.message }, :status => 500
+  end
+
+  def subscribe
+    return unless check_authorization()
+    result = CfdpTopic.subscribe_indications
+    render json: result
+  rescue => error
+    render :json => { :status => 'error', :message => error.message }, :status => 500
   end
 
   # Transaction.indication (transaction ID)
@@ -128,6 +150,25 @@ class CfdpController < ApplicationController
     return unless check_authorization()
     result = CfdpTopic.read_indications(transaction_id: params[:transaction_id], continuation: params[:continuation], limit: params[:limit])
     render json: result
+  rescue => error
+    render :json => { :status => 'error', :message => error.message }, :status => 500
+  end
+
+  def transactions
+    return unless check_authorization()
+    active = false
+    active = true if OpenC3::ConfigParser.handle_true_false_nil(params[:active])
+    result = []
+    transactions = CfdpMib.transactions.dup
+    transactions.each do |t_id, t|
+      if not active or t.transaction_status == "ACTIVE"
+        result << t
+      end
+    end
+    result = result.sort {|a, b| a.id <=> b.id}
+    render json: result
+  rescue => error
+    render :json => { :status => 'error', :message => error.message }, :status => 500
   end
 
   # private
