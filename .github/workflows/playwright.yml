@@ -69,7 +69,7 @@ jobs:
         run: |
           docker ps
           docker logs cosmos-openc3-cosmos-cmd-tlm-api-1
-          docker logs cosmos-openc3-script-runner-api-1
+          docker logs cosmos-openc3-cosmos-script-runner-api-1
           docker logs cosmos-openc3-operator-1
         # Build a test plugin for playwright and a copy so we can 'upgrade'
       - name: Upload test artifacts
