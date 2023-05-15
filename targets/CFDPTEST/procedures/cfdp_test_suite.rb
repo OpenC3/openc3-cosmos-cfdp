@@ -68,7 +68,7 @@ class CfdpTestGroup < OpenC3::Group
     transaction_id = transactions[-1]['id']
     puts cfdp_suspend(remote_entity_id: 2, transaction_id: transaction_id)
     wait(1)
-    puts cfdp_report(remote_entity_id: 2, transaction_id: transaction_id)
+    puts cfdp_report(remote_entity_id: 2, transaction_id: transaction_id, report_file_name: "myreport.txt")
     wait(1)
     puts cfdp_transactions(microservice_name: 'CFDP2', prefix: '/cfdp2', port: 2906)
     wait(1)
