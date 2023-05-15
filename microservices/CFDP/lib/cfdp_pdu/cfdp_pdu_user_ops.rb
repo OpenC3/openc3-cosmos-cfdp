@@ -80,10 +80,10 @@ class CfdpPdu < OpenC3::Packet
     seq_num_length = s.read("SEQUENCE_NUMBER_LENGTH")
     message_to_user = message_to_user[s.defined_length..-1]
     s2 = define_originating_transaction_id_message_variable_data(id_length: id_length + 1, seq_num_length: seq_num_length + 1)
-    s2.buffer = message_to_user
+    s2.buffer = message_to_user[0..(s2.defined_length - 1)]
     result["SOURCE_ENTITY_ID"] = s2.read("SOURCE_ENTITY_ID")
     result["SEQUENCE_NUMBER"] = s2.read("SEQUENCE_NUMBER")
-    message_to_user = message_to_user[0..(s2.defined_length - 1)]
+    message_to_user = message_to_user[s2.defined_length..-1]
     result["MSG_TYPE"] = "ORIGINATING_TRANSACTION_ID"
     return result, message_to_user
   end
@@ -120,13 +120,13 @@ class CfdpPdu < OpenC3::Packet
     message_to_user = message_to_user[dei.defined_length..-1]
     sfn.buffer = message_to_user
     length = sfn.read("LENGTH")
-    sfn.buffer = sfn.buffer(false)[0..length]
+    sfn.buffer = sfn.buffer(false)[0..length] # Includes length field
     source_file_name = sfn.read("VALUE")
     result["SOURCE_FILE_NAME"] = source_file_name if source_file_name.length > 0
     message_to_user = message_to_user[(length + 1)..-1]
     dfn.buffer = message_to_user
     length = dfn.read("LENGTH")
-    dfn.buffer = dfn.buffer(false)[0..length]
+    dfn.buffer = dfn.buffer(false)[0..length] # Includes length field
     destination_file_name = dfn.read("VALUE")
     result["DESTINATION_FILE_NAME"] = destination_file_name if destination_file_name.length > 0
     result["MSG_TYPE"] = "PROXY_PUT_REQUEST"
@@ -152,8 +152,13 @@ class CfdpPdu < OpenC3::Packet
     result = {}
     message_to_user = message_to_user[5..-1] # Remove header
     s = define_proxy_message_to_user_message()
+    s.buffer = message_to_user
     length = s.read("LENGTH")
-    result["MESSAGE_TO_USER"] = s.read("VALUE")[0..(length - 1)]
+    if length > 0
+      result["MESSAGE_TO_USER"] = s.read("VALUE")[0..(length - 1)]
+    else
+      result["MESSAGE_TO_USER"] = ""
+    end
     result["MSG_TYPE"] = "PROXY_MESSAGE_TO_USER"
     return result
   end

@@ -233,6 +233,8 @@ class CfdpUser
   end
 
   def start_directory_listing(params)
+    raise "directory_name required" unless params[:directory_name] and params[:directory_name].length > 0
+    raise "directory_file_name required" unless params[:directory_file_name] and params[:directory_file_name].length > 0
     pdu, entity_id, messages_to_user = proxy_request_setup(params)
     messages_to_user << pdu.build_directory_listing_request_message(directory_name: params[:directory_name], directory_file_name: params[:directory_file_name])
     return proxy_request_start(entity_id: entity_id, messages_to_user: messages_to_user)
@@ -295,6 +297,7 @@ class CfdpUser
 
   def report(params)
     if params[:remote_entity_id] and Integer(params[:remote_entity_id]) != CfdpMib.source_entity_id
+      raise "report_file_name required" unless params[:report_file_name] and params[:report_file_name].length > 0
       # Proxy Report
       pdu, entity_id, messages_to_user = proxy_request_setup(params)
       source_entity_id, sequence_number = params[:transaction_id].split('__')
@@ -484,7 +487,11 @@ class CfdpUser
           params = {}
           params[:destination_entity_id] = metadata_pdu_hash["SOURCE_ENTITY_ID"]
           params[:source_file_name] = StringIO.new(result)
-          params[:destination_file_name] = directory_file_name
+          if directory_file_name and directory_file_name.length > 0
+            params[:destination_file_name] = directory_file_name
+          else
+            params[:destination_file_name] = "default_directory_file_name.txt"
+          end
           params[:messages_to_user] = []
           destination_entity = CfdpMib.entity(metadata_pdu_hash["SOURCE_ENTITY_ID"])
           pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
@@ -517,7 +524,11 @@ class CfdpUser
           params = {}
           params[:destination_entity_id] = metadata_pdu_hash["SOURCE_ENTITY_ID"]
           params[:source_file_name] = StringIO.new(transaction.build_report)
-          params[:destination_file_name] = report_file_name
+          if report_file_name and report_file_name.length > 0
+            params[:destination_file_name] = report_file_name
+          else
+            params[:destination_file_name] = "default_report_file_name.txt"
+          end
           params[:messages_to_user] = []
           destination_entity = CfdpMib.entity(metadata_pdu_hash["SOURCE_ENTITY_ID"])
           pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)

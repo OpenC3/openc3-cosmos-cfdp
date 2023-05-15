@@ -22,6 +22,7 @@ MICROSERVICE CFDP <%= cfdp_microservice_name %>
   WORK_DIR .
   ROUTE_PREFIX <%= cfdp_route_prefix %>
   ENV OPENC3_ROUTE_PREFIX <%= cfdp_route_prefix %>
+  ENV SECRET_KEY_BASE 324973597349867207430793759437697498769349867349674
   PORT <%= cfdp_port %>
   CMD rails s -b 0.0.0.0 -p <%= cfdp_port %> -e production
   # MIB Options Follow -
@@ -44,6 +45,7 @@ MICROSERVICE CFDP <%= cfdp_microservice_name %>
     WORK_DIR .
     ROUTE_PREFIX /cfdp2
     ENV OPENC3_ROUTE_PREFIX /cfdp2
+    ENV SECRET_KEY_BASE 324973597349867207430793759437697498769349867349674
     PORT 2906
     CMD rails s -b 0.0.0.0 -p 2906 -e production
     OPTION source_entity_id <%= destination_entity_id %>
@@ -55,10 +57,11 @@ MICROSERVICE CFDP <%= cfdp_microservice_name %>
       OPTION bucket <%= bucket %>
     <% end %>
 
-  <% test_host = ENV['KUBERNETES_SERVICE_HOST'] ? "#{scope}-interface-cfdp2-int.downcase.gsub('__', '-').gsub('_', '-')}-service" : "openc3-operator" %>
+  <% test_host = ENV['KUBERNETES_SERVICE_HOST'] ? (scope.to_s.downcase + "-interface-cfdp2-int-service") : "openc3-operator" %>
   INTERFACE CFDP_INT tcpip_client_interface.rb <%= test_host %> 2907 2907 10.0 nil LENGTH 0 32 4 1 BIG_ENDIAN 0 nil nil true
     MAP_TARGET CFDP
 
   INTERFACE CFDP2_INT tcpip_server_interface.rb 2907 2907 10.0 nil LENGTH 0 32 4 1 BIG_ENDIAN 0 nil nil true
+    PORT 2907
     MAP_TARGET CFDP2
 <% end %>
