@@ -62,6 +62,16 @@ jobs:
         run: |
           yarn playwright test
         working-directory: playwright
+        # Check container status
+      - name: Check container status
+        if: always() # Upload on pass or fail
+        shell: 'script -q -e -c "bash {0}"'
+        run: |
+          docker ps
+          docker logs cosmos-openc3-cosmos-cmd-tlm-api-1
+          docker logs cosmos-openc3-script-runner-api-1
+          docker logs cosmos-openc3-operator-1
+        # Build a test plugin for playwright and a copy so we can 'upgrade'
       - name: Upload test artifacts
         if: always() # Upload on pass or fail
         uses: actions/upload-artifact@v3
