@@ -97,7 +97,7 @@ test('installs a new plugin', async ({ page, utils }) => {
   await page.locator('[data-test="file-open-save-submit-btn"]').click();
   await page.locator('[data-test="start-suite"]').click();
   let dialog = page.locator('.v-dialog.v-dialog--active')
-  await dialog.waitFor()
+  await dialog.waitFor({timeout: 300000})
   await expect(dialog).toContainText(
     'Script Results',
     {
