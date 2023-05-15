@@ -1,0 +1,18 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "http://localhost:2900",
+      "localStorage": [
+        {
+          "name": "openc3Token",
+          "value": "password"
+        },
+        {
+          "name": "notoast",
+          "value": "true"
+        }
+      ]
+    }
+  ]
+}
