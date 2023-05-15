@@ -24,17 +24,12 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: 3.1
-      - name: Publish Gems Github
+      - name: Publish Gems Rubygems.org
         run: |
-          mkdir -p $HOME/.gem
-          touch $HOME/.gem/credentials
-          chmod 0600 $HOME/.gem/credentials
-          printf -- "---\n:github: Bearer ${GITHUB_TOKEN}\n" > $HOME/.gem/credentials
-          yarn
           rake build VERSION=${{ github.event.inputs.version }}
-          gem push --key github --host https://rubygems.pkg.github.com/openc3 openc3-cosmos-cfdp-${{ github.event.inputs.version }}.gem
+          gem push openc3-cosmos-cfdp-${{ github.event.inputs.version }}.gem
         env:
-          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+          GEM_HOST_API_KEY: ${{ secrets.GEM_HOST_API_KEY }}
       - name: create tag for release
         uses: pkgdeps/git-tag-action@v2
         with:
