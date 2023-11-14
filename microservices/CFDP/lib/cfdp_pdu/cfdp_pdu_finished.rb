@@ -43,7 +43,7 @@ class CfdpPdu < OpenC3::Packet
     pdu.write("DIRECTION", "TOWARD_FILE_SENDER")
     pdu_header_part_1_length = pdu.length # Measured here before writing variable data
     pdu_header = pdu.build_variable_header(source_entity_id: source_entity['id'], transaction_seq_num: transaction_seq_num, destination_entity_id: destination_entity['id'], directive_code: "FINISHED")
-    pdu_header_part_2_length = pdu_header.length
+    pdu_header_part_2_length = pdu_header.length - 1 # Minus 1 = Directive code is part of data per 5.2.1.1
     pdu_contents = pdu.build_finished_pdu_contents(condition_code: condition_code, delivery_code: delivery_code, file_status: file_status, filestore_responses: filestore_responses, fault_location_entity_id: fault_location_entity_id)
     pdu.write("VARIABLE_DATA", pdu_header + pdu_contents)
     pdu.write("PDU_DATA_LENGTH", pdu.length - pdu_header_part_1_length - pdu_header_part_2_length)
