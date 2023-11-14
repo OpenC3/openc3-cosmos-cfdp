@@ -80,7 +80,7 @@ class CfdpReceiveTransaction < CfdpTransaction
 
     if @source_file_name and @destination_file_name
       if complete_file_received?
-        @tmp_file ||= Tempfile.new('cfdp')
+        @tmp_file ||= Tempfile.new('cfdp', binmode: true)
 
         # Complete
         if @checksum.check(@tmp_file, @eof_pdu_hash['FILE_CHECKSUM'], @full_checksum_needed)
@@ -554,7 +554,7 @@ class CfdpReceiveTransaction < CfdpTransaction
     else # File Data
       @source_entity_id = @metadata_pdu_hash['SOURCE_ENTITY_ID']
 
-      @tmp_file ||= Tempfile.new('cfdp')
+      @tmp_file ||= Tempfile.new('cfdp', binmode: true)
       offset = pdu_hash['OFFSET']
       file_data = pdu_hash['FILE_DATA']
       progress = offset + file_data.length

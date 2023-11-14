@@ -1687,7 +1687,7 @@ module OpenC3
               expect(fsr['FIRST_FILE_NAME']).to eql 'another'
             end
             if ENV['MINIO'] && type == 'bucket'
-              file = Tempfile.new
+              file = Tempfile.new('cfdp', binmode: true)
               OpenC3::Bucket.getClient().get_object(bucket: @bucket, key: File.join(@root_path, 'first.txt'), path: file.path)
               expect(file.read).to eql 'FIRSTSECOND'
               file.unlink
@@ -1764,7 +1764,7 @@ module OpenC3
               expect(fsr['FIRST_FILE_NAME']).to eql 'another'
             end
             if ENV['MINIO'] && type == 'bucket'
-              file = Tempfile.new
+              file = Tempfile.new('cfdp', binmode: true)
               OpenC3::Bucket.getClient().get_object(bucket: @bucket, key: File.join(@root_path, 'orig.txt'), path: file.path)
               expect(file.read).to eql 'REPLACE'
               file.rewind

@@ -236,7 +236,7 @@ class CfdpMib
   def self.get_source_file(source_file_name)
     file_name = File.join(@@root_path, source_file_name)
     if self.bucket
-      file = Tempfile.new
+      file = Tempfile.new('cfdp', binmode: true)
       OpenC3::Bucket.getClient().get_object(bucket: self.bucket, key: file_name, path: file.path)
     else
       file = File.open(file_name, 'rb')
@@ -316,7 +316,7 @@ class CfdpMib
           elsif not client.check_object(bucket: self.bucket, key: first_file_name)
             status_code = "OLD_FILE_DOES_NOT_EXIST"
           else
-            temp = Tempfile.new
+            temp = Tempfile.new('cfdp', binmode: true)
             client.get_object(bucket: self.bucket, key: first_file_name, path: temp.path)
             client.put_object(bucket: self.bucket, key: second_file_name, body: temp.read)
             client.delete_object(bucket: self.bucket, key: first_file_name)
@@ -342,8 +342,8 @@ class CfdpMib
           elsif not client.check_object(bucket: self.bucket, key: second_file_name)
             status_code = "FILE_2_DOES_NOT_EXIST"
           else
-            temp1 = Tempfile.new
-            temp2 = Tempfile.new
+            temp1 = Tempfile.new('cfdp', binmode: true)
+            temp2 = Tempfile.new('cfdp', binmode: true)
             client.get_object(bucket: self.bucket, key: first_file_name, path: temp1.path)
             client.get_object(bucket: self.bucket, key: second_file_name, path: temp2.path)
             client.put_object(bucket: self.bucket, key: first_file_name, body: temp1.read + temp2.read)
@@ -372,7 +372,7 @@ class CfdpMib
           elsif not client.check_object(bucket: self.bucket, key: second_file_name)
             status_code = "FILE_2_DOES_NOT_EXIST"
           else
-            temp = Tempfile.new
+            temp = Tempfile.new('cfdp', binmode: true)
             client.get_object(bucket: self.bucket, key: second_file_name, path: temp.path)
             client.put_object(bucket: self.bucket, key: first_file_name, body: temp.read)
             temp.unlink
