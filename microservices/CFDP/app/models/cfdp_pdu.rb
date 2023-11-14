@@ -30,6 +30,9 @@ require 'cfdp_pdu/cfdp_pdu_file_data'
 require 'cfdp_pdu/cfdp_pdu_user_ops'
 
 class CfdpPdu < OpenC3::Packet
+  DIRECTIVE_CODE_BYTE_SIZE = 1
+  CRC_BYTE_SIZE = 2
+
   def initialize(crcs_required:)
     super()
     append_item("VERSION", 3, :UINT)
