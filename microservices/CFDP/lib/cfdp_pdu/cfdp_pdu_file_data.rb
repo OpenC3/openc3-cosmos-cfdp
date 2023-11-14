@@ -44,6 +44,7 @@ class CfdpPdu < OpenC3::Packet
 
     pdu = build_initial_pdu(type: "FILE_DATA", destination_entity: destination_entity, file_size: file_size, segmentation_control: segmentation_control, transmission_mode: transmission_mode)
     pdu_header_part_1_length = pdu.length # Measured here before writing variable data
+    pdu_header_part_1_length -= CRC_BYTE_SIZE if destination_entity['crcs_required']
     pdu_header = pdu.build_variable_header(source_entity_id: source_entity['id'], transaction_seq_num: transaction_seq_num, destination_entity_id: destination_entity['id'])
     pdu_header_part_2_length = pdu_header.length
     pdu_contents = pdu.build_file_data_pdu_contents(offset: offset, file_data: file_data, record_continuation_state: record_continuation_state, segment_metadata: segment_metadata)
