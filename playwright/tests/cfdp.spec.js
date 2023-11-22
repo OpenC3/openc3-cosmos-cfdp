@@ -37,8 +37,8 @@ test('installs a new plugin', async ({ page, utils }) => {
   ])
   await fileChooser.setFiles(`../${pluginGem}`)
   await expect(page.locator('.v-dialog:has-text("Variables")')).toBeVisible()
-  await page.getByLabel('plugin_test_mode').dblclick();
-  await page.getByLabel('plugin_test_mode').fill('true');
+  await page.getByLabel('plugin_test_mode', { exact: true }).dblclick();
+  await page.getByLabel('plugin_test_mode', { exact: true }).fill('true');
   await page.locator('data-test=edit-submit').click()
   await expect(page.locator('[data-test=plugin-alert]')).toContainText(
     'Started installing'
