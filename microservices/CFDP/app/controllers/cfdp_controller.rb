@@ -33,9 +33,9 @@ class CfdpController < ApplicationController
     transaction = $cfdp_user.start_source_transaction(params)
     render json: transaction.id
   rescue ActionController::ParameterMissing => error
-    render :json => { :status => 'error', :message => error.message }, :status => 400
+    render :json => { :status => 'error', :message => error.message }.as_json(:allow_nan => true), :status => 400
   rescue => error
-    render :json => { :status => 'error', :message => error.message }, :status => 500
+    render :json => { :status => 'error', :message => "#{error.message}\n#{error.backtrace.join("\n")}" }.as_json(:allow_nan => true), :status => 500
   end
 
   # Cancel.request (transaction ID)
@@ -46,10 +46,10 @@ class CfdpController < ApplicationController
     if transaction
       render json: transaction.id
     else
-      render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }, :status => 404
+      render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }.as_json(:allow_nan => true), :status => 404
     end
   rescue => error
-    render :json => { :status => 'error', :message => error.message }, :status => 500
+    render :json => { :status => 'error', :message => "#{error.message}\n#{error.backtrace.join("\n")}" }.as_json(:allow_nan => true), :status => 500
   end
 
   # Suspend.request (transaction ID)
@@ -60,10 +60,10 @@ class CfdpController < ApplicationController
     if transaction
       render json: transaction.id
     else
-      render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }, :status => 404
+      render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }.as_json(:allow_nan => true), :status => 404
     end
   rescue => error
-    render :json => { :status => 'error', :message => error.message }, :status => 500
+    render :json => { :status => 'error', :message => "#{error.message}\n#{error.backtrace.join("\n")}" }.as_json(:allow_nan => true), :status => 500
   end
 
   # Resume.request (transaction ID)
@@ -74,10 +74,10 @@ class CfdpController < ApplicationController
     if transaction
       render json: transaction.id
     else
-      render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }, :status => 404
+      render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }.as_json(:allow_nan => true), :status => 404
     end
   rescue => error
-    render :json => { :status => 'error', :message => error.message }, :status => 500
+    render :json => { :status => 'error', :message => "#{error.message}\n#{error.backtrace.join("\n")}" }.as_json(:allow_nan => true), :status => 500
   end
 
   # Report.request (transaction ID)
@@ -88,10 +88,10 @@ class CfdpController < ApplicationController
     if transaction
       render json: transaction.id
     else
-      render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }, :status => 404
+      render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }.as_json(:allow_nan => true), :status => 404
     end
   rescue => error
-    render :json => { :status => 'error', :message => error.message }, :status => 500
+    render :json => { :status => 'error', :message => "#{error.message}\n#{error.backtrace.join("\n")}" }.as_json(:allow_nan => true), :status => 500
   end
 
   def directory_listing
@@ -100,17 +100,17 @@ class CfdpController < ApplicationController
     transaction = $cfdp_user.start_directory_listing(params)
     render json: transaction.id
   rescue ActionController::ParameterMissing => error
-    render :json => { :status => 'error', :message => error.message }, :status => 400
+    render :json => { :status => 'error', :message => error.message }.as_json(:allow_nan => true), :status => 400
   rescue => error
-    render :json => { :status => 'error', :message => error.message }, :status => 500
+    render :json => { :status => 'error', :message => "#{error.message}\n#{error.backtrace.join("\n")}" }.as_json(:allow_nan => true), :status => 500
   end
 
   def subscribe
     return unless check_authorization()
     result = CfdpTopic.subscribe_indications
-    render json: result
+    render json: result.as_json(:allow_nan => true)
   rescue => error
-    render :json => { :status => 'error', :message => error.message }, :status => 500
+    render :json => { :status => 'error', :message => "#{error.message}\n#{error.backtrace.join("\n")}" }.as_json(:allow_nan => true), :status => 500
   end
 
   # Transaction.indication (transaction ID)
@@ -149,9 +149,9 @@ class CfdpController < ApplicationController
   def indications
     return unless check_authorization()
     result = CfdpTopic.read_indications(transaction_id: params[:transaction_id], continuation: params[:continuation], limit: params[:limit])
-    render json: result
+    render json: result.as_json(:allow_nan => true)
   rescue => error
-    render :json => { :status => 'error', :message => error.message }, :status => 500
+    render :json => { :status => 'error', :message => "#{error.message}\n#{error.backtrace.join("\n")}" }.as_json(:allow_nan => true), :status => 500
   end
 
   def transactions
@@ -166,9 +166,9 @@ class CfdpController < ApplicationController
       end
     end
     result = result.sort {|a, b| a.id <=> b.id}
-    render json: result
+    render json: result.as_json(:allow_nan => true)
   rescue => error
-    render :json => { :status => 'error', :message => error.message }, :status => 500
+    render :json => { :status => 'error', :message => "#{error.message}\n#{error.backtrace.join("\n")}" }.as_json(:allow_nan => true), :status => 500
   end
 
   # private
@@ -179,14 +179,14 @@ class CfdpController < ApplicationController
 
     if params[:remote_entity_id]
       if params[:remote_entity_id].to_i.to_s != params[:remote_entity_id].to_s
-        render :json => { :status => 'error', :message => "remote_entity_id must be numeric" }, :status => 400
+        render :json => { :status => 'error', :message => "remote_entity_id must be numeric" }.as_json(:allow_nan => true), :status => 400
         return false
       end
       cmd_entity_id = Integer(params[:remote_entity_id])
       cmd_entity = CfdpMib.entity(cmd_entity_id)
     elsif params[:destination_entity_id]
       if params[:destination_entity_id].to_i.to_s != params[:destination_entity_id].to_s
-        render :json => { :status => 'error', :message => "destination_entity_id must be numeric" }, :status => 400
+        render :json => { :status => 'error', :message => "destination_entity_id must be numeric" }.as_json(:allow_nan => true), :status => 400
         return
       end
       cmd_entity_id = Integer(params[:destination_entity_id])
@@ -207,11 +207,11 @@ class CfdpController < ApplicationController
         # Caller must be able to send this command
         return false unless authorization('cmd', target_name: target_name, packet_name: packet_name)
       else
-        render :json => { :status => 'error', :message => "info not configured for entity: #{cmd_entity_id}" }, :status => 400
+        render :json => { :status => 'error', :message => "info not configured for entity: #{cmd_entity_id}" }.as_json(:allow_nan => true), :status => 400
         return false
       end
     else
-      render :json => { :status => 'error', :message => "Unknown entity: #{cmd_entity_id}" }, :status => 400
+      render :json => { :status => 'error', :message => "Unknown entity: #{cmd_entity_id}" }.as_json(:allow_nan => true), :status => 400
       return false
     end
 
