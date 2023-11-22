@@ -56,6 +56,7 @@ RSpec.describe CfdpPdu, type: :model do
 
       # By default the first 7 bytes are the header
       # This assumes 1 byte per entity ID and sequence number
+      expect(buffer[1..2].unpack('n')[0]).to eql 8 # PDU_DATA_LENGTH - Directive Code plus Data plus CRC
 
       # PDU Type
       expect((buffer[0].unpack('C')[0] >> 4) & 0x1).to eql 1 # File Data per Table 5-1
