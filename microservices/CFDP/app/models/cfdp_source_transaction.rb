@@ -96,7 +96,7 @@ class CfdpSourceTransaction < CfdpTransaction
         # Resend eof pdu
         cmd_params = {}
         cmd_params[@item_name] = @eof_pdu
-        cmd(@target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+        cfdp_cmd(@destination_entity, @target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
         @eof_count += 1
         if @eof_count > @destination_entity['ack_timer_expiration_limit']
           # Positive ACK Limit Reached Fault
@@ -206,7 +206,7 @@ class CfdpSourceTransaction < CfdpTransaction
       transmission_mode: @transmission_mode)
     cmd_params = {}
     cmd_params[@item_name] = @metadata_pdu
-    cmd(@target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+    cfdp_cmd(@destination_entity, @target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
 
     if source_file
       checksum = get_checksum(@destination_entity['default_checksum_type'])
@@ -236,7 +236,7 @@ class CfdpSourceTransaction < CfdpTransaction
           transmission_mode: @transmission_mode)
         cmd_params = {}
         cmd_params[@item_name] = file_data_pdu
-        cmd(@target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+        cfdp_cmd(@destination_entity, @target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
         checksum.add(offset, file_data)
         offset += file_data.length
         @progress = offset
@@ -271,7 +271,7 @@ class CfdpSourceTransaction < CfdpTransaction
         canceling_entity_id: @canceling_entity_id)
       cmd_params = {}
       cmd_params[@item_name] = @eof_pdu
-      cmd(@target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+      cfdp_cmd(@destination_entity, @target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
     rescue => err
       abandon() if @canceling_entity_id
       raise err
@@ -327,6 +327,7 @@ class CfdpSourceTransaction < CfdpTransaction
     end
     @state = "FINISHED" unless @state == "CANCELED" or @state == "ABANDONED"
     @transaction_status = "TERMINATED"
+    @complete_time = Time.now.utc
     OpenC3::Logger.info("CFDP Finished Source Transaction #{@id}, #{@condition_code}", scope: ENV['OPENC3_SCOPE'])
 
     if CfdpMib.source_entity['transaction_finished_indication']
@@ -369,7 +370,7 @@ class CfdpSourceTransaction < CfdpTransaction
           transaction_status: @transaction_status)
         cmd_params = {}
         cmd_params[@item_name] = ack_pdu
-        cmd(@target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+        cfdp_cmd(@destination_entity, @target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
       end
 
     when "ACK"
@@ -412,7 +413,7 @@ class CfdpSourceTransaction < CfdpTransaction
         # Send Metadata PDU
         cmd_params = {}
         cmd_params[@item_name] = @metadata_pdu
-        cmd(@target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+        cfdp_cmd(@destination_entity, @target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
       else
         # Send File Data PDU(s)
         offset = start_offset
@@ -438,7 +439,7 @@ class CfdpSourceTransaction < CfdpTransaction
             transmission_mode: @transmission_mode)
           cmd_params = {}
           cmd_params[@item_name] = file_data_pdu
-          cmd(@target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+          cfdp_cmd(@destination_entity, @target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
           offset += file_data.length
         end
       end

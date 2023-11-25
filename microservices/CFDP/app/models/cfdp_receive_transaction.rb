@@ -174,7 +174,7 @@ class CfdpReceiveTransaction < CfdpTransaction
           fault_location_entity_id: nil)
         cmd_params = {}
         cmd_params[item_name] = @finished_pdu
-        cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+        cfdp_cmd(source_entity, target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
       rescue => err
         abandon() if @state == "CANCELED"
         raise err
@@ -184,6 +184,7 @@ class CfdpReceiveTransaction < CfdpTransaction
 
     @state = "FINISHED" unless @state == "CANCELED" or @state == "ABANDONED"
     @transaction_status = "TERMINATED"
+    @complete_time = Time.now.utc
     OpenC3::Logger.info("CFDP Finished Receive Transaction #{@id}, #{@condition_code}", scope: ENV['OPENC3_SCOPE'])
 
     if CfdpMib.source_entity['transaction_finished_indication']
@@ -297,7 +298,7 @@ class CfdpReceiveTransaction < CfdpTransaction
             raise "cmd_info not defined for source entity: #{@metadata_pdu_hash['SOURCE_ENTITY_ID']}" unless target_name and packet_name and item_name
             cmd_params = {}
             cmd_params[item_name] = @finished_pdu
-            cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+            cfdp_cmd(source_entity, target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
             @finished_count += 1
             if @finished_count > CfdpMib.entity(@source_entity_id)['ack_timer_expiration_limit']
               # Positive ACK Limit Reached Fault
@@ -328,7 +329,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       progress: @progress)
     cmd_params = {}
     cmd_params[item_name] = keep_alive_pdu
-    cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+    cfdp_cmd(source_entity, target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
   end
 
   def send_naks(force = false)
@@ -421,7 +422,7 @@ class CfdpReceiveTransaction < CfdpTransaction
         start_of_scope = end_of_scope
         cmd_params = {}
         cmd_params[item_name] = nak_pdu
-        cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+        cfdp_cmd(source_entity, target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
       end
       break if segment_requests.length <= 0
     end
@@ -520,7 +521,7 @@ class CfdpReceiveTransaction < CfdpTransaction
           transaction_status: "ACTIVE")
         cmd_params = {}
         cmd_params[item_name] = ack_pdu
-        cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+        cfdp_cmd(source_entity, target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
       end
 
       # Note: This also handles canceled

@@ -37,6 +37,8 @@ class CfdpTransaction
   attr_reader :file_status
   attr_reader :metadata_pdu_hash
   attr_reader :metadata_pdu_count
+  attr_reader :create_time
+  attr_reader :complete_time
   attr_accessor :proxy_response_info
   attr_accessor :proxy_response_needed
 
@@ -59,10 +61,12 @@ class CfdpTransaction
     @proxy_response_needed = false
     @source_file_name = nil
     @destination_file_name = nil
+    @create_time = Time.now.utc
+    @complete_time = nil
   end
 
   def as_json(*args)
-    return {
+    result = {
       "id" => @id,
       "frozen" => @frozen,
       "state" => @state,
@@ -70,8 +74,11 @@ class CfdpTransaction
       "progress" => @progress,
       "condition_code" => @condition_code,
       "source_file_name" => @source_file_name,
-      "destination_file_name" => @destination_file_name
+      "destination_file_name" => @destination_file_name,
+      "create_time" => @create_time.iso8601(6)
     }
+    result["complete_time"] = @complete_time.iso8601(6) if @complete_time
+    return result
   end
 
   def suspend
@@ -104,6 +111,7 @@ class CfdpTransaction
       end
       @state = "CANCELED"
       @transaction_status = "TERMINATED"
+      @complete_time = Time.now.utc
     end
   end
 
@@ -113,6 +121,7 @@ class CfdpTransaction
       @state = "ABANDONED"
       @transaction_status = "TERMINATED"
       CfdpTopic.write_indication("Abandoned", transaction_id: @id, condition_code: @condition_code, progress: @progress)
+      @complete_time = Time.now.utc
     end
   end
 
@@ -184,5 +193,10 @@ class CfdpTransaction
     else # Unsupported
       return nil
     end
+  end
+
+  def cfdp_cmd(entity, target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+    cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+    sleep(entity['cmd_delay']) if entity['cmd_delay']
   end
 end
