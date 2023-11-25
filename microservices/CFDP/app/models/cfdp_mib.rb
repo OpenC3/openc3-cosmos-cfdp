@@ -101,6 +101,7 @@ class CfdpMib
     'enable_keep_alive',
     'enable_finished',
     'enable_eof_nak',
+    'cmd_delay',
     'tlm_info',
     'eof_sent_indication',
     'eof_recv_indication',
@@ -108,7 +109,8 @@ class CfdpMib
     'transaction_finished_indication',
     'suspended_indication',
     'resume_indication',
-    'fault_handler'
+    'fault_handler',
+    'transaction_retain_seconds'
   ]
 
   @@source_entity_id = 0
@@ -184,6 +186,7 @@ class CfdpMib
     entity['enable_keep_alive'] = true
     entity['enable_finished'] = true
     entity['enable_eof_nak'] = false
+    entity['cmd_delay'] = nil
 
     # Local Entity Settings
     entity['tlm_info'] = []
@@ -205,6 +208,7 @@ class CfdpMib
     entity['fault_handler']["INVALID_FILE_STRUCTURE"] = "IGNORE_ERROR"
     entity['fault_handler']["CHECK_LIMIT_REACHED"] = "IGNORE_ERROR"
     entity['fault_handler']["UNSUPPORTED_CHECKSUM_TYPE"] = "IGNORE_ERROR"
+    entity['transaction_retain_seconds'] = 86400.0
 
     # TODO: Use interface connected? to limit opportunities?
     @@entities[entity_id] = entity
@@ -499,6 +503,13 @@ class CfdpMib
             else
               raise "Value for MIB setting #{field_name} must be a three part array of target_name, packet_name, item_name"
             end
+          when 'cmd_delay', 'transaction_retain_seconds'
+            value = Float(value)
+            if value >= 0
+              CfdpMib.set_entity_value(current_entity_id, field_name, value)
+            else
+              raise "Value for MIB setting #{field_name} must be greater than or equal to zero"
+            end
           when 'immediate_nak_mode', 'crcs_required', 'eof_sent_indication', 'eof_recv_indication', 'file_segment_recv_indication', 'transaction_finished_indication', 'suspended_indication', 'resume_indication',
             'enable_acks', 'enable_keep_alive', 'enable_finished', 'enable_eof_nak'
             value = OpenC3::ConfigParser.handle_true_false(value)
@@ -609,5 +620,19 @@ class CfdpMib
     @@bucket = nil
     @@root_path = "/"
     @@transactions = {}
+  end
+
+  def self.cleanup_old_transactions
+    to_remove = []
+    current_time = Time.now.utc
+    transaction_retain_seconds = @@entities[@@source_entity_id]['transaction_retain_seconds']
+    @@transactions.each do |id, transaction|
+      if transaction.complete_time and (current_time - transaction.complete_time) > transaction_retain_seconds
+        to_remove << id
+      end
+    end
+    to_remove.each do |id|
+      @@transactions.delete(id)
+    end
   end
 end

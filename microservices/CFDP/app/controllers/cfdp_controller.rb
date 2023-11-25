@@ -216,6 +216,7 @@ class CfdpController < ApplicationController
     end
 
     # Authorized
+    CfdpMib.cleanup_old_transactions()
     return true
   end
 

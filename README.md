@@ -109,18 +109,19 @@ Minimum required settings:
 
 ### Source Entity Configuration
 
-| Setting Name                    | Description                                                                                       | Allowed Values            | Default Value                   |
-| ------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------- | ------------------------------- |
-| root_path                       | The path to send/receive files from                                                               | Valid directory           | N/A - Must be given             |
-| bucket                          | The bucket to send/receive files from                                                             | Valid bucket Name         | nil - Serve from mounted volume |
-| source_entity_id                | The entity id for this CFDP microservice                                                          | Any integer               | N/A - Must be given             |
-| tlm_info                        | A target_name, packet_name, and item_name to receive PDUs. Multiple tlm_info options can be given | COSMOS packet information | N/A - Must be given             |
-| eof_sent_indication             | Issue EOF-Sent.indication                                                                         | true or false             | true                            |
-| eof_recv_indication             | Issue EOF-Recv.indication                                                                         | true or false             | true                            |
-| file_segment_recv_indication    | Issue File-Segment-Recv.indication                                                                | true or false             | true                            |
-| transaction_finished_indication | Issue Transaction-Finished.indication                                                             | true or false             | true                            |
-| suspended_indication            | Issue Suspended.indication                                                                        | true or false             | true                            |
-| resume_indication               | Issue Resume.indication                                                                           | true or false             | true                            |
+| Setting Name                    | Description                                                                                       | Allowed Values                      | Default Value                   |
+| ------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------- |
+| root_path                       | The path to send/receive files from                                                               | Valid directory                     | N/A - Must be given             |
+| bucket                          | The bucket to send/receive files from                                                             | Valid bucket Name                   | nil - Serve from mounted volume |
+| source_entity_id                | The entity id for this CFDP microservice                                                          | Any integer                         | N/A - Must be given             |
+| tlm_info                        | A target_name, packet_name, and item_name to receive PDUs. Multiple tlm_info options can be given | COSMOS packet information           | N/A - Must be given             |
+| eof_sent_indication             | Issue EOF-Sent.indication                                                                         | true or false                       | true                            |
+| eof_recv_indication             | Issue EOF-Recv.indication                                                                         | true or false                       | true                            |
+| file_segment_recv_indication    | Issue File-Segment-Recv.indication                                                                | true or false                       | true                            |
+| transaction_finished_indication | Issue Transaction-Finished.indication                                                             | true or false                       | true                            |
+| suspended_indication            | Issue Suspended.indication                                                                        | true or false                       | true                            |
+| resume_indication               | Issue Resume.indication                                                                           | true or false                       | true                            |
+| transaction_retain_seconds      | Time to keep completed transactions in seconds.                                                   | Floating point value greater than 0 | 86400                           |
 
 ### Remote Entity Configuration
 
@@ -150,6 +151,7 @@ Minimum required settings:
 | transaction_closure_requested | Default closure requested setting                                                                    | CLOSURE_REQUESTED or CLOSURE_NOT_REQUESTED                                                                                                                                                                                                                                                                                                                            | CLOSURE_REQUESTED         |
 | incomplete_file_disposition   | What to do with an incomplete file                                                                   | DISCARD or RETAIN                                                                                                                                                                                                                                                                                                                                                     | DISCARD                   |
 | fault_handler                 | Fault handler setting                                                                                | (ACK_LIMIT_REACHED, KEEP_ALIVE_LIMIT_REACHED, INVALID_TRANSMISSION_MODE, FILESTORE_REJECTION, FILE_CHECKSUM_FAILURE, FILE_SIZE_ERROR, NAK_LIMIT_REACHED, INACTIVITY_DETECTED, INVALID_FILE_STRUCTURE, CHECK_LIMIT_REACHED, or UNSUPPORTED_CHECKSUM_TYPE) followed by (ISSUE_NOTICE_OF_CANCELLATION, ISSUE_NOTICE_OF_SUSPENSION, IGNORE_ERROR, or ABANDON_TRANSACTION) | See Code                  |
+| cmd_delay                     | Delay after sending each PDU in seconds. Defaults to no delay.                                       | Floating point value greater than 0                                                                                                                                                                                                                                                                                                                                   | nil                       |
 
 ## Known Limitations
 
