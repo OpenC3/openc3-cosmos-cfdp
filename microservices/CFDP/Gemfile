@@ -21,7 +21,7 @@ group :development, :test do
 end
 
 group :test do
-  gem 'mock_redis', '0.39'
+  gem 'mock_redis', '>0.39'
 end
 
 if ENV['OPENC3_DEVEL']

@@ -23,25 +23,26 @@ require 'openc3/io/json_api'
 #
 # In ScriptRunner:
 # require 'cfdp_api'
-# api = CfdpApi.new
+# api = CfdpApi.new()
 # api.put(...)
 #
 # Outside cluster - Open Source:
-# require 'cfdp_api'
 # $openc3_scope = 'DEFAULT'
 # ENV['OPENC3_API_PASSWORD'] = 'password'
-# api = CfdpApi.new(hostname: '127.0.0.1', port: 2900)
+# require 'cfdp_api'
+# api = CfdpApi.new(url: "http://127.0.0.1:2900/cfdp")
 # api.put(...)
 #
 # Outside cluster - Enterprise
-# require 'cfdp_api'
 # $openc3_scope = 'DEFAULT'
-# ENV['OPENC3_KEYCLOAK_URL'] = '127.0.0.1:2900'
+# ENV['OPENC3_KEYCLOAK_URL'] = 'http://127.0.0.1:2900/auth'
 # ENV['OPENC3_API_USER'] = 'operator'
 # ENV['OPENC3_API_PASSWORD'] = 'operator'
-# api = CfdpApi.new(hostname: '127.0.0.1', port: 2900)
+# require 'cfdp_api'
+# api = CfdpApi.new(url: "http://127.0.0.1:2900/cfdp")
 # api.put(...)
 #
+
 class CfdpApi < OpenC3::JsonApi
   def put(
     destination_entity_id:,
