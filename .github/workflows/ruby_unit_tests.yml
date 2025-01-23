@@ -29,6 +29,9 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby-version }}
+      - name: Copy the dev Gemfile
+        working-directory: microservices/CFDP
+        run: cp Gemfile.dev Gemfile
       - name: Bundle install
         working-directory: microservices/CFDP
         run: bundle install
