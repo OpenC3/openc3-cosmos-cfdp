@@ -13,7 +13,7 @@
 # GNU Affero General Public License for more details.
 */
 
-import { test as setup, expect } from '@playwright/test'
+import { test as setup } from '@playwright/test'
 import { STORAGE_STATE } from './playwright.config'
 
 setup('global setup', async ({ page }) => {
@@ -39,7 +39,7 @@ setup('global setup', async ({ page }) => {
   }
   await new Promise((resolve) => setTimeout(resolve, 500))
 
-  // Save signed-in state to 'storageState.json' and adminStorageState to match Enterprise
+  // Save signed-in state to 'storageState.json'
   await page.context().storageState({ path: STORAGE_STATE })
 
   // On the initial load you might get the Clock out of sync dialog

@@ -19,7 +19,7 @@ import { test, expect } from './fixture'
 test.use({
   toolPath: '/tools/admin/plugins',
   toolName: 'Administrator',
-  storageState: 'adminStorageState.json',
+  storageState: 'storageState.json',
 })
 
 let plugin = 'openc3-cosmos-cfdp'
@@ -27,46 +27,46 @@ let pluginGem = 'openc3-cosmos-cfdp-1.0.0.gem'
 
 test.setTimeout(300000)
 test('installs a new plugin', async ({ page, utils }) => {
-  // // Note that Promise.all prevents a race condition
-  // // between clicking and waiting for the file chooser.
-  // const [fileChooser] = await Promise.all([
-  //   // It is important to call waitForEvent before click to set up waiting.
-  //   page.waitForEvent('filechooser'),
-  //   // Opens the file chooser.
-  //   await page.getByRole('button', { name: 'Install New Plugin' }).click(),
-  // ])
-  // await fileChooser.setFiles(`../${pluginGem}`)
-  // await expect(page.locator('.v-dialog:has-text("Variables")')).toBeVisible()
-  // await page.getByLabel('plugin_test_mode', { exact: true }).dblclick()
-  // await page.getByLabel('plugin_test_mode', { exact: true }).fill('true')
-  // await page.locator('data-test=edit-submit').click()
-  // await expect(page.locator('[data-test=plugin-alert]')).toContainText(
-  //   'Started installing'
-  // )
-  // // Plugin install can go so fast we can't count on 'Running' to be present so try catch this
-  // let regexp = new RegExp(`Processing plugin_install: .* - Running`)
-  // try {
-  //   await expect(page.locator('[data-test=process-list]')).toContainText(
-  //     regexp,
-  //     {
-  //       timeout: 30000,
-  //     }
-  //   )
-  // } catch {}
-  // // Ensure no Running are left
-  // await expect(page.locator('[data-test=process-list]')).not.toContainText(
-  //   regexp,
-  //   {
-  //     timeout: 30000,
-  //   }
-  // )
-  // // Check for Complete
-  // regexp = new RegExp(`Processing plugin_install: ${pluginGem} - Complete`)
-  // await expect(page.locator('[data-test=process-list]')).toContainText(regexp)
+  // Note that Promise.all prevents a race condition
+  // between clicking and waiting for the file chooser.
+  const [fileChooser] = await Promise.all([
+    // It is important to call waitForEvent before click to set up waiting.
+    page.waitForEvent('filechooser'),
+    // Opens the file chooser.
+    await page.getByRole('button', { name: 'Install New Plugin' }).click(),
+  ])
+  await fileChooser.setFiles(`../${pluginGem}`)
+  await expect(page.locator('.v-dialog:has-text("Variables")')).toBeVisible()
+  await page.getByLabel('plugin_test_mode', { exact: true }).dblclick()
+  await page.getByLabel('plugin_test_mode', { exact: true }).fill('true')
+  await page.locator('data-test=edit-submit').click()
+  await expect(page.locator('[data-test=plugin-alert]')).toContainText(
+    'Started installing'
+  )
+  // Plugin install can go so fast we can't count on 'Running' to be present so try catch this
+  let regexp = new RegExp(`Processing plugin_install: .* - Running`)
+  try {
+    await expect(page.locator('[data-test=process-list]')).toContainText(
+      regexp,
+      {
+        timeout: 30000,
+      }
+    )
+  } catch {}
+  // Ensure no Running are left
+  await expect(page.locator('[data-test=process-list]')).not.toContainText(
+    regexp,
+    {
+      timeout: 30000,
+    }
+  )
+  // Check for Complete
+  regexp = new RegExp(`Processing plugin_install: ${pluginGem} - Complete`)
+  await expect(page.locator('[data-test=process-list]')).toContainText(regexp)
 
-  // await expect(
-  //   page.locator(`[data-test=plugin-list] div:has-text("${plugin}")`).first()
-  // ).toContainText('CFDP')
+  await expect(
+    page.locator(`[data-test=plugin-list] div:has-text("${plugin}")`).first()
+  ).toContainText('CFDP')
 
   // Run ScriptRunner Test
   await page.goto('/tools/scriptrunner')
