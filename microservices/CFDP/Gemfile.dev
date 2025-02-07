@@ -13,8 +13,14 @@ gem 'rack-cors', '~> 2.0'
 # Windows does not include zoneinfo files, so bundle the tzinfo-data gem
 gem 'tzinfo-data'
 
-# NOTE: Since we're not using the Gemfile.lock we can't include development
-# or test groups in the Gemfile or bundler tries to install them and fails
+group :development, :test do
+  gem 'rspec-rails', '~> 6.0'
+  gem 'simplecov', '~> 0.20'
+  gem 'simplecov-cobertura', '~> 2.1'
+end
+group :test do
+  gem 'mock_redis', '>0.39'
+end
 
 if ENV['OPENC3_DEVEL']
   gem 'openc3', :path => ENV['OPENC3_DEVEL']

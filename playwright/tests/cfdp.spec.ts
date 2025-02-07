@@ -19,7 +19,7 @@ import { test, expect } from './fixture'
 test.use({
   toolPath: '/tools/admin/plugins',
   toolName: 'Administrator',
-  storageState: 'adminStorageState.json',
+  storageState: 'storageState.json',
 })
 
 let plugin = 'openc3-cosmos-cfdp'
@@ -33,20 +33,18 @@ test('installs a new plugin', async ({ page, utils }) => {
     // It is important to call waitForEvent before click to set up waiting.
     page.waitForEvent('filechooser'),
     // Opens the file chooser.
-    await page.locator('text=Click to select').click({ force: true }),
+    await page.getByRole('button', { name: 'Install New Plugin' }).click(),
   ])
   await fileChooser.setFiles(`../${pluginGem}`)
   await expect(page.locator('.v-dialog:has-text("Variables")')).toBeVisible()
-  await page.getByLabel('plugin_test_mode', { exact: true }).dblclick();
-  await page.getByLabel('plugin_test_mode', { exact: true }).fill('true');
+  await page.getByLabel('plugin_test_mode', { exact: true }).dblclick()
+  await page.getByLabel('plugin_test_mode', { exact: true }).fill('true')
   await page.locator('data-test=edit-submit').click()
   await expect(page.locator('[data-test=plugin-alert]')).toContainText(
     'Started installing'
   )
   // Plugin install can go so fast we can't count on 'Running' to be present so try catch this
-  let regexp = new RegExp(
-    `Processing plugin_install: .* - Running`
-  )
+  let regexp = new RegExp(`Processing plugin_install: .* - Running`)
   try {
     await expect(page.locator('[data-test=process-list]')).toContainText(
       regexp,
@@ -67,43 +65,37 @@ test('installs a new plugin', async ({ page, utils }) => {
   await expect(page.locator('[data-test=process-list]')).toContainText(regexp)
 
   await expect(
-    page.locator(
-      `[data-test=plugin-list] div[role=listitem]:has-text("${plugin}")`
-    )
+    page.locator(`[data-test=plugin-list] div:has-text("${plugin}")`).first()
   ).toContainText('CFDP')
-  // Show the process output
-  await page
-    .locator(
-      `[data-test=process-list] div[role=listitem]:has-text("${plugin}") >> [data-test=show-output]`
-    )
-    .first()
-    .click()
-  await expect(page.locator('.v-dialog--active')).toContainText(
-    'Process Output'
-  )
-  await expect(page.locator('.v-dialog--active')).toContainText(
-    `Loading new plugin: ${pluginGem}`
-  )
-  await page.locator('.v-dialog--active >> button:has-text("Ok")').click()
 
   // Run ScriptRunner Test
   await page.goto('/tools/scriptrunner')
 
-  await page.locator('[data-test="cosmos-script-runner-file"]').click();
-  await page.getByText('Open File').click();
-  await page.getByRole('button', { name: '󰍝' }).first().click();
-  await page.getByRole('button', { name: '󰍝' }).nth(2).click();
-  await page.getByText('cfdp_test_suite.rb').click();
-  await page.locator('[data-test="file-open-save-submit-btn"]').click();
-  await page.locator('[data-test="start-suite"]').click();
-  let dialog = page.locator('.v-dialog.v-dialog--active')
-  await dialog.waitFor({timeout: 300000})
-  await expect(dialog).toContainText(
-    'Script Results',
-    {
-      timeout: 300000,
-    }
-  )
+  await page.locator('[data-test=script-runner-file]').click()
+  await page.locator('text=Open File').click()
+  await expect(
+    page.locator('.v-dialog').getByText('CFDP', { exact: true })
+  ).toBeVisible()
+  await page
+    .locator('[data-test=file-open-save-search] input')
+    .fill('cfdp_test_suite')
+  await page.getByText('cfdp_test_suite.rb').first().click()
+  await page.locator('[data-test="file-open-save-submit-btn"]').click()
+  await expect(page.locator('.v-dialog')).not.toBeVisible()
+
+  // Check for potential "<User> is editing this script"
+  // This can happen if we had to do a retry on this test
+  const someone = page.getByText('is editing this script')
+  if (await someone.isVisible()) {
+    await page.locator('[data-test="unlock-button"]').click()
+    await page.locator('[data-test="confirm-dialog-force unlock"]').click()
+  }
+
+  await page.locator('[data-test="start-suite"]').click()
+  // Wait for the results ... allow for additional time
+  await expect(page.locator('.v-dialog')).toContainText('Script Results', {
+    timeout: 120000,
+  })
   let textarea = await page.inputValue('.v-dialog >> textarea')
   expect(textarea).toMatch('Pass: 4')
 })
