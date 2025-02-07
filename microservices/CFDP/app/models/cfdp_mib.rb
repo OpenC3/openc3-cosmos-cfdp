@@ -265,7 +265,8 @@ class CfdpMib
     end
     tmp_file.unlink
     return true
-  rescue
+  rescue => error
+    OpenC3::Logger.error(error.message, scope: ENV['OPENC3_SCOPE'])
     # Something went wrong so return false
     return false
   end
