@@ -76,17 +76,25 @@ test('installs a new plugin', async ({ page, utils }) => {
   await expect(
     page.locator('.v-dialog').getByText('CFDP', { exact: true })
   ).toBeVisible()
-  await utils.sleep(200)
-  await page.locator('[data-test=file-open-save-search]').type('cfdp_')
-  await utils.sleep(200)
-  await page.locator('[data-test=file-open-save-search]').type('test_suite')
-  await utils.sleep(200)
+  await page
+    .locator('[data-test=file-open-save-search] input')
+    .fill('cfdp_test_suite')
   await page.getByText('cfdp_test_suite.rb').first().click()
   await page.locator('[data-test="file-open-save-submit-btn"]').click()
+  await expect(page.locator('.v-dialog')).not.toBeVisible()
+
+  // Check for potential "<User> is editing this script"
+  // This can happen if we had to do a retry on this test
+  const someone = page.getByText('is editing this script')
+  if (await someone.isVisible()) {
+    await page.locator('[data-test="unlock-button"]').click()
+    await page.locator('[data-test="confirm-dialog-force unlock"]').click()
+  }
+
   await page.locator('[data-test="start-suite"]').click()
   // Wait for the results ... allow for additional time
   await expect(page.locator('.v-dialog')).toContainText('Script Results', {
-    timeout: 60000,
+    timeout: 120000,
   })
   let textarea = await page.inputValue('.v-dialog >> textarea')
   expect(textarea).toMatch('Pass: 4')
