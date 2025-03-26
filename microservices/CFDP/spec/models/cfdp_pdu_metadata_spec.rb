@@ -74,6 +74,7 @@ RSpec.describe CfdpPdu, type: :model do
       expect(buffer[23..26].unpack('A*')[0]).to eql 'test'
 
       hash = {}
+      hash['VERSION'] = 1
       # decom takes just the Metadata specific part of the buffer
       # so start at offset 8 and ignore the 2 checksum bytes
       CfdpPdu.decom_metadata_pdu_contents(CfdpPdu.new(crcs_required: false), hash, buffer[8..-3])
@@ -154,6 +155,7 @@ RSpec.describe CfdpPdu, type: :model do
       expect(buffer[46..48].unpack('A*')[0]).to eql 'end'
 
       hash = {}
+      hash['VERSION'] = 1
       # decom takes just the Metadata specific part of the buffer
       # so start at offset 8 and ignore the 2 checksum bytes
       CfdpPdu.decom_metadata_pdu_contents(CfdpPdu.new(crcs_required: false), hash, buffer[8..-3])
@@ -216,6 +218,7 @@ RSpec.describe CfdpPdu, type: :model do
       expect(buffer[29..33].unpack('A*')[0]).to eql 'Hello'
 
       hash = {}
+      hash['VERSION'] = 1
       # decom takes just the Metadata specific part of the buffer
       # so start at offset 8 and ignore the 2 checksum bytes
       CfdpPdu.decom_metadata_pdu_contents(CfdpPdu.new(crcs_required: false), hash, buffer[8..-3])
@@ -274,6 +277,7 @@ RSpec.describe CfdpPdu, type: :model do
       expect(buffer[29].unpack('C')[0] & 0xF).to eql 4
 
       hash = {}
+      hash['VERSION'] = 1
       # decom takes just the Metadata specific part of the buffer
       # so start at offset 8 and ignore the 2 checksum bytes
       CfdpPdu.decom_metadata_pdu_contents(CfdpPdu.new(crcs_required: false), hash, buffer[8..-3])
@@ -331,6 +335,7 @@ RSpec.describe CfdpPdu, type: :model do
       expect(buffer[29..32].unpack('A*')[0]).to eql 'flow'
 
       hash = {}
+      hash['VERSION'] = 1
       # decom takes just the Metadata specific part of the buffer
       # so start at offset 8 and ignore the 2 checksum bytes
       CfdpPdu.decom_metadata_pdu_contents(CfdpPdu.new(crcs_required: false), hash, buffer[8..-3])
@@ -342,6 +347,99 @@ RSpec.describe CfdpPdu, type: :model do
       tlv = hash['TLVS'][0]
       expect(tlv['TYPE']).to eql 'FLOW_LABEL'
       expect(tlv['FLOW_LABEL']).to eql 'flow'
+    end
+
+    it "builds a Metadata PDU for version 0" do
+      destination_entity = CfdpMib.entity(@destination_entity_id)
+      destination_entity['protocol_version_number'] = 0
+      buffer = CfdpPdu.build_metadata_pdu(
+        source_entity: CfdpMib.entity(@source_entity_id),
+        transaction_seq_num: 1,
+        destination_entity: destination_entity,
+        file_size: 0xDEADBEEF,
+        segmentation_control: "NOT_PRESERVED",
+        transmission_mode: nil,
+        source_file_name: "filename",
+        destination_file_name: "test",
+        closure_requested: 0,
+        options: [])
+      # puts buffer.formatted
+      expect(buffer.length).to eql 29
+
+      # By default the first 7 bytes are the header
+      # This assumes 1 byte per entity ID and sequence number
+      expect(buffer[1..2].unpack('n')[0]).to eql 22 # PDU_DATA_LENGTH - Directive Code plus Data plus CRC
+
+      # Directive Code
+      expect(buffer[7].unpack('C')[0]).to eql 7 # Metadata per Table 5-4
+      # Closure requested
+      expect(buffer[8].unpack('C')[0] >> 6).to eql 0
+      # Checksum type
+      expect(buffer[8].unpack('C')[0] & 0xF).to eql 0 # legacy modular checksum
+      # File Size
+      expect(buffer[9..12].unpack('N')[0]).to eql 0xDEADBEEF
+      # Source File Name
+      expect(buffer[13].unpack('C')[0]).to eql 8
+      expect(buffer[14..21].unpack('A*')[0]).to eql 'filename'
+      # Destination File Name
+      expect(buffer[22].unpack('C')[0]).to eql 4
+      expect(buffer[23..26].unpack('A*')[0]).to eql 'test'
+
+      hash = {}
+      hash['VERSION'] = 0
+      # decom takes just the Metadata specific part of the buffer
+      # so start at offset 8 and ignore the 2 checksum bytes
+      CfdpPdu.decom_metadata_pdu_contents(CfdpPdu.new(crcs_required: false), hash, buffer[8..-3])
+      expect(hash['CLOSURE_REQUESTED']).to eql nil
+      expect(hash['CHECKSUM_TYPE']).to eql nil
+      expect(hash['FILE_SIZE']).to eql 0xDEADBEEF
+      expect(hash['SOURCE_FILE_NAME']).to eql 'filename'
+      expect(hash['DESTINATION_FILE_NAME']).to eql 'test'
+    end
+
+    it "builds a Metadata PDU with unknown checksum type, large file size, and default closure requested" do
+      destination_entity = CfdpMib.entity(@destination_entity_id)
+      destination_entity['default_checksum_type'] = 9 # Unsupported
+      buffer = CfdpPdu.build_metadata_pdu(
+        source_entity: CfdpMib.entity(@source_entity_id),
+        transaction_seq_num: 1,
+        destination_entity: destination_entity,
+        file_size: 0x100000000,
+        segmentation_control: "NOT_PRESERVED",
+        transmission_mode: nil,
+        source_file_name: "filename",
+        destination_file_name: "test",
+        closure_requested: nil,
+        options: [])
+      # puts buffer.formatted
+      expect(buffer.length).to eql 33
+
+      # By default the first 7 bytes are the header
+      # This assumes 1 byte per entity ID and sequence number
+      expect(buffer[1..2].unpack('n')[0]).to eql 26 # PDU_DATA_LENGTH - Directive Code plus Data plus CRC
+
+      # Directive Code
+      expect(buffer[7].unpack('C')[0]).to eql 7 # Metadata per Table 5-4
+      # Closure requested
+      expect(buffer[8].unpack('C')[0] >> 6).to eql 1
+      # Checksum type
+      expect(buffer[8].unpack('C')[0] & 0xF).to eql 0 # legacy modular checksum
+      # File Size
+      expect(buffer[9..16].unpack('Q>')[0]).to eql 0x100000000
+      # Source File Name
+      expect(buffer[17].unpack('C')[0]).to eql 8
+      expect(buffer[18..25].unpack('A*')[0]).to eql 'filename'
+      # Destination File Name
+      expect(buffer[26].unpack('C')[0]).to eql 4
+      expect(buffer[27..30].unpack('A*')[0]).to eql 'test'
+
+      # Test with toplevel decom
+      hash = CfdpPdu.decom(buffer)
+      expect(hash['CLOSURE_REQUESTED']).to eql "CLOSURE_REQUESTED"
+      expect(hash['CHECKSUM_TYPE']).to eql 0
+      expect(hash['FILE_SIZE']).to eql 0x100000000
+      expect(hash['SOURCE_FILE_NAME']).to eql 'filename'
+      expect(hash['DESTINATION_FILE_NAME']).to eql 'test'
     end
   end
 end

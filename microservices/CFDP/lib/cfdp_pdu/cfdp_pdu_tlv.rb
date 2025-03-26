@@ -77,7 +77,7 @@ class CfdpPdu < OpenC3::Packet
           s = define_message_to_user_tlv()
           s.buffer = tlv_data
           tlv["MESSAGE_TO_USER"] = s.read("MESSAGE_TO_USER")
-          tlv.merge!(pdu.decom_message_to_user(tlv["MESSAGE_TO_USER"]))
+          tlv.merge!(pdu.decom_message_to_user(tlv["MESSAGE_TO_USER"], version: pdu_hash["VERSION"]))
 
         when "FAULT_HANDLER_OVERRIDE"
           s = define_fault_handler_override_tlv()

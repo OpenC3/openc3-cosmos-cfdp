@@ -87,19 +87,32 @@ class CfdpPdu < OpenC3::Packet
     end
 
     # Static header
-    keys = [
-      "VERSION",
-      "TYPE",
-      "DIRECTION",
-      "TRANSMISSION_MODE",
-      "LARGE_FILE_FLAG",
-      "PDU_DATA_LENGTH",
-      "SEGMENTATION_CONTROL",
-      "ENTITY_ID_LENGTH",
-      "SEGMENT_METADATA_FLAG",
-      "SEQUENCE_NUMBER_LENGTH",
-      "VARIABLE_DATA"
-    ]
+    version = pdu.read("VERSION")
+    pdu_hash["VERSION"] = version
+    if version == 0
+      keys = [
+        "TYPE",
+        "DIRECTION",
+        "TRANSMISSION_MODE",
+        "PDU_DATA_LENGTH",
+        "ENTITY_ID_LENGTH",
+        "SEQUENCE_NUMBER_LENGTH",
+        "VARIABLE_DATA"
+      ]
+    else
+      keys = [
+        "TYPE",
+        "DIRECTION",
+        "TRANSMISSION_MODE",
+        "LARGE_FILE_FLAG",
+        "PDU_DATA_LENGTH",
+        "SEGMENTATION_CONTROL",
+        "ENTITY_ID_LENGTH",
+        "SEGMENT_METADATA_FLAG",
+        "SEQUENCE_NUMBER_LENGTH",
+        "VARIABLE_DATA"
+      ]
+    end
     keys.each do |key|
       pdu_hash[key] = pdu.read(key)
     end
@@ -144,8 +157,9 @@ class CfdpPdu < OpenC3::Packet
   end
 
   def self.build_initial_pdu(type:, destination_entity:, file_size:, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
+    version = destination_entity['protocol_version_number']
     pdu = self.new(crcs_required: destination_entity['crcs_required'])
-    pdu.write("VERSION", destination_entity['protocol_version_number'])
+    pdu.write("VERSION", version)
     pdu.write("TYPE", type)
     pdu.write("DIRECTION", "TOWARD_FILE_RECEIVER")
     if transmission_mode
@@ -159,14 +173,21 @@ class CfdpPdu < OpenC3::Packet
     else
       pdu.write("CRC_FLAG", "CRC_NOT_PRESENT")
     end
-    if file_size >= 4_294_967_296
-      pdu.write("LARGE_FILE_FLAG", "LARGE_FILE")
+
+    # Version 0 doesn't support large files
+    if version == 0 or file_size < 4_294_967_296
+      pdu.write("LARGE_FILE_FLAG", "SMALL_FILE")  # Equals 0
     else
-      pdu.write("LARGE_FILE_FLAG", "SMALL_FILE")
+      pdu.write("LARGE_FILE_FLAG", "LARGE_FILE")
     end
-    pdu.write("SEGMENTATION_CONTROL", segmentation_control)
+
+    if version == 0
+      pdu.write("SEGMENTATION_CONTROL", 0) # Always 0
+    else
+      pdu.write("SEGMENTATION_CONTROL", segmentation_control)
+    end
     pdu.write("ENTITY_ID_LENGTH", destination_entity['entity_id_length'])
-    pdu.write("SEGMENT_METADATA_FLAG", "NOT_PRESENT") # Not implemented
+    pdu.write("SEGMENT_METADATA_FLAG", "NOT_PRESENT") # Not implemented - always 0
     pdu.write("SEQUENCE_NUMBER_LENGTH", destination_entity['sequence_number_length'])
     return pdu
   end

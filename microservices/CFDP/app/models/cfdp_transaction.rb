@@ -180,7 +180,7 @@ class CfdpTransaction
 
   def get_checksum(checksum_type)
     case checksum_type
-    when 0 # Modular Checksum
+    when 0, nil # Modular Checksum
       return CfdpChecksum.new
     when 1 # Proximity-1 CRC-32 - Poly: 0x00A00805 - Reference CCSDS-211.2-B-3 - Unsure of correct xor/reflect
       return CfdpCrcChecksum.new(0x00A00805, 0x00000000, false, false)

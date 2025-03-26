@@ -144,6 +144,10 @@ class CfdpUser
     @source_threads.each do |st|
       st.kill if st.alive?
     end
+
+    @item_name_lookup = {}
+    @source_transactions = []
+    @source_threads = []
   end
 
   def start_source_transaction(params, proxy_response_info: nil)
@@ -155,6 +159,7 @@ class CfdpUser
         if params[:remote_entity_id] and Integer(params[:remote_entity_id]) != CfdpMib.source_entity_id
           # Proxy Put
           destination_entity = CfdpMib.entity(Integer(params[:destination_entity_id]))
+          version = destination_entity['protocol_version_number']
           pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
           messages_to_user = []
           # messages_to_user << pdu.build_originating_transaction_id_message(source_entity_id: CfdpMib.source_entity.id, sequence_number: transaction.transaction_seq_num)
@@ -183,7 +188,7 @@ class CfdpUser
           if params[:segmentation_control]
             messages_to_user << pdu.build_proxy_segmentation_control_message(segmentation_control: params[:segmentation_control])
           end
-          if params[:closure_requested]
+          if version != 0 and params[:closure_requested]
             messages_to_user << pdu.build_proxy_closure_request_message(closure_requested: params[:closure_requested])
           end
           OpenC3::Logger.info("CFDP Transaction #{transaction.id} Proxy Put to Remote Entity #{params[:remote_entity_id]}, Destination Entity #{params[:destination_entity_id]}\nSource File Name: #{params[:source_file_name]}\nDestination File Name: #{params[:destination_file_name]}", scope: ENV['OPENC3_SCOPE'])
@@ -494,8 +499,9 @@ class CfdpUser
           end
           params[:messages_to_user] = []
           destination_entity = CfdpMib.entity(metadata_pdu_hash["SOURCE_ENTITY_ID"])
+          version = destination_entity['protocol_version_number']
           pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
-          params[:messages_to_user] << pdu.build_directory_listing_response_message(response_code: "SUCCESSFUL", directory_name: directory_name, directory_file_name: directory_file_name)
+          params[:messages_to_user] << pdu.build_directory_listing_response_message(response_code: "SUCCESSFUL", directory_name: directory_name, directory_file_name: directory_file_name, version: version)
           params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: metadata_pdu_hash["SOURCE_ENTITY_ID"], sequence_number: metadata_pdu_hash["SEQUENCE_NUMBER"])
           start_source_transaction(params)
         else
@@ -505,8 +511,9 @@ class CfdpUser
           params[:destination_file_name] = nil
           params[:messages_to_user] = []
           destination_entity = CfdpMib.entity(metadata_pdu_hash["SOURCE_ENTITY_ID"])
+          version = destination_entity['protocol_version_number']
           pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
-          params[:messages_to_user] << pdu.build_directory_listing_response_message(response_code: "UNSUCCESSFUL", directory_name: directory_name, directory_file_name: directory_file_name)
+          params[:messages_to_user] << pdu.build_directory_listing_response_message(response_code: "UNSUCCESSFUL", directory_name: directory_name, directory_file_name: directory_file_name, version: version)
           params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: metadata_pdu_hash["SOURCE_ENTITY_ID"], sequence_number: metadata_pdu_hash["SEQUENCE_NUMBER"])
           start_source_transaction(params)
         end

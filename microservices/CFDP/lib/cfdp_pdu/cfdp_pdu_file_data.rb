@@ -58,10 +58,11 @@ class CfdpPdu < OpenC3::Packet
   end
 
   def define_file_data_pdu_contents
+    version = read("VERSION")
     smf = read("SEGMENT_METADATA_FLAG")
 
     s = nil
-    if smf == "PRESENT"
+    if version != 0 and smf == "PRESENT"
       s = OpenC3::Packet.new(nil, nil, :BIG_ENDIAN)
       item = s.append_item("RECORD_CONTINUATION_STATE", 2, :UINT)
       item.states = RECORD_CONTINUATION_STATES

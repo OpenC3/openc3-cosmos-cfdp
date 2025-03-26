@@ -127,6 +127,8 @@ class CfdpSourceTransaction < CfdpTransaction
     @source_entity = CfdpMib.source_entity
     @destination_entity = CfdpMib.entity(destination_entity_id)
     raise "Unknown destination entity: #{destination_entity_id}" unless @destination_entity
+    version = @destination_entity['protocol_version_number']
+    raise "Closure requested not available in version 0" if version == 0 and closure_requested == "CLOSURE_REQUESTED"
     @transmission_mode = transmission_mode
     @transmission_mode = @destination_entity['default_transmission_mode'].upcase unless @transmission_mode
     @target_name, @packet_name, @item_name = @destination_entity["cmd_info"]

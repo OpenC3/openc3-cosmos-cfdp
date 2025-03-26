@@ -485,7 +485,9 @@ class CfdpReceiveTransaction < CfdpTransaction
 
       CfdpTopic.write_indication("Metadata-Recv", **kw_args)
 
-      @checksum = get_checksum(@metadata_pdu_hash["CHECKSUM_TYPE"])
+      checksum_type = @metadata_pdu_hash["CHECKSUM_TYPE"]
+      checksum_type ||= 0 # For version 0
+      @checksum = get_checksum(checksum_type)
       unless @checksum
         # Use Null checksum if checksum type not available
         @condition_code = "UNSUPPORTED_CHECKSUM_TYPE"
