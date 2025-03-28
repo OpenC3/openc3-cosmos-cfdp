@@ -1,6 +1,6 @@
 # encoding: ascii-8bit
 
-# Copyright 2023 OpenC3, Inc.
+# Copyright 2025 OpenC3, Inc.
 # All Rights Reserved.
 #
 # Licensed for Evaluation and Educational Use
@@ -13,13 +13,20 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #
 # The development of this software was funded in-whole or in-part by MethaneSAT LLC.
+#
+# The development of this software was funded in-part by Sandia National Laboratories.
+# See https://github.com/OpenC3/openc3-cosmos-cfdp/pull/12 for details
 
 class CfdpPdu < OpenC3::Packet
   def self.decom_metadata_pdu_contents(pdu, pdu_hash, variable_data)
     s, s2 = pdu.define_metadata_pdu_contents
     s.buffer = variable_data
-    pdu_hash["CLOSURE_REQUESTED"] = s.read("CLOSURE_REQUESTED")
-    pdu_hash["CHECKSUM_TYPE"] = s.read("CHECKSUM_TYPE")
+    if pdu_hash['VERSION'] >= 1
+      pdu_hash["CLOSURE_REQUESTED"] = s.read("CLOSURE_REQUESTED")
+      pdu_hash["CHECKSUM_TYPE"] = s.read("CHECKSUM_TYPE")
+    else
+      pdu_hash["SEGMENTATION_CONTROL"] = s.read("SEGMENTATION_CONTROL")
+    end
     pdu_hash["FILE_SIZE"] = s.read("FILE_SIZE")
     source_file_name_length = s.read("SOURCE_FILE_NAME_LENGTH")
     s.buffer = variable_data[0..(s.defined_length + source_file_name_length - 1)]
@@ -59,7 +66,8 @@ class CfdpPdu < OpenC3::Packet
     else
       checksum_type = 0
     end
-    pdu_contents = pdu.build_metadata_pdu_contents(source_entity: source_entity, closure_requested: closure_requested, checksum_type: checksum_type, file_size: file_size, source_file_name: source_file_name, destination_file_name: destination_file_name, options: options)
+    # This always sets the checksum type to 0 if version is 0
+    pdu_contents = pdu.build_metadata_pdu_contents(destination_entity: destination_entity, segmentation_control: segmentation_control, source_entity: source_entity, closure_requested: closure_requested, checksum_type: checksum_type, file_size: file_size, source_file_name: source_file_name, destination_file_name: destination_file_name, options: options)
     pdu.write("VARIABLE_DATA", pdu_header + pdu_contents)
     pdu.write("PDU_DATA_LENGTH", pdu.length - pdu_header_part_1_length - pdu_header_part_2_length)
     if destination_entity['crcs_required']
@@ -71,7 +79,8 @@ class CfdpPdu < OpenC3::Packet
 
   def define_metadata_pdu_contents
     s = OpenC3::Packet.new(nil, nil, :BIG_ENDIAN)
-    s.append_item("RESERVED", 1, :UINT)
+    item = s.append_item("SEGMENTATION_CONTROL", 1, :UINT) # RESERVED in version 1
+    item.states = SEGMENTATION_MODES
     item = s.append_item("CLOSURE_REQUESTED", 1, :UINT)
     item.states = CLOSURE_MODES
     s.append_item("RESERVED2", 2, :UINT)
@@ -92,16 +101,24 @@ class CfdpPdu < OpenC3::Packet
     return s, s2
   end
 
-  def build_metadata_pdu_contents(source_entity:, closure_requested:, checksum_type:, file_size:, source_file_name: nil, destination_file_name: nil, options: [])
+  def build_metadata_pdu_contents(destination_entity:, segmentation_control:, source_entity:, closure_requested:, checksum_type:, file_size:, source_file_name: nil, destination_file_name: nil, options: [])
+    version = destination_entity['protocol_version_number']
     s, s2 = define_metadata_pdu_contents()
-    s.write("RESERVED", 0)
-    if closure_requested
-      s.write("CLOSURE_REQUESTED", closure_requested)
+    if version >= 1
+      s.write("SEGMENTATION_CONTROL", 0) # Always 0 in version 1
+      if closure_requested
+        s.write("CLOSURE_REQUESTED", closure_requested)
+      else
+        s.write("CLOSURE_REQUESTED", source_entity['transaction_closure_requested'])
+      end
+      s.write("CHECKSUM_TYPE", checksum_type)
     else
-      s.write("CLOSURE_REQUESTED", source_entity['transaction_closure_requested'])
+      s.write("SEGMENTATION_CONTROL", segmentation_control)
+      s.write("CLOSURE_REQUESTED", 0)
+      s.write("CHECKSUM_TYPE", 0)
     end
     s.write("RESERVED2", 0)
-    s.write("CHECKSUM_TYPE", checksum_type)
+
     s.write("FILE_SIZE", file_size)
     s.write("SOURCE_FILE_NAME_LENGTH", source_file_name.to_s.length)
     s.write("SOURCE_FILE_NAME", source_file_name.to_s) if source_file_name.to_s.length > 0

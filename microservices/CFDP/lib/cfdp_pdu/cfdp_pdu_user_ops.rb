@@ -1,6 +1,6 @@
 # encoding: ascii-8bit
 
-# Copyright 2023 OpenC3, Inc.
+# Copyright 2025 OpenC3, Inc.
 # All Rights Reserved.
 #
 # Licensed for Evaluation and Educational Use
@@ -13,6 +13,9 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #
 # The development of this software was funded in-whole or in-part by MethaneSAT LLC.
+#
+# The development of this software was funded in-part by Sandia National Laboratories.
+# See https://github.com/OpenC3/openc3-cosmos-cfdp/pull/12 for details
 
 class CfdpPdu < OpenC3::Packet
 
@@ -495,19 +498,23 @@ class CfdpPdu < OpenC3::Packet
   end
 
   # Table 6-16
-  def define_directory_listing_response_message
+  def define_directory_listing_response_message(version:)
     s1 = OpenC3::Packet.new(nil, nil, :BIG_ENDIAN)
     item = s1.append_item("RESPONSE_CODE", 1, :UINT)
-    item.states = { "SUCCESSFUL" => 0, "UNSUCCESSFUL" => 1 }
+    if version >= 1
+      item.states = { "SUCCESSFUL" => 0, "UNSUCCESSFUL" => 1 }
+    else
+      item.states = { "SUCCESSFUL" => 0, "UNSUCCESSFUL" => 0xFF }
+    end
     s1.append_item("SPARE", 7, :UINT)
     return s1, define_length_value(), define_length_value()
   end
 
-  def build_directory_listing_response_message(response_code:, directory_name:, directory_file_name:)
+  def build_directory_listing_response_message(response_code:, directory_name:, directory_file_name:, version:)
     s1 = define_reserved_cfdp_message_header()
     s1.write("MSG_ID", "cfdp")
     s1.write("MSG_TYPE", "DIRECTORY_LISTING_RESPONSE")
-    fixed, s2, s3 = define_directory_listing_response_message()
+    fixed, s2, s3 = define_directory_listing_response_message(version: version)
     fixed.write("RESPONSE_CODE", response_code)
     fixed.write("SPARE", 0)
     s2.write("LENGTH", directory_name.to_s.length)
@@ -517,10 +524,10 @@ class CfdpPdu < OpenC3::Packet
     return s1.buffer(false) + fixed.buffer(false) + s2.buffer(false) + s3.buffer(false)
   end
 
-  def decom_directory_listing_response_message(message_to_user)
+  def decom_directory_listing_response_message(message_to_user, version:)
     result = {}
     message_to_user = message_to_user[5..-1] # Remove header
-    fixed, s2, s3 = define_directory_listing_response_message()
+    fixed, s2, s3 = define_directory_listing_response_message(version: version)
     fixed.buffer = message_to_user[0..(fixed.defined_length - 1)]
     result["RESPONSE_CODE"] = fixed.read("RESPONSE_CODE")
     message_to_user = message_to_user[fixed.defined_length..-1]
@@ -689,7 +696,7 @@ class CfdpPdu < OpenC3::Packet
     return result
   end
 
-  def decom_message_to_user(message_to_user)
+  def decom_message_to_user(message_to_user, version:)
     s1 = define_reserved_cfdp_message_header()
     if message_to_user.length >= 5 # Minimum size
       s1.buffer = message_to_user[0..(s1.defined_length - 1)]
@@ -723,7 +730,7 @@ class CfdpPdu < OpenC3::Packet
         when "DIRECTORY_LISTING_REQUEST"
           return decom_directory_listing_request_message(message_to_user)
         when "DIRECTORY_LISTING_RESPONSE"
-          return decom_directory_listing_response_message(message_to_user)
+          return decom_directory_listing_response_message(message_to_user, version: version)
         when "REMOTE_STATUS_REPORT_REQUEST"
           return decom_remote_status_report_request_message(message_to_user)
         when "REMOTE_STATUS_REPORT_RESPONSE"

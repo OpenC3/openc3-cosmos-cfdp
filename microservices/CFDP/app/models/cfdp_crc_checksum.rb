@@ -17,7 +17,9 @@
 require 'openc3/utilities/crc'
 
 class CfdpCrcChecksum
-  def initialize(poly, seed, xor, reflect)
+  attr_reader :crc
+
+  def initialize(poly = OpenC3::Crc32::DEFAULT_POLY, seed = OpenC3::Crc32::DEFAULT_SEED, xor = true, reflect = true)
     @crc = OpenC3::Crc32.new(poly, seed, xor, reflect)
     @checksum = 0
   end

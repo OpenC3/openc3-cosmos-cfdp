@@ -1,6 +1,6 @@
 # encoding: ascii-8bit
 
-# Copyright 2023 OpenC3, Inc.
+# Copyright 2025 OpenC3, Inc.
 # All Rights Reserved.
 #
 # Licensed for Evaluation and Educational Use
@@ -13,6 +13,9 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #
 # The development of this software was funded in-whole or in-part by MethaneSAT LLC.
+#
+# The development of this software was funded in-part by Sandia National Laboratories.
+# See https://github.com/OpenC3/openc3-cosmos-cfdp/pull/12 for details
 
 require_relative 'cfdp_transaction'
 
@@ -127,6 +130,8 @@ class CfdpSourceTransaction < CfdpTransaction
     @source_entity = CfdpMib.source_entity
     @destination_entity = CfdpMib.entity(destination_entity_id)
     raise "Unknown destination entity: #{destination_entity_id}" unless @destination_entity
+    version = @destination_entity['protocol_version_number']
+    raise "Closure requested not available in version 0" if version == 0 and closure_requested == "CLOSURE_REQUESTED"
     @transmission_mode = transmission_mode
     @transmission_mode = @destination_entity['default_transmission_mode'].upcase unless @transmission_mode
     @target_name, @packet_name, @item_name = @destination_entity["cmd_info"]

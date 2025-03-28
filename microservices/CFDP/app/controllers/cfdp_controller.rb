@@ -48,6 +48,8 @@ class CfdpController < ApplicationController
     else
       render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }.as_json(:allow_nan => true), :status => 404
     end
+  rescue ActionController::ParameterMissing => error
+    render :json => { :status => 'error', :message => error.message }.as_json(:allow_nan => true), :status => 400
   rescue => error
     render :json => { :status => 'error', :message => "#{error.message}\n#{error.backtrace.join("\n")}" }.as_json(:allow_nan => true), :status => 500
   end
@@ -62,6 +64,8 @@ class CfdpController < ApplicationController
     else
       render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }.as_json(:allow_nan => true), :status => 404
     end
+  rescue ActionController::ParameterMissing => error
+    render :json => { :status => 'error', :message => error.message }.as_json(:allow_nan => true), :status => 400
   rescue => error
     render :json => { :status => 'error', :message => "#{error.message}\n#{error.backtrace.join("\n")}" }.as_json(:allow_nan => true), :status => 500
   end
@@ -76,6 +80,8 @@ class CfdpController < ApplicationController
     else
       render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }.as_json(:allow_nan => true), :status => 404
     end
+  rescue ActionController::ParameterMissing => error
+    render :json => { :status => 'error', :message => error.message }.as_json(:allow_nan => true), :status => 400
   rescue => error
     render :json => { :status => 'error', :message => "#{error.message}\n#{error.backtrace.join("\n")}" }.as_json(:allow_nan => true), :status => 500
   end
@@ -90,6 +96,8 @@ class CfdpController < ApplicationController
     else
       render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }.as_json(:allow_nan => true), :status => 404
     end
+  rescue ActionController::ParameterMissing => error
+    render :json => { :status => 'error', :message => error.message }.as_json(:allow_nan => true), :status => 400
   rescue => error
     render :json => { :status => 'error', :message => "#{error.message}\n#{error.backtrace.join("\n")}" }.as_json(:allow_nan => true), :status => 500
   end
