@@ -1,6 +1,6 @@
 # encoding: ascii-8bit
 
-# Copyright 2023 OpenC3, Inc.
+# Copyright 2025 OpenC3, Inc.
 # All Rights Reserved.
 #
 # Licensed for Evaluation and Educational Use
@@ -13,6 +13,9 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #
 # The development of this software was funded in-whole or in-part by MethaneSAT LLC.
+#
+# The development of this software was funded in-part by Sandia National Laboratories.
+# See https://github.com/OpenC3/openc3-cosmos-cfdp/pull/12 for details
 
 class CfdpPdu < OpenC3::Packet
   def self.decom_tlv(pdu, pdu_hash, variable_data)

@@ -2,12 +2,20 @@
 
 This plugin provides a microservice and corresponding API for handling the CCSDS File Delivery Protocol (CFDP).
 
-This CFDP implementation is intended to be compliant with CCSDS 727.0-B-5 - Blue Book July 2020.
+This CFDP implementation is intended to be compliant with:
+
+- CCSDS 727.0-B-5 - Blue Book July 2020
+- CCSDS 727.0-B-4 - Blue Book January 2007
+- CCSDS 727.0-B-3 - Blue Book June 2005
+
+It is also potentially compliant with earlier versions but that has not been evaluated.
 
 ## Installation
 
 1. Install this plugin in the Admin Tool
 2. During installation, edit plugin.txt to configure all of your MIB settings (See MIB Configuration Below)
+
+In particular be sure to set the desired protocol_version_number for each remote entity. protocol_version_number 0 is used for all versions of the standard before the 2020 release. protocol_version_number 1 is used for the current release and potential future releases. This plugin defaults to using protocol_version_number 1.
 
 ## Usage in Scripts
 
@@ -158,6 +166,7 @@ Minimum required settings:
 1. Segmentation Control and Flow Label have no effect
 2. Suspension requests are not queued as specified in 6.5.4.1.2
 3. Annex B - Store and Forward Overlay Operations are not implemented
+4. Extended operations and classes 3 and 4 from the earlier CFDP standards are not implemented
 
 ## Contributing
 

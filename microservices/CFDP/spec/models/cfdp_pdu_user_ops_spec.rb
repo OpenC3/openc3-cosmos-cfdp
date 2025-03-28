@@ -12,7 +12,8 @@
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #
-# The development of this software was funded in-whole or in-part by Sandia National Laboratories
+# The development of this software was funded in-whole or in-part by Sandia National Laboratories.
+# See https://github.com/OpenC3/openc3-cosmos-cfdp/pull/12 for details
 
 require 'rails_helper'
 require 'cfdp_pdu'
