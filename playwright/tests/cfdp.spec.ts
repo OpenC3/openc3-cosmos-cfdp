@@ -73,6 +73,7 @@ test('installs a new plugin', async ({ page, utils }) => {
 
   await page.locator('[data-test=script-runner-file]').click()
   await page.locator('text=Open File').click()
+  await utils.sleep(500) // Allow background data to fetch
   await expect(
     page.locator('.v-dialog').getByText('CFDP', { exact: true })
   ).toBeVisible()

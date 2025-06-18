@@ -26,7 +26,7 @@ require 'openc3/io/json_api'
 # api = CfdpApi.new()
 # api.put(...)
 #
-# Outside cluster - Open Source:
+# Outside cluster - Core
 # $openc3_scope = 'DEFAULT'
 # ENV['OPENC3_API_PASSWORD'] = 'password'
 # require 'cfdp_api'
