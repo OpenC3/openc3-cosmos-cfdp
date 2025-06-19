@@ -25,7 +25,7 @@ VARIABLE destination_entity_id 2
 # The mounted folder that CFDP is managing (bucket or volume)
 VARIABLE root_path /DEFAULT/targets_modified/CFDP/tmp
 # Only needed if the destination is a bucket (here named config)
-# If the mount point is a volume this should be removed
+# If the mount point is a volume this should be left blank
 VARIABLE bucket config
 
 # Set to true to enable a test configuration
