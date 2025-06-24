@@ -238,6 +238,7 @@ class CfdpMib
   end
 
   def self.get_source_file(source_file_name)
+    return nil if source_file_name.nil?
     file_name = File.join(@@root_path, source_file_name)
     if self.bucket
       file = Tempfile.new('cfdp', binmode: true)
