@@ -103,8 +103,15 @@ indications = cfdp_directory_listing(remote_entity_id: 1, directory_name: "/file
 
 ## MIB Configuration
 
-The CFDP Management Information Base (MIB) is configured by passing options to the CFDP microservice in plugin.txt.
-Note: This will always need to be configured for your application
+The CFDP Management Information Base (MIB) is configured by passing options to the CFDP microservice in plugin.txt. See the local [plugin.txt](plugin.txt), for example:
+
+    MICROSERVICE CFDP CFDP
+      ...
+      # MIB Options Follow - Modify for your CFDP implementation!
+      OPTION root_path /DEFAULT/targets_modified/CFDP/tmp
+      OPTION bucket config
+
+The MIB Options will always need to be configured for your CFDP implementation and mission. The [plugin.txt](plugin.txt) is an example which includes a test implementation. This can be edited on installation in COSMOS (click the plugin.txt tab) but can also be edited and built locally.
 
 Most settings are associated with the most recently mentioned source_entity_id or destination_entity_id.
 
@@ -116,6 +123,8 @@ Minimum required settings:
 - bucket should be set if the root_path is in a bucket. Otherwise the root path is assumed to be a mounted volume.
 
 ### Source Entity Configuration
+
+These settings are applied to the CFDP microservice via `OPTION <name> <value>` in the [plugin.txt](plugin.txt). Source Entity Configuration options generally apply to the COSMOS side of the transaction.
 
 | Setting Name                    | Description                                                                                       | Allowed Values                      | Default Value                   |
 | ------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------- |
@@ -132,6 +141,8 @@ Minimum required settings:
 | transaction_retain_seconds      | Time to keep completed transactions in seconds.                                                   | Floating point value greater than 0 | 86400                           |
 
 ### Remote Entity Configuration
+
+These settings are applied to the CFDP microservice via `OPTION <name> <value>` in the [plugin.txt](plugin.txt). Remote Entity Configuration options generally apply to the target side (Bus or Payload Flight Software) of the transaction.
 
 | destination_entity_id         | Id of a remote entity to configure                                                                   | Any integer                                                                                                                                                                                                                                                                                                                                                           | N/A - Must be given       |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |

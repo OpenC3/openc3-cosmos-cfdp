@@ -1,18 +1,31 @@
+# Defaults for a single CFDP entity
+# If you need to install more than 1 CFDP engine
+# you must change these to make them unique
 VARIABLE cfdp_microservice_name CFDP
 VARIABLE cfdp_route_prefix /cfdp
 VARIABLE cfdp_port 2905
 
+# Target which includes the CFDP command
+# Change these to point to your own packet which contains
+# a variable sized BLOCK field (these are simply an example)
 VARIABLE cfdp_cmd_target_name CFDP2
 VARIABLE cfdp_cmd_packet_name CFDP_PDU
 VARIABLE cfdp_cmd_item_name PDU
 
+# Target which includes the CFDP telemetry
+# Change these to point to your own packet which contains
+# a variable sized BLOCK field (these are simply an example)
 VARIABLE cfdp_tlm_target_name CFDP2
 VARIABLE cfdp_tlm_packet_name CFDP_PDU
 VARIABLE cfdp_tlm_item_name PDU
 
+# CFDP Source and destination IDs
 VARIABLE source_entity_id 1
 VARIABLE destination_entity_id 2
+# The mounted folder that CFDP is managing (bucket or volume)
 VARIABLE root_path /DEFAULT/targets_modified/CFDP/tmp
+# Only needed if the destination is a bucket (here named config)
+# If the mount point is a volume this should be left blank
 VARIABLE bucket config
 
 # Set to true to enable a test configuration
@@ -25,8 +38,8 @@ MICROSERVICE CFDP <%= cfdp_microservice_name %>
   ENV SECRET_KEY_BASE 324973597349867207430793759437697498769349867349674
   PORT <%= cfdp_port %>
   CMD rails s -b 0.0.0.0 -p <%= cfdp_port %> -e production
-  # MIB Options Follow -
-  # You will need to modify these for your mission
+
+  # MIB Options Follow - Modify for your CFDP implementation!
   OPTION source_entity_id <%= source_entity_id %>
   OPTION tlm_info <%= cfdp_tlm_target_name %> <%= cfdp_tlm_packet_name %> <%= cfdp_tlm_item_name %>
   OPTION destination_entity_id <%= destination_entity_id %>
