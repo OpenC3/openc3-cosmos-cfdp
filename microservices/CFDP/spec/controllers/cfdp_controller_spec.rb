@@ -73,6 +73,111 @@ RSpec.describe CfdpController, type: :controller do
     end
   end
 
+  describe "PUT_DIR requests" do
+    before(:each) do
+      @mock_transaction1 = double("CfdpTransaction1")
+      @mock_transaction2 = double("CfdpTransaction2")
+      allow(@mock_transaction1).to receive(:id).and_return("1__123")
+      allow(@mock_transaction2).to receive(:id).and_return("1__124")
+
+      # Mock the CfdpMib.list_directory_files method
+      allow(CfdpMib).to receive(:list_directory_files).and_yield("test_dir/file1.txt").and_yield("test_dir/file2.txt")
+    end
+
+    it "handles put_dir request successfully" do
+      params = {
+        destination_entity_id: "2",
+        source_directory_name: "test_dir",
+        controller: "cfdp",
+        action: "put_dir"
+      }
+
+      # Expect start_source_transaction to be called twice (once for each file)
+      expect(@mock_user).to receive(:start_source_transaction).twice do |args|
+        expect(args[:destination_entity_id]).to eq("2")
+        expect(args[:source_file_name]).to match(/test_dir\/file[12]\.txt/)
+        expect(args[:destination_file_name]).to match(/test_dir\/file[12]\.txt/)
+        expect(args).not_to have_key(:source_directory_name)
+      end.and_return(@mock_transaction1, @mock_transaction2)
+
+      post :put_dir, params: params
+
+      expect(response).to have_http_status(:success)
+      parsed_response = JSON.parse(response.body)
+      expect(parsed_response).to contain_exactly("1__123", "1__124")
+    end
+
+    it "requires destination_entity_id and source_directory_name" do
+      post :put_dir, params: { destination_entity_id: "2" }
+
+      expect(response).to have_http_status(:bad_request)
+      expect(JSON.parse(response.body)["message"]).to include("source_directory_name")
+    end
+
+    it "requires destination_entity_id" do
+      post :put_dir, params: { source_directory_name: "test_dir" }
+
+      expect(response).to have_http_status(:bad_request)
+      expect(JSON.parse(response.body)["message"]).to include("destination_entity_id")
+    end
+
+    it "handles empty directory" do
+      allow(CfdpMib).to receive(:list_directory_files) # No yield calls
+
+      params = {
+        destination_entity_id: "2",
+        source_directory_name: "empty_dir",
+        controller: "cfdp",
+        action: "put_dir"
+      }
+
+      expect(@mock_user).not_to receive(:start_source_transaction)
+
+      post :put_dir, params: params
+
+      expect(response).to have_http_status(:success)
+      expect(JSON.parse(response.body)).to eq([])
+    end
+
+    it "handles errors from list_directory_files" do
+      allow(CfdpMib).to receive(:list_directory_files).and_raise("Directory access error")
+
+      post :put_dir, params: { destination_entity_id: "2", source_directory_name: "test_dir" }
+
+      expect(response).to have_http_status(:internal_server_error)
+      expect(JSON.parse(response.body)["message"]).to include("Directory access error")
+    end
+
+    it "handles errors from start_source_transaction" do
+      expect(@mock_user).to receive(:start_source_transaction).and_raise("Transaction error")
+
+      post :put_dir, params: { destination_entity_id: "2", source_directory_name: "test_dir" }
+
+      expect(response).to have_http_status(:internal_server_error)
+      expect(JSON.parse(response.body)["message"]).to include("Transaction error")
+    end
+
+    it "passes through additional parameters" do
+      params = {
+        destination_entity_id: "2",
+        source_directory_name: "test_dir",
+        transmission_mode: "ACKNOWLEDGED",
+        closure_requested: "true",
+        controller: "cfdp",
+        action: "put_dir"
+      }
+
+      expect(@mock_user).to receive(:start_source_transaction).twice do |args|
+        expect(args[:transmission_mode]).to eq("ACKNOWLEDGED")
+        expect(args[:closure_requested]).to eq("true")
+      end.and_return(@mock_transaction1, @mock_transaction2)
+
+      post :put_dir, params: params
+
+      expect(response).to have_http_status(:success)
+    end
+  end
+
   describe "CANCEL requests" do
     it "handles cancel request successfully" do
       params = { action: "cancel", controller: "cfdp", transaction_id: "1__123"  }

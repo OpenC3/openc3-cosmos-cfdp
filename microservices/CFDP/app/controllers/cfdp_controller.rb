@@ -38,6 +38,26 @@ class CfdpController < ApplicationController
     render :json => { :status => 'error', :message => "#{error.message}\n#{error.backtrace.join("\n")}" }.as_json(:allow_nan => true), :status => 500
   end
 
+  def put_dir
+    # params matches that of put() except there's "source_directory_name" instead of "source_file_name", and there's no "destination_file_name"
+    params.require([:destination_entity_id, :source_directory_name])
+    return unless check_authorization()
+    transaction_ids = []
+    CfdpMib.list_directory_files(params[:source_directory_name]) do |filename|
+      file_params = params.dup
+      file_params.delete(:source_directory_name)
+      file_params[:source_file_name] = filename
+      file_params[:destination_file_name] = filename
+      transaction = $cfdp_user.start_source_transaction(file_params)
+      transaction_ids << transaction.id
+    end
+    render json: transaction_ids
+  rescue ActionController::ParameterMissing => error
+    render :json => { :status => 'error', :message => error.message }.as_json(:allow_nan => true), :status => 400
+  rescue => error
+    render :json => { :status => 'error', :message => "#{error.message}\n#{error.backtrace.join("\n")}" }.as_json(:allow_nan => true), :status => 500
+  end
+
   # Cancel.request (transaction ID)
   def cancel
     params.require([:transaction_id])

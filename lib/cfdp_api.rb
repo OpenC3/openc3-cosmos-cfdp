@@ -87,6 +87,47 @@ class CfdpApi < OpenC3::JsonApi
     end
   end
 
+  def put_dir(
+    destination_entity_id:,
+    source_directory_name:,
+    transmission_mode: nil,
+    closure_requested: nil,
+    filestore_requests: [],
+    fault_handler_overrides: [],
+    flow_label: nil,
+    segmentation_control: "NOT_PRESERVED",
+    messages_to_user: [],
+    remote_entity_id: nil, # Used to indicate proxy put
+    scope: $openc3_scope)
+
+    begin
+      endpoint = "/put_dir"
+      data = {
+        "destination_entity_id" => destination_entity_id.to_i,
+        "source_directory_name" => source_directory_name,
+        "transmission_mode" => transmission_mode,
+        "closure_requested" => closure_requested,
+        "filestore_requests" => filestore_requests,
+        "fault_handler_overrides" => fault_handler_overrides,
+        "messages_to_user" => messages_to_user,
+        "flow_label" => flow_label,
+        "segmentation_control" => segmentation_control
+      }
+      data["remote_entity_id"] = remote_entity_id.to_i if remote_entity_id
+      response = _request('post', endpoint, data: data, scope: scope)
+      if response.nil? || response.code != 200
+        if response
+          raise "CFDP put_dir error: #{response.code}: #{response.body}"
+        else
+          raise "CFDP put_dir failed"
+        end
+      end
+      return JSON.parse(response.body)
+    rescue => error
+      raise "CFDP put_dir failed due to #{error.formatted}"
+    end
+  end
+
   def cancel(transaction_id:, remote_entity_id: nil, scope: $openc3_scope)
     transaction_id_post(method_name: "cancel", transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: $openc3_scope)
   end
