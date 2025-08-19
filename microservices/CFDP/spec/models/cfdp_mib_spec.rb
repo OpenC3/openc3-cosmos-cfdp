@@ -127,24 +127,141 @@ RSpec.describe CfdpMib do
       # Just verifying no errors are raised
     end
 
-    it "puts a destination file" do
+    it "puts a destination file when it doesn't exist" do
       # Create a fake tempfile for testing
       temp = Tempfile.new('cfdp_dest')
       allow(temp).to receive(:persist).and_return(true)
       allow(temp).to receive(:unlink).and_return(true)
       allow(temp).to receive(:open).and_return(temp)
       allow(temp).to receive(:read).and_return("test data")
+      allow(File).to receive(:exist?).with("/tmp/test_dest.txt").and_return(false)
 
-      result = CfdpMib.put_destination_file("test_dest.txt", temp)
+      result, actual_filename = CfdpMib.put_destination_file("test_dest.txt", temp)
       expect(result).to be true
+      expect(actual_filename).to eq("test_dest.txt")
+    end
+
+    it "puts a destination file with timestamp when it already exists" do
+      # Create a fake tempfile for testing
+      temp = Tempfile.new('cfdp_dest')
+      allow(temp).to receive(:persist).and_return(true)
+      allow(temp).to receive(:unlink).and_return(true)
+      allow(temp).to receive(:open).and_return(temp)
+      allow(temp).to receive(:read).and_return("test data")
+      allow(File).to receive(:exist?).with("/tmp/test_dest.txt").and_return(true)
+
+      # Mock time to get predictable timestamp
+      frozen_time = Time.parse("2025-01-19 14:30:52 UTC")
+      allow(Time).to receive(:now).and_return(frozen_time)
+
+      result, actual_filename = CfdpMib.put_destination_file("test_dest.txt", temp)
+      expect(result).to be true
+      expect(actual_filename).to eq("test_dest_20250119_143052.txt")
+    end
+
+    it "uses custom timestamp format when provided" do
+      # Create a fake tempfile for testing
+      temp = Tempfile.new('cfdp_dest')
+      allow(temp).to receive(:persist).and_return(true)
+      allow(temp).to receive(:unlink).and_return(true)
+      allow(temp).to receive(:open).and_return(temp)
+      allow(temp).to receive(:read).and_return("test data")
+      allow(File).to receive(:exist?).with("/tmp/test_dest.txt").and_return(true)
+
+      # Mock time to get predictable timestamp
+      frozen_time = Time.parse("2025-01-19 14:30:52 UTC")
+      allow(Time).to receive(:now).and_return(frozen_time)
+
+      result, actual_filename = CfdpMib.put_destination_file("test_dest.txt", temp, "-%Y%m%d%H%M%S")
+      expect(result).to be true
+      expect(actual_filename).to eq("test_dest-20250119143052.txt")
+    end
+
+    it "handles files without extensions when adding timestamps" do
+      # Create a fake tempfile for testing
+      temp = Tempfile.new('cfdp_dest')
+      allow(temp).to receive(:persist).and_return(true)
+      allow(temp).to receive(:unlink).and_return(true)
+      allow(temp).to receive(:open).and_return(temp)
+      allow(temp).to receive(:read).and_return("test data")
+      allow(File).to receive(:exist?).with("/tmp/noext_file").and_return(true)
+
+      # Mock time to get predictable timestamp
+      frozen_time = Time.parse("2025-01-19 14:30:52 UTC")
+      allow(Time).to receive(:now).and_return(frozen_time)
+
+      result, actual_filename = CfdpMib.put_destination_file("noext_file", temp)
+      expect(result).to be true
+      expect(actual_filename).to eq("noext_file_20250119_143052")
     end
 
     it "handles errors while putting destination files" do
       temp = Tempfile.new('cfdp_dest')
       allow(temp).to receive(:persist).and_raise("File write error")
 
-      result = CfdpMib.put_destination_file("test_dest.txt", temp)
+      result, actual_filename = CfdpMib.put_destination_file("test_dest.txt", temp)
       expect(result).to be false
+      expect(actual_filename).to be_nil
+    end
+
+    context "with bucket storage" do
+      before(:each) do
+        CfdpMib.bucket = "test-bucket"
+        @mock_client = double("Bucket Client")
+        allow(OpenC3::Bucket).to receive(:getClient).and_return(@mock_client)
+      end
+
+      after(:each) do
+        CfdpMib.bucket = nil
+      end
+
+      it "puts a destination file to bucket when it doesn't exist" do
+        temp = Tempfile.new('cfdp_dest')
+        allow(temp).to receive(:unlink).and_return(true)
+        allow(temp).to receive(:open).and_return(temp)
+        allow(temp).to receive(:read).and_return("test data")
+        allow(@mock_client).to receive(:check_object).with(bucket: "test-bucket", key: "/tmp/test_dest.txt").and_return(false)
+        allow(@mock_client).to receive(:put_object).and_return(true)
+
+        result, actual_filename = CfdpMib.put_destination_file("test_dest.txt", temp)
+        expect(result).to be true
+        expect(actual_filename).to eq("test_dest.txt")
+      end
+
+      it "puts a destination file to bucket with timestamp when it already exists" do
+        temp = Tempfile.new('cfdp_dest')
+        allow(temp).to receive(:unlink).and_return(true)
+        allow(temp).to receive(:open).and_return(temp)
+        allow(temp).to receive(:read).and_return("test data")
+        allow(@mock_client).to receive(:check_object).with(bucket: "test-bucket", key: "/tmp/test_dest.txt").and_return(true)
+        allow(@mock_client).to receive(:put_object).and_return(true)
+
+        # Mock time to get predictable timestamp
+        frozen_time = Time.parse("2025-01-19 14:30:52 UTC")
+        allow(Time).to receive(:now).and_return(frozen_time)
+
+        result, actual_filename = CfdpMib.put_destination_file("test_dest.txt", temp)
+        expect(result).to be true
+        expect(actual_filename).to eq("test_dest_20250119_143052.txt")
+
+        # Verify put_object was called with timestamped filename
+        expect(@mock_client).to have_received(:put_object).with(
+          bucket: "test-bucket",
+          key: "/tmp/test_dest_20250119_143052.txt",
+          body: "test data"
+        )
+      end
+
+      it "handles bucket errors while putting destination files" do
+        temp = Tempfile.new('cfdp_dest')
+        allow(temp).to receive(:open).and_return(temp)
+        allow(temp).to receive(:read).and_return("test data")
+        allow(@mock_client).to receive(:check_object).and_raise("Bucket connection error")
+
+        result, actual_filename = CfdpMib.put_destination_file("test_dest.txt", temp)
+        expect(result).to be false
+        expect(actual_filename).to be_nil
+      end
     end
   end
 

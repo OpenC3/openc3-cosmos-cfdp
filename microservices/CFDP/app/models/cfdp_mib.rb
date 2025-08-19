@@ -256,20 +256,38 @@ class CfdpMib
     file.close
   end
 
-  def self.put_destination_file(destination_filename, tmp_file)
+  def self.put_destination_file(destination_filename, tmp_file, timestamp_format = "_%Y%m%d_%H%M%S")
     file_name = File.join(@@root_path, destination_filename)
+    actual_filename = destination_filename
+
     if self.bucket
-      OpenC3::Bucket.getClient().put_object(bucket: self.bucket, key: file_name, body: tmp_file.open.read)
+      client = OpenC3::Bucket.getClient()
+      if client.check_object(bucket: self.bucket, key: file_name)
+        # File exists, append timestamp to not overwrite it
+        timestamp = Time.now.utc.strftime(timestamp_format)
+        file_extension = File.extname(destination_filename)
+        base_name = File.basename(destination_filename, file_extension)
+        actual_filename = "#{base_name}#{timestamp}#{file_extension}"
+        file_name = File.join(@@root_path, actual_filename)
+      end
+      client.put_object(bucket: self.bucket, key: file_name, body: tmp_file.open.read)
     else
-      file_name = File.join(@@root_path, destination_filename)
+      if File.exist?(file_name)
+        # File exists, append timestamp to not overwrite it
+        timestamp = Time.now.utc.strftime(timestamp_format)
+        file_extension = File.extname(destination_filename)
+        base_name = File.basename(destination_filename, file_extension)
+        actual_filename = "#{base_name}#{timestamp}#{file_extension}"
+        file_name = File.join(@@root_path, actual_filename)
+      end
       tmp_file.persist(file_name)
     end
     tmp_file.unlink
-    return true
+    return true, actual_filename
   rescue => error
     OpenC3::Logger.error(error.message, scope: ENV['OPENC3_SCOPE'])
     # Something went wrong so return false
-    return false
+    return false, nil
   end
 
   def self.filestore_request(action_code, first_file_name, second_file_name)
