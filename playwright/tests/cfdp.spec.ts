@@ -33,7 +33,7 @@ test('installs a new plugin', async ({ page, utils }) => {
     // It is important to call waitForEvent before click to set up waiting.
     page.waitForEvent('filechooser'),
     // Opens the file chooser.
-    await page.getByRole('button', { name: 'Install New Plugin' }).click(),
+    await page.getByRole('button', { name: 'Install From File' }).click(),
   ])
   await fileChooser.setFiles(`../${pluginGem}`)
   await expect(page.locator('.v-dialog:has-text("Variables")')).toBeVisible()
@@ -79,7 +79,16 @@ test('installs a new plugin', async ({ page, utils }) => {
   ).toBeVisible()
   await page
     .locator('[data-test=file-open-save-search] input')
-    .fill('cfdp_test_suite')
+    .fill('cfdp_')
+  await utils.sleep(100)
+  await page
+    .locator('[data-test=file-open-save-search] input')
+    .fill('test_')
+  await utils.sleep(100)
+  await page
+    .locator('[data-test=file-open-save-search] input')
+    .fill('suite')
+  await utils.sleep(100)
   await page.getByText('cfdp_test_suite.rb').first().click()
   await page.locator('[data-test="file-open-save-submit-btn"]').click()
   await expect(page.locator('.v-dialog')).not.toBeVisible()
