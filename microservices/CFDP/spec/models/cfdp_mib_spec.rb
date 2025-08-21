@@ -263,6 +263,144 @@ RSpec.describe CfdpMib do
         expect(actual_filename).to be_nil
       end
     end
+
+    context "when prevent_received_file_overwrite is enabled" do
+      before(:each) do
+        CfdpMib.prevent_received_file_overwrite = true
+      end
+
+      it "saves new files with timestamps when there is a name conflict" do
+        temp = Tempfile.new('cfdp_dest')
+        allow(temp).to receive(:persist).and_return(true)
+        allow(temp).to receive(:unlink).and_return(true)
+        allow(temp).to receive(:open).and_return(temp)
+        allow(temp).to receive(:read).and_return("new file data")
+        allow(File).to receive(:exist?).with("/tmp/conflicting_file.txt").and_return(true)
+
+        frozen_time = Time.parse("2025-01-19 15:45:30 UTC")
+        allow(Time).to receive(:now).and_return(frozen_time)
+
+        result, actual_filename = CfdpMib.put_destination_file("conflicting_file.txt", temp)
+        expect(result).to be true
+        expect(actual_filename).to eq("conflicting_file_20250119_154530.txt")
+      end
+
+      context "with bucket storage" do
+        before(:each) do
+          CfdpMib.bucket = "test-bucket"
+          @mock_client = double("Bucket Client")
+          allow(OpenC3::Bucket).to receive(:getClient).and_return(@mock_client)
+        end
+
+        after(:each) do
+          CfdpMib.bucket = nil
+        end
+
+        it "saves new files with timestamps in bucket when there is a name conflict" do
+          temp = Tempfile.new('cfdp_dest')
+          allow(temp).to receive(:unlink).and_return(true)
+          allow(temp).to receive(:open).and_return(temp)
+          allow(temp).to receive(:read).and_return("new file data")
+          allow(@mock_client).to receive(:check_object).with(bucket: "test-bucket", key: "/tmp/conflicting_file.txt").and_return(true)
+          allow(@mock_client).to receive(:put_object).and_return(true)
+
+          frozen_time = Time.parse("2025-01-19 15:45:30 UTC")
+          allow(Time).to receive(:now).and_return(frozen_time)
+
+          result, actual_filename = CfdpMib.put_destination_file("conflicting_file.txt", temp)
+          expect(result).to be true
+          expect(actual_filename).to eq("conflicting_file_20250119_154530.txt")
+
+          expect(@mock_client).to have_received(:put_object).with(
+            bucket: "test-bucket",
+            key: "/tmp/conflicting_file_20250119_154530.txt",
+            body: "new file data"
+          )
+        end
+      end
+    end
+
+    context "when prevent_received_file_overwrite is disabled" do
+      before(:each) do
+        CfdpMib.prevent_received_file_overwrite = false
+      end
+
+      it "overwrites existing files without adding timestamp" do
+        temp = Tempfile.new('cfdp_dest')
+        allow(temp).to receive(:persist).and_return(true)
+        allow(temp).to receive(:unlink).and_return(true)
+        allow(temp).to receive(:open).and_return(temp)
+        allow(temp).to receive(:read).and_return("test data")
+        allow(File).to receive(:exist?).with("/tmp/test_dest.txt").and_return(true)
+
+        result, actual_filename = CfdpMib.put_destination_file("test_dest.txt", temp)
+        expect(result).to be true
+        expect(actual_filename).to eq("test_dest.txt")
+      end
+
+      it "handles files that don't exist normally" do
+        temp = Tempfile.new('cfdp_dest')
+        allow(temp).to receive(:persist).and_return(true)
+        allow(temp).to receive(:unlink).and_return(true)
+        allow(temp).to receive(:open).and_return(temp)
+        allow(temp).to receive(:read).and_return("test data")
+        allow(File).to receive(:exist?).with("/tmp/new_file.txt").and_return(false)
+
+        result, actual_filename = CfdpMib.put_destination_file("new_file.txt", temp)
+        expect(result).to be true
+        expect(actual_filename).to eq("new_file.txt")
+      end
+
+      context "with bucket storage" do
+        before(:each) do
+          CfdpMib.bucket = "test-bucket"
+          @mock_client = double("Bucket Client")
+          allow(OpenC3::Bucket).to receive(:getClient).and_return(@mock_client)
+        end
+
+        after(:each) do
+          CfdpMib.bucket = nil
+        end
+
+        it "overwrites existing files in bucket without adding timestamp" do
+          temp = Tempfile.new('cfdp_dest')
+          allow(temp).to receive(:unlink).and_return(true)
+          allow(temp).to receive(:open).and_return(temp)
+          allow(temp).to receive(:read).and_return("test data")
+          allow(@mock_client).to receive(:check_object).with(bucket: "test-bucket", key: "/tmp/test_dest.txt").and_return(true)
+          allow(@mock_client).to receive(:put_object).and_return(true)
+
+          result, actual_filename = CfdpMib.put_destination_file("test_dest.txt", temp)
+          expect(result).to be true
+          expect(actual_filename).to eq("test_dest.txt")
+
+          expect(@mock_client).to have_received(:put_object).with(
+            bucket: "test-bucket", 
+            key: "/tmp/test_dest.txt", 
+            body: "test data"
+          )
+        end
+
+        it "handles new files in bucket normally" do
+          temp = Tempfile.new('cfdp_dest')
+          allow(temp).to receive(:unlink).and_return(true)
+          allow(temp).to receive(:open).and_return(temp)
+          allow(temp).to receive(:read).and_return("test data")
+          allow(@mock_client).to receive(:check_object).with(bucket: "test-bucket", key: "/tmp/new_file.txt").and_return(false)
+          allow(@mock_client).to receive(:put_object).and_return(true)
+
+          result, actual_filename = CfdpMib.put_destination_file("new_file.txt", temp)
+          expect(result).to be true
+          expect(actual_filename).to eq("new_file.txt")
+
+          expect(@mock_client).to have_received(:put_object).with(
+            bucket: "test-bucket", 
+            key: "/tmp/new_file.txt", 
+            body: "test data"
+          )
+        end
+      end
+    end
   end
 
   describe "filestore_request" do

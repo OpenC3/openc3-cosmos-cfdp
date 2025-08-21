@@ -117,6 +117,7 @@ class CfdpMib
   @@entities = {}
   @@bucket = nil
   @@root_path = "/"
+  @@prevent_received_file_overwrite = true
   @@transactions = {}
 
   def self.transactions
@@ -153,6 +154,14 @@ class CfdpMib
 
   def self.root_path
     @@root_path
+  end
+
+  def self.prevent_received_file_overwrite=(prevent_received_file_overwrite)
+    @@prevent_received_file_overwrite = prevent_received_file_overwrite
+  end
+
+  def self.prevent_received_file_overwrite
+    @@prevent_received_file_overwrite
   end
 
   def self.define_entity(entity_id)
@@ -262,7 +271,7 @@ class CfdpMib
 
     if self.bucket
       client = OpenC3::Bucket.getClient()
-      if client.check_object(bucket: self.bucket, key: file_name)
+      if @@prevent_received_file_overwrite && client.check_object(bucket: self.bucket, key: file_name)
         # File exists, append timestamp to not overwrite it
         timestamp = Time.now.utc.strftime(timestamp_format)
         file_extension = File.extname(destination_filename)
@@ -272,7 +281,7 @@ class CfdpMib
       end
       client.put_object(bucket: self.bucket, key: file_name, body: tmp_file.open.read)
     else
-      if File.exist?(file_name)
+      if @@prevent_received_file_overwrite && File.exist?(file_name)
         # File exists, append timestamp to not overwrite it
         timestamp = Time.now.utc.strftime(timestamp_format)
         file_extension = File.extname(destination_filename)
@@ -511,6 +520,8 @@ class CfdpMib
       when 'root_path'
         root_path_defined = true
         CfdpMib.root_path = value
+      when 'prevent_received_file_overwrite'
+        CfdpMib.prevent_received_file_overwrite = value.downcase != "false"
       else
         if current_entity_id
           case field_name
