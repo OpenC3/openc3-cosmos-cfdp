@@ -403,6 +403,95 @@ RSpec.describe CfdpMib do
     end
   end
 
+  describe "list_directory_files" do
+    before(:each) do
+      CfdpMib.root_path = "/tmp"
+    end
+
+    context "when using filesystem" do
+      before(:each) do
+        CfdpMib.bucket = nil
+        allow(Dir).to receive(:exist?).and_return(true)
+        allow(Dir).to receive(:entries).and_return(['.', '..', 'file1.txt', 'file2.txt', 'subdir'])
+        allow(File).to receive(:file?).with("/tmp/test_dir/file1.txt").and_return(true)
+        allow(File).to receive(:file?).with("/tmp/test_dir/file2.txt").and_return(true)
+        allow(File).to receive(:file?).with("/tmp/test_dir/subdir").and_return(false)
+      end
+
+      it "yields filenames for files in directory" do
+        filenames = []
+        CfdpMib.list_directory_files("test_dir") { |filename| filenames << filename }
+
+        expect(filenames).to contain_exactly("test_dir/file1.txt", "test_dir/file2.txt")
+      end
+
+      it "handles nil directory name" do
+        expect { |b| CfdpMib.list_directory_files(nil, &b) }.not_to yield_control
+      end
+
+      it "handles non-existent directory" do
+        allow(Dir).to receive(:exist?).and_return(false)
+        expect { |b| CfdpMib.list_directory_files("missing_dir", &b) }.not_to yield_control
+      end
+
+      it "logs errors when exceptions occur" do
+        allow(Dir).to receive(:entries).and_raise(StandardError.new("Directory read error"))
+        expect(OpenC3::Logger).to receive(:error).with("Directory read error", scope: ENV['OPENC3_SCOPE'])
+
+        CfdpMib.list_directory_files("test_dir") { |filename| }
+      end
+    end
+
+    context "when using S3 bucket" do
+      before(:each) do
+        @mock_client = double("S3Client")
+        CfdpMib.bucket = "test-bucket"
+        allow(OpenC3::Bucket).to receive(:getClient).and_return(@mock_client)
+
+        @mock_objects = [
+          { key: "/tmp/test_dir/file1.txt" },
+          { key: "/tmp/test_dir/file2.txt" },
+          { key: "/tmp/test_dir/subdir/" },  # Directory (ends with /)
+        ]
+        allow(@mock_client).to receive(:list_objects).and_return(@mock_objects)
+      end
+
+      it "yields filenames for objects in S3 directory" do
+        filenames = []
+        CfdpMib.list_directory_files("test_dir") { |filename| filenames << filename }
+
+        expect(filenames).to contain_exactly("test_dir/file1.txt", "test_dir/file2.txt")
+      end
+
+      it "strips root path from S3 object keys" do
+        @mock_objects = [
+          { key: "/tmp/test_dir/file1.txt" },
+          { key: "/tmp/another_dir/file2.txt" },
+        ]
+        allow(@mock_client).to receive(:list_objects).and_return(@mock_objects)
+
+        filenames = []
+        CfdpMib.list_directory_files("test_dir") { |filename| filenames << filename }
+
+        expect(filenames).to contain_exactly("test_dir/file1.txt", "another_dir/file2.txt")
+      end
+
+      it "skips directory objects (ending with /)" do
+        filenames = []
+        CfdpMib.list_directory_files("test_dir") { |filename| filenames << filename }
+
+        expect(filenames).not_to include("test_dir/subdir/")
+      end
+
+      it "handles S3 errors gracefully" do
+        allow(@mock_client).to receive(:list_objects).and_raise(StandardError.new("S3 connection error"))
+        expect(OpenC3::Logger).to receive(:error).with("S3 connection error", scope: ENV['OPENC3_SCOPE'])
+
+        CfdpMib.list_directory_files("test_dir") { |filename| }
+      end
+    end
+  end
+
   describe "filestore_request" do
     before(:each) do
       CfdpMib.root_path = "/tmp"

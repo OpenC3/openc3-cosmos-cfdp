@@ -19,7 +19,7 @@ In particular be sure to set the desired protocol_version_number for each remote
 
 ## Usage in Scripts
 
-See: [cfdp.rb]()
+See: [cfdp.rb](./lib/cfdp.rb)
 
 ```
 require 'cfdp'

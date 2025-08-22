@@ -54,10 +54,54 @@ def cfdp_put(
     remote_entity_id: remote_entity_id, # Used to indicate proxy put
     scope: $openc3_scope)
   return transaction_id unless timeout
-  indication = nil
-  indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Transaction-Finished', continuation: continuation, timeout: timeout, scope: scope) if timeout
-  indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Proxy-Put-Response', continuation: continuation, timeout: timeout, scope: scope) if remote_entity_id and timeout
+  indication_type = remote_entity_id ? 'Proxy-Put-Response' : 'Transaction-Finished'
+  indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: indication_type, continuation: continuation, timeout: timeout, scope: scope)
   return transaction_id, indication
+end
+
+def cfdp_put_dir(
+  destination_entity_id:,
+  source_directory_name:,
+  closure_requested: nil,
+  transmission_mode: nil,
+  filestore_requests: [],
+  fault_handler_overrides: [],
+  flow_label: nil,
+  segmentation_control: "NOT_PRESERVED",
+  messages_to_user: [],
+  remote_entity_id: nil, # Used to indicate proxy put
+  timeout: 600,
+  api_timeout: 5,
+  microservice_name: 'CFDP',
+  prefix: '/cfdp',
+  schema: 'http',
+  hostname: nil,
+  port: 2905,
+  url: nil,
+  scope: $openc3_scope)
+
+  api = CfdpApi.new(timeout: api_timeout, microservice_name: microservice_name, prefix: prefix, schema: schema, hostname: hostname, port: port, url: url, scope: scope)
+  continuation = api.subscribe(scope: scope) if timeout
+  transaction_ids = api.put_dir(
+    destination_entity_id: destination_entity_id,
+    source_directory_name: source_directory_name,
+    transmission_mode: transmission_mode,
+    closure_requested: closure_requested,
+    filestore_requests: filestore_requests,
+    fault_handler_overrides: fault_handler_overrides,
+    flow_label: flow_label,
+    segmentation_control: segmentation_control,
+    messages_to_user: messages_to_user,
+    remote_entity_id: remote_entity_id, # Used to indicate proxy put
+    scope: $openc3_scope)
+  return transaction_ids unless timeout
+  indications = []
+  transaction_ids.each do |transaction_id|
+    indication_type = remote_entity_id ? 'Proxy-Put-Response' : 'Transaction-Finished'
+    indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: indication_type, continuation: continuation, timeout: timeout, scope: scope)
+    indications << [transaction_id, indication]
+  end
+  return transaction_ids, indications
 end
 
 def cfdp_cancel(

@@ -261,6 +261,34 @@ class CfdpMib
     nil
   end
 
+  def self.list_directory_files(directory_name)
+    return if directory_name.nil?
+    directory_path = File.join(@@root_path, directory_name)
+    if self.bucket
+      client = OpenC3::Bucket.getClient()
+      prefix = directory_path
+      prefix += '/' unless prefix.end_with?('/')
+      objects = client.list_objects(bucket: self.bucket, prefix: prefix)
+      objects.each do |object|
+        next if object[:key].end_with?('/')
+        filename = object[:key].sub(/^#{Regexp.escape(@@root_path)}/, '')
+        filename = filename.sub(/^\//, '')
+        yield filename
+      end
+    else
+      return unless Dir.exist?(directory_path)
+      Dir.entries(directory_path).each do |entry|
+        next if entry == '.' || entry == '..'
+        file_path = File.join(directory_path, entry) # path
+        next unless File.file?(file_path)
+        filename = File.join(directory_name, entry) # name
+        yield filename
+      end
+    end
+  rescue StandardError => error
+    OpenC3::Logger.error(error.message, scope: ENV['OPENC3_SCOPE'])
+  end
+
   def self.complete_source_file(file)
     file.close
   end
@@ -578,7 +606,7 @@ class CfdpMib
               raise "Value for MIB setting #{field_name} must be CLOSURE_REQUESTED or CLOSURE_NOT_REQUESTED"
             end
           when 'incomplete_file_disposition'
-            value = value.to_s.upcaseD
+            value = value.to_s.upcase
             if ['DISCARD', 'RETAIN'].include?(value)
               CfdpMib.set_entity_value(current_entity_id, field_name, value)
             else
