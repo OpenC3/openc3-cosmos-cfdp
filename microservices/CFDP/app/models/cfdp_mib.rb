@@ -606,7 +606,7 @@ class CfdpMib
               raise "Value for MIB setting #{field_name} must be CLOSURE_REQUESTED or CLOSURE_NOT_REQUESTED"
             end
           when 'incomplete_file_disposition'
-            value = value.to_s.upcaseD
+            value = value.to_s.upcase
             if ['DISCARD', 'RETAIN'].include?(value)
               CfdpMib.set_entity_value(current_entity_id, field_name, value)
             else
