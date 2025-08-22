@@ -104,7 +104,7 @@ test('installs a new plugin', async ({ page, utils }) => {
   await page.locator('[data-test="start-suite"]').click()
   // Wait for the results ... allow for additional time
   await expect(page.locator('.v-dialog')).toContainText('Script Results', {
-    timeout: 200000,
+    timeout: 120000,
   })
   let textarea = await page.inputValue('.v-dialog >> textarea')
   expect(textarea).toMatch('Pass: 4')
