@@ -279,9 +279,9 @@ class CfdpMib
       return unless Dir.exist?(directory_path)
       Dir.entries(directory_path).each do |entry|
         next if entry == '.' || entry == '..'
-        file_path = File.join(directory_path, entry)
+        file_path = File.join(directory_path, entry) # path
         next unless File.file?(file_path)
-        filename = File.join(directory_name, entry)
+        filename = File.join(directory_name, entry) # name
         yield filename
       end
     end

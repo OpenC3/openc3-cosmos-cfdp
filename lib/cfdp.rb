@@ -53,7 +53,7 @@ def cfdp_put(
     messages_to_user: messages_to_user,
     remote_entity_id: remote_entity_id, # Used to indicate proxy put
     scope: $openc3_scope)
-  return transaction_id unless timeout
+  return transaction_id, nil unless timeout
   indication = nil
   indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Transaction-Finished', continuation: continuation, timeout: timeout, scope: scope) if timeout
   indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Proxy-Put-Response', continuation: continuation, timeout: timeout, scope: scope) if remote_entity_id and timeout
@@ -95,12 +95,11 @@ def cfdp_put_dir(
     messages_to_user: messages_to_user,
     remote_entity_id: remote_entity_id, # Used to indicate proxy put
     scope: $openc3_scope)
-  return transaction_ids unless timeout
+  return transaction_ids, nil unless timeout
   indications = []
   transaction_ids.each do |transaction_id|
-    indication = nil
-    indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Transaction-Finished', continuation: continuation, timeout: timeout, scope: scope) if timeout
-    indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Proxy-Put-Response', continuation: continuation, timeout: timeout, scope: scope) if remote_entity_id and timeout
+    indication_type = remote_entity_id ? 'Proxy-Put-Response' : 'Transaction-Finished'
+    indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: indication_type, continuation: continuation, timeout: timeout, scope: scope)
     indications << [transaction_id, indication]
   end
   return transaction_ids, indications
