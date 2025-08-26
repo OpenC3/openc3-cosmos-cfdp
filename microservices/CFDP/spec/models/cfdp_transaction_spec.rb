@@ -441,7 +441,6 @@ RSpec.describe CfdpTransaction do
         transaction.instance_variable_set(:@metadata_pdu_hash, "abc123")
         transaction.instance_variable_set(:@metadata_pdu_count, 3)
         transaction.instance_variable_set(:@create_time, original_time)
-        transaction.instance_variable_set(:@complete_time, original_time + 60)
         transaction.instance_variable_set(:@proxy_response_info, "proxy_info")
         transaction.instance_variable_set(:@proxy_response_needed, true)
         transaction.instance_variable_set(:@canceling_entity_id, 2)
@@ -469,13 +468,130 @@ RSpec.describe CfdpTransaction do
         expect(new_transaction.metadata_pdu_hash).to eq("abc123")
         expect(new_transaction.metadata_pdu_count).to eq(3)
         expect(new_transaction.create_time.to_i).to eq(original_time.to_i)
-        expect(new_transaction.complete_time.to_i).to eq((original_time + 60).to_i)
+        expect(new_transaction.complete_time).to be_nil # complete_time is not persisted
         expect(new_transaction.proxy_response_info).to eq("proxy_info")
         expect(new_transaction.proxy_response_needed).to be true
         expect(new_transaction.instance_variable_get(:@canceling_entity_id)).to eq(2)
         expect(new_transaction.instance_variable_get(:@fault_handler_overrides)).to eq({"FILE_SIZE_ERROR" => "ABANDON_TRANSACTION"})
         expect(new_transaction.instance_variable_get(:@source_file_name)).to eq("original.txt")
         expect(new_transaction.instance_variable_get(:@destination_file_name)).to eq("copy.txt")
+      end
+    end
+
+    describe "saved transaction ID tracking" do
+      it "tracks transaction IDs in Redis set when saving state" do
+        mock_redis
+        transaction.instance_variable_set(:@id, "1__789")
+
+        allow(OpenC3::Logger).to receive(:debug)
+
+        # Initially no saved transaction IDs
+        expect(CfdpTransaction.get_saved_transaction_ids).to be_empty
+        expect(CfdpTransaction.has_saved_state?("1__789")).to be false
+
+        # Save state should add to set
+        transaction.save_state
+
+        saved_ids = CfdpTransaction.get_saved_transaction_ids
+        expect(saved_ids).to include("1__789")
+        expect(saved_ids.length).to eq(1)
+        expect(CfdpTransaction.has_saved_state?("1__789")).to be true
+      end
+
+      it "does not duplicate transaction IDs in the set" do
+        mock_redis
+        transaction.instance_variable_set(:@id, "1__789")
+
+        allow(OpenC3::Logger).to receive(:debug)
+
+        # Save state multiple times
+        transaction.save_state
+        transaction.save_state
+        transaction.save_state
+
+        saved_ids = CfdpTransaction.get_saved_transaction_ids
+        expect(saved_ids.count("1__789")).to eq(1)
+        expect(saved_ids.length).to eq(1)
+      end
+
+      it "tracks multiple different transaction IDs" do
+        mock_redis
+
+        transaction1 = CfdpTransaction.new
+        transaction1.instance_variable_set(:@id, "1__100")
+        transaction2 = CfdpTransaction.new
+        transaction2.instance_variable_set(:@id, "2__200")
+
+        allow(OpenC3::Logger).to receive(:debug)
+
+        transaction1.save_state
+        transaction2.save_state
+
+        saved_ids = CfdpTransaction.get_saved_transaction_ids
+        expect(saved_ids).to include("1__100")
+        expect(saved_ids).to include("2__200")
+        expect(saved_ids.length).to eq(2)
+        expect(CfdpTransaction.has_saved_state?("1__100")).to be true
+        expect(CfdpTransaction.has_saved_state?("2__200")).to be true
+      end
+
+      it "removes transaction ID and state when requested" do
+        mock_redis
+        transaction.instance_variable_set(:@id, "1__999")
+
+        allow(OpenC3::Logger).to receive(:debug)
+
+        # Save state
+        transaction.save_state
+        expect(CfdpTransaction.get_saved_transaction_ids).to include("1__999")
+        expect(CfdpTransaction.has_saved_state?("1__999")).to be true
+        expect(OpenC3::Store.exists("cfdp_transaction_state:1__999")).to be > 0
+
+        # Remove saved state
+        transaction.remove_saved_state
+
+        expect(CfdpTransaction.get_saved_transaction_ids).not_to include("1__999")
+        expect(CfdpTransaction.has_saved_state?("1__999")).to be false
+        expect(OpenC3::Store.exists("cfdp_transaction_state:1__999")).to eq(0)
+      end
+
+      it "clears all saved transaction IDs" do
+        mock_redis
+
+        transaction1 = CfdpTransaction.new
+        transaction1.instance_variable_set(:@id, "1__111")
+        transaction2 = CfdpTransaction.new
+        transaction2.instance_variable_set(:@id, "2__222")
+
+        allow(OpenC3::Logger).to receive(:debug)
+
+        transaction1.save_state
+        transaction2.save_state
+
+        expect(CfdpTransaction.get_saved_transaction_ids.length).to eq(2)
+        expect(CfdpTransaction.has_saved_state?("1__111")).to be true
+        expect(CfdpTransaction.has_saved_state?("2__222")).to be true
+
+        CfdpTransaction.clear_saved_transaction_ids
+
+        expect(CfdpTransaction.get_saved_transaction_ids).to be_empty
+        expect(CfdpTransaction.has_saved_state?("1__111")).to be false
+        expect(CfdpTransaction.has_saved_state?("2__222")).to be false
+      end
+
+      it "automatically removes saved state when transaction completes" do
+        mock_redis
+        transaction.instance_variable_set(:@id, "1__completed")
+
+        allow(OpenC3::Logger).to receive(:info)
+        allow(OpenC3::Logger).to receive(:debug)
+
+        transaction.save_state
+        expect(CfdpTransaction.has_saved_state?("1__completed")).to be true
+
+        transaction.cancel
+        expect(CfdpTransaction.has_saved_state?("1__completed")).to be false
+        expect(CfdpTransaction.get_saved_transaction_ids).not_to include("1__completed")
       end
     end
 

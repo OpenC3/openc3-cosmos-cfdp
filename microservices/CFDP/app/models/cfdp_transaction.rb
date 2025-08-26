@@ -46,6 +46,26 @@ class CfdpTransaction
     "#{source_entity_id}__#{transaction_seq_num}"
   end
 
+  def self.get_saved_transaction_ids
+    OpenC3::Store.smembers("cfdp_saved_transaction_ids") || []
+  end
+
+  def self.clear_saved_transaction_ids
+    OpenC3::Store.del("cfdp_saved_transaction_ids")
+  end
+
+  def self.has_saved_state?(transaction_id)
+    OpenC3::Store.sismember("cfdp_saved_transaction_ids", transaction_id)
+  end
+
+  def remove_saved_state
+    if @id
+      OpenC3::Store.del("cfdp_transaction_state:#{@id}")
+      OpenC3::Store.srem("cfdp_saved_transaction_ids", @id)
+      OpenC3::Logger.debug("CFDP Transaction #{@id} state removed", scope: ENV['OPENC3_SCOPE'])
+    end
+  end
+
   def initialize
     @frozen = false
     @state = "ACTIVE" # ACTIVE, FINISHED, CANCELED, SUSPENDED, ABANDONED
@@ -112,6 +132,7 @@ class CfdpTransaction
       @state = "CANCELED"
       @transaction_status = "TERMINATED"
       @complete_time = Time.now.utc
+      remove_saved_state
     end
   end
 
@@ -122,6 +143,7 @@ class CfdpTransaction
       @transaction_status = "TERMINATED"
       CfdpTopic.write_indication("Abandoned", transaction_id: @id, condition_code: @condition_code, progress: @progress)
       @complete_time = Time.now.utc
+      remove_saved_state
     end
   end
 
@@ -209,7 +231,6 @@ class CfdpTransaction
       'metadata_pdu_hash' => @metadata_pdu_hash,
       'metadata_pdu_count' => @metadata_pdu_count,
       'create_time' => @create_time&.iso8601(6),
-      'complete_time' => @complete_time&.iso8601(6),
       'proxy_response_info' => @proxy_response_info,
       'proxy_response_needed' => @proxy_response_needed,
       'canceling_entity_id' => @canceling_entity_id,
@@ -226,6 +247,7 @@ class CfdpTransaction
       end
     end
 
+    OpenC3::Store.sadd("cfdp_saved_transaction_ids", @id)
     OpenC3::Logger.debug("CFDP Transaction #{@id} state saved", scope: ENV['OPENC3_SCOPE'])
   end
 
@@ -245,7 +267,7 @@ class CfdpTransaction
     @metadata_pdu_hash = state_data['metadata_pdu_hash']
     @metadata_pdu_count = state_data['metadata_pdu_count']&.to_i || 0
     @create_time = state_data['create_time'] ? Time.parse(state_data['create_time']) : nil
-    @complete_time = state_data['complete_time'] ? Time.parse(state_data['complete_time']) : nil
+    @complete_time = nil # Completed transactions are not persisted
     @proxy_response_info = state_data['proxy_response_info']
     @proxy_response_needed = state_data['proxy_response_needed'] == 'true'
     @canceling_entity_id = state_data['canceling_entity_id']&.to_i

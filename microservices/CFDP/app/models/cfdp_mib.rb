@@ -42,6 +42,7 @@ require 'openc3/models/microservice_model'
 require 'openc3/utilities/bucket'
 require 'openc3/utilities/logger'
 require 'openc3/config/config_parser'
+require_relative 'cfdp_transaction'
 require 'tempfile'
 require 'fileutils'
 require 'json'
@@ -679,6 +680,8 @@ class CfdpMib
     @@bucket = nil
     @@root_path = "/"
     @@transactions = {}
+    CfdpTransaction.clear_saved_transaction_ids
+    OpenC3::Logger.debug("CFDP cleared all saved transaction states", scope: ENV['OPENC3_SCOPE'])
   end
 
   def self.cleanup_old_transactions
@@ -691,7 +694,18 @@ class CfdpMib
       end
     end
     to_remove.each do |id|
+      transaction = @@transactions[id]
+      transaction.remove_saved_state if transaction
       @@transactions.delete(id)
+    end
+
+    saved_ids = CfdpTransaction.get_saved_transaction_ids
+    saved_ids.each do |saved_id|
+      unless @@transactions.key?(saved_id)
+        OpenC3::Store.del("cfdp_transaction_state:#{saved_id}")
+        OpenC3::Store.srem("cfdp_saved_transaction_ids", saved_id)
+        OpenC3::Logger.debug("CFDP removed orphaned saved state: #{saved_id}", scope: ENV['OPENC3_SCOPE'])
+      end
     end
   end
 end

@@ -333,6 +333,7 @@ class CfdpSourceTransaction < CfdpTransaction
     @state = "FINISHED" unless @state == "CANCELED" or @state == "ABANDONED"
     @transaction_status = "TERMINATED"
     @complete_time = Time.now.utc
+    remove_saved_state
     OpenC3::Logger.info("CFDP Finished Source Transaction #{@id}, #{@condition_code}", scope: ENV['OPENC3_SCOPE'])
 
     if CfdpMib.source_entity['transaction_finished_indication']

@@ -22,6 +22,8 @@ RSpec.describe CfdpMib do
   before(:each) do
     allow(OpenC3::Logger).to receive(:info)
     allow(OpenC3::Logger).to receive(:error)
+    allow(OpenC3::Logger).to receive(:debug)
+    allow(CfdpTransaction).to receive(:clear_saved_transaction_ids)
     CfdpMib.clear
   end
 
@@ -375,8 +377,8 @@ RSpec.describe CfdpMib do
           expect(actual_filename).to eq("test_dest.txt")
 
           expect(@mock_client).to have_received(:put_object).with(
-            bucket: "test-bucket", 
-            key: "/tmp/test_dest.txt", 
+            bucket: "test-bucket",
+            key: "/tmp/test_dest.txt",
             body: "test data"
           )
         end
@@ -394,8 +396,8 @@ RSpec.describe CfdpMib do
           expect(actual_filename).to eq("new_file.txt")
 
           expect(@mock_client).to have_received(:put_object).with(
-            bucket: "test-bucket", 
-            key: "/tmp/new_file.txt", 
+            bucket: "test-bucket",
+            key: "/tmp/new_file.txt",
             body: "test data"
           )
         end
@@ -703,12 +705,15 @@ RSpec.describe CfdpMib do
       # Create mock transactions
       @active_tx = double("Transaction")
       allow(@active_tx).to receive(:complete_time).and_return(nil)
+      allow(@active_tx).to receive(:remove_saved_state)
 
       @recent_tx = double("Transaction")
       allow(@recent_tx).to receive(:complete_time).and_return(Time.now.utc - 30)
+      allow(@recent_tx).to receive(:remove_saved_state)
 
       @old_tx = double("Transaction")
       allow(@old_tx).to receive(:complete_time).and_return(Time.now.utc - 120)
+      allow(@old_tx).to receive(:remove_saved_state)
 
       # Add transactions to the MIB
       CfdpMib.transactions["tx1"] = @active_tx
@@ -717,6 +722,7 @@ RSpec.describe CfdpMib do
     end
 
     it "removes old completed transactions" do
+      mock_redis
       # Verify there are 3 transactions before cleanup
       expect(CfdpMib.transactions.size).to eq(3)
 
@@ -728,6 +734,48 @@ RSpec.describe CfdpMib do
       expect(CfdpMib.transactions).to have_key("tx1")
       expect(CfdpMib.transactions).to have_key("tx2")
       expect(CfdpMib.transactions).not_to have_key("tx3")
+    end
+
+    it "cleans up saved states for old transactions" do
+      mock_redis
+      CfdpMib.cleanup_old_transactions
+      expect(@old_tx).to have_received(:remove_saved_state)
+    end
+
+    it "cleans up orphaned saved states" do
+      mock_redis
+      allow(OpenC3::Logger).to receive(:debug)
+
+      OpenC3::Store.sadd("cfdp_saved_transaction_ids", "tx1")
+      OpenC3::Store.sadd("cfdp_saved_transaction_ids", "tx2")
+      OpenC3::Store.sadd("cfdp_saved_transaction_ids", "orphaned_tx")
+      OpenC3::Store.hset("cfdp_transaction_state:orphaned_tx", "id", "orphaned_tx")
+
+      allow(@active_tx).to receive(:remove_saved_state).and_return(true)
+      allow(@recent_tx).to receive(:remove_saved_state).and_return(true)
+      allow(@old_tx).to receive(:remove_saved_state).and_return(true)
+      expect(CfdpTransaction.has_saved_state?("orphaned_tx")).to be true
+      expect(OpenC3::Store.exists("cfdp_transaction_state:orphaned_tx")).to be > 0
+
+      CfdpMib.cleanup_old_transactions
+      expect(CfdpTransaction.has_saved_state?("orphaned_tx")).to be false
+      expect(OpenC3::Store.exists("cfdp_transaction_state:orphaned_tx")).to eq(0)
+    end
+  end
+
+  describe "clear" do
+    it "clears all saved transaction states" do
+      mock_redis
+      allow(CfdpTransaction).to receive(:clear_saved_transaction_ids).and_call_original
+
+      OpenC3::Store.sadd("cfdp_saved_transaction_ids", "tx1")
+      OpenC3::Store.sadd("cfdp_saved_transaction_ids", "tx2")
+      OpenC3::Store.hset("cfdp_transaction_state:tx1", "id", "tx1")
+      OpenC3::Store.hset("cfdp_transaction_state:tx2", "id", "tx2")
+      expect(CfdpTransaction.get_saved_transaction_ids.length).to eq(2)
+
+      CfdpMib.clear
+      expect(CfdpTransaction.get_saved_transaction_ids).to be_empty
     end
   end
 end
