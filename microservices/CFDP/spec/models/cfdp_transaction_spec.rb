@@ -321,6 +321,164 @@ RSpec.describe CfdpTransaction do
       end
     end
 
+    describe "save_state" do
+      it "saves transaction state to OpenC3::Store" do
+        mock_redis
+        transaction.instance_variable_set(:@id, "1__123")
+        transaction.instance_variable_set(:@source_file_name, "source.txt")
+        transaction.instance_variable_set(:@destination_file_name, "dest.txt")
+        transaction.instance_variable_set(:@transaction_seq_num, 123)
+
+        allow(OpenC3::Logger).to receive(:debug)
+
+        transaction.save_state
+
+        expect(OpenC3::Store.hget("cfdp_transaction_state:1__123", "id")).to eq("1__123")
+        expect(OpenC3::Store.hget("cfdp_transaction_state:1__123", "state")).to eq("ACTIVE")
+        expect(OpenC3::Store.hget("cfdp_transaction_state:1__123", "source_file_name")).to eq("source.txt")
+        expect(OpenC3::Store.hget("cfdp_transaction_state:1__123", "destination_file_name")).to eq("dest.txt")
+        expect(OpenC3::Store.hget("cfdp_transaction_state:1__123", "transaction_seq_num")).to eq("123")
+        expect(OpenC3::Logger).to have_received(:debug).with("CFDP Transaction 1__123 state saved", scope: 'DEFAULT')
+      end
+
+      it "handles nil values by not setting them in store" do
+        mock_redis
+        transaction.instance_variable_set(:@id, "1__123")
+
+        allow(OpenC3::Logger).to receive(:debug)
+
+        transaction.save_state
+
+        expect(OpenC3::Store.hexists("cfdp_transaction_state:1__123", "delivery_code")).to be false
+        expect(OpenC3::Store.hexists("cfdp_transaction_state:1__123", "file_status")).to be false
+        expect(OpenC3::Store.hexists("cfdp_transaction_state:1__123", "complete_time")).to be false
+      end
+    end
+
+    describe "load_state" do
+      it "loads transaction state from OpenC3::Store" do
+        mock_redis
+
+        state_key = "cfdp_transaction_state:1__123"
+        OpenC3::Store.hset(state_key, "id", "1__123")
+        OpenC3::Store.hset(state_key, "frozen", "false")
+        OpenC3::Store.hset(state_key, "state", "SUSPENDED")
+        OpenC3::Store.hset(state_key, "transaction_status", "ACTIVE")
+        OpenC3::Store.hset(state_key, "progress", "50")
+        OpenC3::Store.hset(state_key, "transaction_seq_num", "123")
+        OpenC3::Store.hset(state_key, "condition_code", "SUSPEND_REQUEST_RECEIVED")
+        OpenC3::Store.hset(state_key, "source_file_name", "source.txt")
+        OpenC3::Store.hset(state_key, "destination_file_name", "dest.txt")
+        OpenC3::Store.hset(state_key, "create_time", "2023-01-01T10:00:00.000000Z")
+        OpenC3::Store.hset(state_key, "proxy_response_needed", "true")
+        OpenC3::Store.hset(state_key, "metadata_pdu_count", "5")
+        OpenC3::Store.hset(state_key, "fault_handler_overrides", '{"FILE_SIZE_ERROR": "ABANDON_TRANSACTION"}')
+
+        allow(OpenC3::Logger).to receive(:debug)
+
+        result = transaction.load_state("1__123")
+
+        expect(result).to be true
+        expect(transaction.id).to eq("1__123")
+        expect(transaction.frozen).to be false
+        expect(transaction.state).to eq("SUSPENDED")
+        expect(transaction.transaction_status).to eq("ACTIVE")
+        expect(transaction.progress).to eq(50)
+        expect(transaction.transaction_seq_num).to eq(123)
+        expect(transaction.condition_code).to eq("SUSPEND_REQUEST_RECEIVED")
+        expect(transaction.instance_variable_get(:@source_file_name)).to eq("source.txt")
+        expect(transaction.instance_variable_get(:@destination_file_name)).to eq("dest.txt")
+        expect(transaction.create_time).to be_a(Time)
+        expect(transaction.proxy_response_needed).to be true
+        expect(transaction.metadata_pdu_count).to eq(5)
+        expect(transaction.instance_variable_get(:@fault_handler_overrides)).to eq({"FILE_SIZE_ERROR" => "ABANDON_TRANSACTION"})
+        expect(OpenC3::Logger).to have_received(:debug).with("CFDP Transaction 1__123 state loaded", scope: 'DEFAULT')
+      end
+
+      it "returns false when no state data exists" do
+        mock_redis
+        allow(OpenC3::Logger).to receive(:debug)
+
+        result = transaction.load_state("nonexistent__123")
+
+        expect(result).to be false
+      end
+
+      it "handles missing fields with defaults" do
+        mock_redis
+
+        state_key = "cfdp_transaction_state:1__123"
+        OpenC3::Store.hset(state_key, "id", "1__123")
+
+        allow(OpenC3::Logger).to receive(:debug)
+
+        result = transaction.load_state("1__123")
+
+        expect(result).to be true
+        expect(transaction.state).to eq("ACTIVE")
+        expect(transaction.transaction_status).to eq("ACTIVE")
+        expect(transaction.progress).to eq(0)
+        expect(transaction.condition_code).to eq("NO_ERROR")
+        expect(transaction.metadata_pdu_count).to eq(0)
+        expect(transaction.instance_variable_get(:@fault_handler_overrides)).to eq({})
+      end
+    end
+
+    describe "save and load state cycle" do
+      it "preserves all transaction data through save/load cycle" do
+        mock_redis
+
+        original_time = Time.now.utc
+        transaction.instance_variable_set(:@id, "1__456")
+        transaction.instance_variable_set(:@frozen, true)
+        transaction.instance_variable_set(:@state, "SUSPENDED")
+        transaction.instance_variable_set(:@transaction_status, "ACTIVE")
+        transaction.instance_variable_set(:@progress, 75)
+        transaction.instance_variable_set(:@transaction_seq_num, 456)
+        transaction.instance_variable_set(:@condition_code, "SUSPEND_REQUEST_RECEIVED")
+        transaction.instance_variable_set(:@delivery_code, "DATA_COMPLETE")
+        transaction.instance_variable_set(:@file_status, "FILESTORE_SUCCESS")
+        transaction.instance_variable_set(:@metadata_pdu_hash, "abc123")
+        transaction.instance_variable_set(:@metadata_pdu_count, 3)
+        transaction.instance_variable_set(:@create_time, original_time)
+        transaction.instance_variable_set(:@complete_time, original_time + 60)
+        transaction.instance_variable_set(:@proxy_response_info, "proxy_info")
+        transaction.instance_variable_set(:@proxy_response_needed, true)
+        transaction.instance_variable_set(:@canceling_entity_id, 2)
+        transaction.instance_variable_set(:@fault_handler_overrides, {"FILE_SIZE_ERROR" => "ABANDON_TRANSACTION"})
+        transaction.instance_variable_set(:@source_file_name, "original.txt")
+        transaction.instance_variable_set(:@destination_file_name, "copy.txt")
+
+        allow(OpenC3::Logger).to receive(:debug)
+
+        transaction.save_state
+
+        new_transaction = CfdpTransaction.new
+        result = new_transaction.load_state("1__456")
+
+        expect(result).to be true
+        expect(new_transaction.id).to eq("1__456")
+        expect(new_transaction.frozen).to be true
+        expect(new_transaction.state).to eq("SUSPENDED")
+        expect(new_transaction.transaction_status).to eq("ACTIVE")
+        expect(new_transaction.progress).to eq(75)
+        expect(new_transaction.transaction_seq_num).to eq(456)
+        expect(new_transaction.condition_code).to eq("SUSPEND_REQUEST_RECEIVED")
+        expect(new_transaction.delivery_code).to eq("DATA_COMPLETE")
+        expect(new_transaction.file_status).to eq("FILESTORE_SUCCESS")
+        expect(new_transaction.metadata_pdu_hash).to eq("abc123")
+        expect(new_transaction.metadata_pdu_count).to eq(3)
+        expect(new_transaction.create_time.to_i).to eq(original_time.to_i)
+        expect(new_transaction.complete_time.to_i).to eq((original_time + 60).to_i)
+        expect(new_transaction.proxy_response_info).to eq("proxy_info")
+        expect(new_transaction.proxy_response_needed).to be true
+        expect(new_transaction.instance_variable_get(:@canceling_entity_id)).to eq(2)
+        expect(new_transaction.instance_variable_get(:@fault_handler_overrides)).to eq({"FILE_SIZE_ERROR" => "ABANDON_TRANSACTION"})
+        expect(new_transaction.instance_variable_get(:@source_file_name)).to eq("original.txt")
+        expect(new_transaction.instance_variable_get(:@destination_file_name)).to eq("copy.txt")
+      end
+    end
+
     describe "update" do
       it "does nothing in the base class" do
         # Just verifying it doesn't raise an error

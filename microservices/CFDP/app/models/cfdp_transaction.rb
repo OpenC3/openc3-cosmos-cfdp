@@ -195,6 +195,68 @@ class CfdpTransaction
     end
   end
 
+  def save_state
+    state_data = {
+      'id' => @id,
+      'frozen' => @frozen,
+      'state' => @state,
+      'transaction_status' => @transaction_status,
+      'progress' => @progress,
+      'transaction_seq_num' => @transaction_seq_num,
+      'condition_code' => @condition_code,
+      'delivery_code' => @delivery_code,
+      'file_status' => @file_status,
+      'metadata_pdu_hash' => @metadata_pdu_hash,
+      'metadata_pdu_count' => @metadata_pdu_count,
+      'create_time' => @create_time&.iso8601(6),
+      'complete_time' => @complete_time&.iso8601(6),
+      'proxy_response_info' => @proxy_response_info,
+      'proxy_response_needed' => @proxy_response_needed,
+      'canceling_entity_id' => @canceling_entity_id,
+      'fault_handler_overrides' => @fault_handler_overrides&.empty? ? nil : @fault_handler_overrides.to_json,
+      'source_file_name' => @source_file_name,
+      'destination_file_name' => @destination_file_name
+    }
+
+    state_data.each do |field, value|
+      if value.nil?
+        OpenC3::Store.hdel("cfdp_transaction_state:#{@id}", field)
+      else
+        OpenC3::Store.hset("cfdp_transaction_state:#{@id}", field, value.to_s)
+      end
+    end
+
+    OpenC3::Logger.debug("CFDP Transaction #{@id} state saved", scope: ENV['OPENC3_SCOPE'])
+  end
+
+  def load_state(transaction_id)
+    state_data = OpenC3::Store.hgetall("cfdp_transaction_state:#{transaction_id}")
+    return false if state_data.empty?
+
+    @id = state_data['id']
+    @frozen = state_data['frozen'] == 'true'
+    @state = state_data['state'] || 'ACTIVE'
+    @transaction_status = state_data['transaction_status'] || 'ACTIVE'
+    @progress = state_data['progress']&.to_i || 0
+    @transaction_seq_num = state_data['transaction_seq_num']&.to_i
+    @condition_code = state_data['condition_code'] || 'NO_ERROR'
+    @delivery_code = state_data['delivery_code']
+    @file_status = state_data['file_status']
+    @metadata_pdu_hash = state_data['metadata_pdu_hash']
+    @metadata_pdu_count = state_data['metadata_pdu_count']&.to_i || 0
+    @create_time = state_data['create_time'] ? Time.parse(state_data['create_time']) : nil
+    @complete_time = state_data['complete_time'] ? Time.parse(state_data['complete_time']) : nil
+    @proxy_response_info = state_data['proxy_response_info']
+    @proxy_response_needed = state_data['proxy_response_needed'] == 'true'
+    @canceling_entity_id = state_data['canceling_entity_id']&.to_i
+    @fault_handler_overrides = state_data['fault_handler_overrides'] ? JSON.parse(state_data['fault_handler_overrides']) : {}
+    @source_file_name = state_data['source_file_name']
+    @destination_file_name = state_data['destination_file_name']
+
+    OpenC3::Logger.debug("CFDP Transaction #{@id} state loaded", scope: ENV['OPENC3_SCOPE'])
+    return true
+  end
+
   def cfdp_cmd(entity, target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
     cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
     sleep(entity['cmd_delay']) if entity['cmd_delay']

@@ -438,7 +438,10 @@ class CfdpReceiveTransaction < CfdpTransaction
     case pdu_hash["DIRECTIVE_CODE"]
     when "METADATA"
       @metadata_pdu_count += 1
-      return if @metadata_pdu_hash # Discard repeats
+      if @metadata_pdu_hash # Discard repeats
+        save_state if @id
+        return
+      end
       @metadata_pdu_hash = pdu_hash
       @source_entity_id = @metadata_pdu_hash['SOURCE_ENTITY_ID']
       kw_args = {}
@@ -592,5 +595,7 @@ class CfdpReceiveTransaction < CfdpTransaction
 
       send_naks() if need_send_naks
     end
+
+    save_state if @id
   end
 end

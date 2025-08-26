@@ -21,7 +21,7 @@ require_relative 'cfdp_transaction'
 
 class CfdpSourceTransaction < CfdpTransaction
 
-  attr_reader :filestore_responses
+  attr_reader :filestore_responses # not persisted because it's only used at completion for writing 'Transaction-Finished'
 
   def initialize(source_entity: nil)
     super()
@@ -395,6 +395,8 @@ class CfdpSourceTransaction < CfdpTransaction
     else # File Data
       # Unexpected - Ignore
     end
+
+    save_state if @id
   end
 
   def handle_nak(pdu_hash)
