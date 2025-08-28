@@ -37,6 +37,7 @@ class CfdpSourceTransaction < CfdpTransaction
     @eof_count = 0
     @filestore_responses = []
     @metadata_pdu_hash = {} # non-nil to avoid cfdp_user thinking it needs to be set
+    @copy_state = nil
   end
 
   def put(
@@ -62,21 +63,26 @@ class CfdpSourceTransaction < CfdpTransaction
     messages_to_user = [] unless messages_to_user
     filestore_requests = [] unless filestore_requests
 
+    save_state()
+    put_options_data = {
+      'destination_entity_id' => destination_entity_id,
+      'fault_handler_overrides' => fault_handler_overrides ? Base64.strict_encode64(Marshal.dump(fault_handler_overrides)) : nil,
+      'flow_label' => flow_label,
+      'transmission_mode' => transmission_mode,
+      'closure_requested' => closure_requested,
+      'messages_to_user' => messages_to_user ? Base64.strict_encode64(Marshal.dump(messages_to_user)) : nil,
+      'filestore_requests' => filestore_requests ? Base64.strict_encode64(Marshal.dump(filestore_requests)) : nil
+    }
+    put_options_data.each do |field, value|
+      if value.nil?
+        OpenC3::Store.hdel("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}:put_options", field)
+      else
+        OpenC3::Store.hset("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}:put_options", field, value.to_s)
+      end
+    end
+
     begin
-      transaction_start_notification()
-      copy_file(
-        transaction_seq_num: @transaction_seq_num,
-        transaction_id: @id,
-        destination_entity_id: destination_entity_id,
-        source_file_name: @source_file_name,
-        destination_file_name: @destination_file_name,
-        fault_handler_overrides: fault_handler_overrides,
-        flow_label: flow_label, # Not supported
-        transmission_mode: transmission_mode,
-        closure_requested: closure_requested,
-        messages_to_user: messages_to_user,
-        filestore_requests: filestore_requests
-      )
+      copy_file()
     rescue => err
       abandon()
       raise err
@@ -114,7 +120,7 @@ class CfdpSourceTransaction < CfdpTransaction
     end
   end
 
-  def copy_file(
+  def copy_file_setup_and_send_metadata(
     transaction_seq_num:,
     transaction_id:,
     destination_entity_id:,
@@ -126,6 +132,8 @@ class CfdpSourceTransaction < CfdpTransaction
     closure_requested:,
     messages_to_user:,
     filestore_requests:)
+
+    transaction_start_notification()
 
     # Lookup outgoing PDU command
     @source_entity = CfdpMib.source_entity
@@ -151,11 +159,11 @@ class CfdpSourceTransaction < CfdpTransaction
         raise "Source file: #{source_file_name} does not exist"
       end
 
-      file_size = source_file.size
-      read_size = @destination_entity['maximum_file_segment_length']
+      @file_size = source_file.size
+      @read_size = @destination_entity['maximum_file_segment_length']
     else
       source_file = nil
-      file_size = 0
+      @file_size = 0
     end
 
     # Prepare options, ordered by 4.6.1.1.3 c.
@@ -204,7 +212,7 @@ class CfdpSourceTransaction < CfdpTransaction
       transaction_seq_num: @transaction_seq_num,
       destination_entity: @destination_entity,
       closure_requested: closure_requested,
-      file_size: file_size,
+      file_size: @file_size,
       source_file_name: source_file_name,
       destination_file_name: destination_file_name,
       options: options,
@@ -213,6 +221,35 @@ class CfdpSourceTransaction < CfdpTransaction
     cmd_params = {}
     cmd_params[@item_name] = @metadata_pdu
     cfdp_cmd(@destination_entity, @target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+
+    @copy_state = "send_file_data_pdu"
+    save_state()
+  end
+
+  def copy_file_send_file_data_pdu(
+    transaction_seq_num:,
+    transaction_id:,
+    destination_entity_id:,
+    source_file_name:,
+    destination_file_name:,
+    fault_handler_overrides:,
+    flow_label: nil,
+    transmission_mode:,
+    closure_requested:,
+    messages_to_user:,
+    filestore_requests:)
+
+    if source_file_name and destination_file_name
+      if StringIO === source_file_name
+        source_file = source_file_name
+      else
+        source_file = CfdpMib.get_source_file(source_file_name)
+      end
+    else
+      @copy_state = "send_eof_pdu"
+      save_state()
+      return
+    end
 
     if source_file
       checksum = get_checksum(@destination_entity['default_checksum_type'])
@@ -224,45 +261,81 @@ class CfdpSourceTransaction < CfdpTransaction
       end
 
       # Send File Data PDUs
-      offset = 0
-      while true
-        break if @state == "CANCELED"
-        handle_suspend()
-        return if @state == "ABANDONED"
-        file_data = source_file.read(read_size)
-        break if file_data.nil? or file_data.length <= 0
-        file_data_pdu = CfdpPdu.build_file_data_pdu(
-          offset: offset,
-          file_data: file_data,
-          file_size: file_size,
-          source_entity: @source_entity,
-          transaction_seq_num: @transaction_seq_num,
-          destination_entity: @destination_entity,
-          segmentation_control: @segmentation_control,
-          transmission_mode: @transmission_mode)
-        cmd_params = {}
-        cmd_params[@item_name] = file_data_pdu
-        cfdp_cmd(@destination_entity, @target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
-        checksum.add(offset, file_data)
-        offset += file_data.length
-        @progress = offset
+      @file_offset = 0 unless @file_offset
+      @file_checksum_obj = checksum unless @file_checksum_obj
+
+      source_file.seek(@file_offset, IO::SEEK_SET) if @file_offset > 0
+
+      # Send one chunk of file data
+      return if @state == "CANCELED"
+      handle_suspend()
+      return if @state == "ABANDONED"
+
+      file_data = source_file.read(@read_size)
+      if file_data.nil? or file_data.length <= 0
+        @copy_state = "send_eof_pdu" 
+        save_state()
+        CfdpMib.complete_source_file(source_file)
+        return
       end
+
+      file_data_pdu = CfdpPdu.build_file_data_pdu(
+        offset: @file_offset,
+        file_data: file_data,
+        file_size: @file_size,
+        source_entity: @source_entity,
+        transaction_seq_num: @transaction_seq_num,
+        destination_entity: @destination_entity,
+        segmentation_control: @segmentation_control,
+        transmission_mode: @transmission_mode)
+      cmd_params = {}
+      cmd_params[@item_name] = file_data_pdu
+      cfdp_cmd(@destination_entity, @target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
+      @file_checksum_obj.add(@file_offset, file_data)
+      @file_offset += file_data.length
+      @progress = @file_offset
+      save_state()
+      CfdpMib.complete_source_file(source_file)
+    else
+      @copy_state = "send_eof_pdu"
+      save_state()
     end
+  end
+
+  def copy_file_send_eof_pdu(
+    transaction_seq_num:,
+    transaction_id:,
+    destination_entity_id:,
+    source_file_name:,
+    destination_file_name:,
+    fault_handler_overrides:,
+    flow_label: nil,
+    transmission_mode:,
+    closure_requested:,
+    messages_to_user:,
+    filestore_requests:)
 
     handle_suspend()
     return if @state == "ABANDONED"
 
     # Send EOF PDU
-    if source_file
-      file_checksum = checksum.checksum(source_file, false)
+    if source_file_name and destination_file_name
+      if StringIO === source_file_name
+        source_file = source_file_name
+      else
+        source_file = CfdpMib.get_source_file(source_file_name)
+      end
+      file_checksum = @file_checksum_obj ? @file_checksum_obj.checksum(source_file, false) : 0
+      CfdpMib.complete_source_file(source_file)
     else
+      source_file = nil
       file_checksum = 0
     end
     if @canceling_entity_id
       @condition_code = "CANCEL_REQUEST_RECEIVED"
       eof_file_size = @progress
     else
-      eof_file_size = file_size
+      eof_file_size = @file_size
     end
     begin
       @eof_pdu = CfdpPdu.build_eof_pdu(
@@ -291,6 +364,23 @@ class CfdpSourceTransaction < CfdpTransaction
     @file_status = "UNREPORTED"
     @delivery_code = "DATA_COMPLETE"
 
+    @copy_state = "cleanup"
+    save_state()
+  end
+
+  def copy_file_cleanup(
+    transaction_seq_num:,
+    transaction_id:,
+    destination_entity_id:,
+    source_file_name:,
+    destination_file_name:,
+    fault_handler_overrides:,
+    flow_label: nil,
+    transmission_mode:,
+    closure_requested:,
+    messages_to_user:,
+    filestore_requests:)
+
     # Wait for Finished if Closure Requested or Acknowledged Mode
     if @destination_entity['enable_finished'] and (closure_requested == "CLOSURE_REQUESTED" or @transmission_mode == "ACKNOWLEDGED")
       start_time = Time.now
@@ -310,10 +400,90 @@ class CfdpSourceTransaction < CfdpTransaction
       end
     end
 
-    # Complete use of source file
-    CfdpMib.complete_source_file(source_file) if source_file
-
+    @copy_state = "complete"
+    save_state()
+    OpenC3::Store.del("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}:put_options")
     notice_of_completion()
+  end
+
+  def copy_file
+    put_options = OpenC3::Store.hgetall("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}:put_options")
+    destination_entity_id = put_options['destination_entity_id']&.to_i
+    fault_handler_overrides = put_options['fault_handler_overrides'] ? Marshal.load(Base64.strict_decode64(put_options['fault_handler_overrides'])) : []
+    flow_label = put_options['flow_label']
+    transmission_mode = put_options['transmission_mode']
+    closure_requested = put_options['closure_requested']
+    messages_to_user = put_options['messages_to_user'] ? Marshal.load(Base64.strict_decode64(put_options['messages_to_user'])) : []
+    filestore_requests = put_options['filestore_requests'] ? Marshal.load(Base64.strict_decode64(put_options['filestore_requests'])) : []
+
+    @copy_state = "setup" if @copy_state.nil?
+    save_state()
+
+    while true
+      case @copy_state
+      when "setup"
+        copy_file_setup_and_send_metadata(
+          transaction_seq_num: @transaction_seq_num,
+          transaction_id: @id,
+          destination_entity_id: destination_entity_id,
+          source_file_name: @source_file_name,
+          destination_file_name: @destination_file_name,
+          fault_handler_overrides: fault_handler_overrides,
+          flow_label: flow_label,
+          transmission_mode: transmission_mode,
+          closure_requested: closure_requested,
+          messages_to_user: messages_to_user,
+          filestore_requests: filestore_requests
+        )
+        return if @state == "ABANDONED"
+      when "send_file_data_pdu"
+        copy_file_send_file_data_pdu(
+          transaction_seq_num: @transaction_seq_num,
+          transaction_id: @id,
+          destination_entity_id: destination_entity_id,
+          source_file_name: @source_file_name,
+          destination_file_name: @destination_file_name,
+          fault_handler_overrides: fault_handler_overrides,
+          flow_label: flow_label,
+          transmission_mode: transmission_mode,
+          closure_requested: closure_requested,
+          messages_to_user: messages_to_user,
+          filestore_requests: filestore_requests
+        )
+        return if @state == "ABANDONED" or @state == "CANCELED"
+      when "send_eof_pdu"
+        copy_file_send_eof_pdu(
+          transaction_seq_num: @transaction_seq_num,
+          transaction_id: @id,
+          destination_entity_id: destination_entity_id,
+          source_file_name: @source_file_name,
+          destination_file_name: @destination_file_name,
+          fault_handler_overrides: fault_handler_overrides,
+          flow_label: flow_label,
+          transmission_mode: transmission_mode,
+          closure_requested: closure_requested,
+          messages_to_user: messages_to_user,
+          filestore_requests: filestore_requests
+        )
+        return if @state == "ABANDONED"
+      when "cleanup"
+        copy_file_cleanup(
+          transaction_seq_num: @transaction_seq_num,
+          transaction_id: @id,
+          destination_entity_id: destination_entity_id,
+          source_file_name: @source_file_name,
+          destination_file_name: @destination_file_name,
+          fault_handler_overrides: fault_handler_overrides,
+          flow_label: flow_label,
+          transmission_mode: transmission_mode,
+          closure_requested: closure_requested,
+          messages_to_user: messages_to_user,
+          filestore_requests: filestore_requests
+        )
+      when "complete"
+        return
+      end
+    end
   end
 
   def notice_of_completion
@@ -479,7 +649,12 @@ class CfdpSourceTransaction < CfdpTransaction
       'eof_pdu' => @eof_pdu,
       'eof_ack_timeout' => @eof_ack_timeout&.iso8601(6),
       'eof_ack_pdu_hash' => @eof_ack_pdu_hash ? Base64.strict_encode64(Marshal.dump(@eof_ack_pdu_hash)) : nil,
-      'keep_alive_pdu_hash' => @keep_alive_pdu_hash ? Base64.strict_encode64(Marshal.dump(@keep_alive_pdu_hash)) : nil
+      'keep_alive_pdu_hash' => @keep_alive_pdu_hash ? Base64.strict_encode64(Marshal.dump(@keep_alive_pdu_hash)) : nil,
+      'copy_state' => @copy_state,
+      'file_offset' => @file_offset,
+      'file_checksum_obj' => @file_checksum_obj ? Base64.strict_encode64(Marshal.dump(@file_checksum_obj)) : nil,
+      'file_size' => @file_size,
+      'read_size' => @read_size
     }
 
     child_state_data.each do |field, value|
@@ -510,6 +685,11 @@ class CfdpSourceTransaction < CfdpTransaction
     @eof_ack_timeout = state_data['eof_ack_timeout'] ? Time.parse(state_data['eof_ack_timeout']) : nil
     @eof_ack_pdu_hash = state_data['eof_ack_pdu_hash'] ? Marshal.load(Base64.strict_decode64(state_data['eof_ack_pdu_hash'])) : nil
     @keep_alive_pdu_hash = state_data['keep_alive_pdu_hash'] ? Marshal.load(Base64.strict_decode64(state_data['keep_alive_pdu_hash'])) : nil
+    @copy_state = state_data['copy_state']
+    @file_offset = state_data['file_offset']&.to_i
+    @file_checksum_obj = state_data['file_checksum_obj'] ? Marshal.load(Base64.strict_decode64(state_data['file_checksum_obj'])) : nil
+    @file_size = state_data['file_size']&.to_i
+    @read_size = state_data['read_size']&.to_i
 
     return true
   end
