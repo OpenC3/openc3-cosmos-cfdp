@@ -18,6 +18,7 @@
 # See https://github.com/OpenC3/openc3-cosmos-cfdp/pull/12 for details
 
 require_relative 'cfdp_transaction'
+require 'base64'
 
 class CfdpReceiveTransaction < CfdpTransaction
   def initialize(pdu_hash)
@@ -605,15 +606,15 @@ class CfdpReceiveTransaction < CfdpTransaction
 
     child_state_data = {
       'transmission_mode' => @transmission_mode,
-      'messages_to_user' => @messages_to_user&.to_json,
-      'filestore_requests' => @filestore_requests&.to_json,
+      'messages_to_user' => @messages_to_user ? Base64.strict_encode64(Marshal.dump(@messages_to_user)) : nil,
+      'filestore_requests' => @filestore_requests ? Base64.strict_encode64(Marshal.dump(@filestore_requests)) : nil,
       'tmp_file_path' => @tmp_file&.path,
-      'segments' => @segments&.to_json,
-      'eof_pdu_hash' => @eof_pdu_hash&.to_json,
+      'segments' => @segments ? Base64.strict_encode64(Marshal.dump(@segments)) : nil,
+      'eof_pdu_hash' => @eof_pdu_hash ? Base64.strict_encode64(Marshal.dump(@eof_pdu_hash)) : nil,
       'checksum_type' => @checksum.class.name,
       'full_checksum_needed' => @full_checksum_needed,
       'file_size' => @file_size,
-      'filestore_responses' => @filestore_responses&.to_json,
+      'filestore_responses' => @filestore_responses ? Base64.strict_encode64(Marshal.dump(@filestore_responses)) : nil,
       'nak_timeout' => @nak_timeout&.iso8601(6),
       'nak_timeout_count' => @nak_timeout_count,
       'check_timeout' => @check_timeout&.iso8601(6),
@@ -627,8 +628,8 @@ class CfdpReceiveTransaction < CfdpTransaction
       'keep_alive_timeout' => @keep_alive_timeout&.iso8601(6),
       'finished_ack_timeout' => @finished_ack_timeout&.iso8601(6),
       'finished_pdu' => @finished_pdu,
-      'finished_ack_pdu_hash' => @finished_ack_pdu_hash&.to_json,
-      'prompt_pdu_hash' => @prompt_pdu_hash&.to_json
+      'finished_ack_pdu_hash' => @finished_ack_pdu_hash ? Base64.strict_encode64(Marshal.dump(@finished_ack_pdu_hash)) : nil,
+      'prompt_pdu_hash' => @prompt_pdu_hash ? Base64.strict_encode64(Marshal.dump(@prompt_pdu_hash)) : nil
     }
 
     child_state_data.each do |field, value|
@@ -646,8 +647,8 @@ class CfdpReceiveTransaction < CfdpTransaction
     state_data = OpenC3::Store.hgetall("#{self.class.redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
 
     @transmission_mode = state_data['transmission_mode']
-    @messages_to_user = state_data['messages_to_user'] ? JSON.parse(state_data['messages_to_user']) : []
-    @filestore_requests = state_data['filestore_requests'] ? JSON.parse(state_data['filestore_requests']) : []
+    @messages_to_user = state_data['messages_to_user'] ? Marshal.load(Base64.strict_decode64(state_data['messages_to_user'])) : []
+    @filestore_requests = state_data['filestore_requests'] ? Marshal.load(Base64.strict_decode64(state_data['filestore_requests'])) : []
 
     if state_data['tmp_file_path']
       begin
@@ -659,8 +660,8 @@ class CfdpReceiveTransaction < CfdpTransaction
       @tmp_file = nil
     end
 
-    @segments = state_data['segments'] ? JSON.parse(state_data['segments']) : {}
-    @eof_pdu_hash = state_data['eof_pdu_hash'] ? JSON.parse(state_data['eof_pdu_hash']) : nil
+    @segments = state_data['segments'] ? Marshal.load(Base64.strict_decode64(state_data['segments'])) : {}
+    @eof_pdu_hash = state_data['eof_pdu_hash'] ? Marshal.load(Base64.strict_decode64(state_data['eof_pdu_hash'])) : nil
 
     case state_data['checksum_type']
     when 'CfdpChecksum'
@@ -675,7 +676,7 @@ class CfdpReceiveTransaction < CfdpTransaction
 
     @full_checksum_needed = state_data['full_checksum_needed'] == 'true'
     @file_size = state_data['file_size']&.to_i || 0
-    @filestore_responses = state_data['filestore_responses'] ? JSON.parse(state_data['filestore_responses']) : []
+    @filestore_responses = state_data['filestore_responses'] ? Marshal.load(Base64.strict_decode64(state_data['filestore_responses'])) : []
     @nak_timeout = state_data['nak_timeout'] ? Time.parse(state_data['nak_timeout']) : nil
     @nak_timeout_count = state_data['nak_timeout_count']&.to_i || 0
     @check_timeout = state_data['check_timeout'] ? Time.parse(state_data['check_timeout']) : nil
@@ -689,8 +690,8 @@ class CfdpReceiveTransaction < CfdpTransaction
     @keep_alive_timeout = state_data['keep_alive_timeout'] ? Time.parse(state_data['keep_alive_timeout']) : nil
     @finished_ack_timeout = state_data['finished_ack_timeout'] ? Time.parse(state_data['finished_ack_timeout']) : nil
     @finished_pdu = state_data['finished_pdu']
-    @finished_ack_pdu_hash = state_data['finished_ack_pdu_hash'] ? JSON.parse(state_data['finished_ack_pdu_hash']) : nil
-    @prompt_pdu_hash = state_data['prompt_pdu_hash'] ? JSON.parse(state_data['prompt_pdu_hash']) : nil
+    @finished_ack_pdu_hash = state_data['finished_ack_pdu_hash'] ? Marshal.load(Base64.strict_decode64(state_data['finished_ack_pdu_hash'])) : nil
+    @prompt_pdu_hash = state_data['prompt_pdu_hash'] ? Marshal.load(Base64.strict_decode64(state_data['prompt_pdu_hash'])) : nil
 
     return true
   end

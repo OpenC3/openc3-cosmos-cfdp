@@ -16,6 +16,7 @@
 # See https://github.com/OpenC3/openc3-cosmos-cfdp/pull/12 for details
 
 require 'rails_helper'
+require 'base64'
 
 RSpec.describe CfdpTransaction do
   before(:each) do
@@ -375,7 +376,7 @@ RSpec.describe CfdpTransaction do
         OpenC3::Store.hset(state_key, "create_time", "2023-01-01T10:00:00.000000Z")
         OpenC3::Store.hset(state_key, "proxy_response_needed", "true")
         OpenC3::Store.hset(state_key, "metadata_pdu_count", "5")
-        OpenC3::Store.hset(state_key, "fault_handler_overrides", '{"FILE_SIZE_ERROR": "ABANDON_TRANSACTION"}')
+        OpenC3::Store.hset(state_key, "fault_handler_overrides", Base64.strict_encode64(Marshal.dump({"FILE_SIZE_ERROR" => "ABANDON_TRANSACTION"})))
 
         allow(OpenC3::Logger).to receive(:debug)
 

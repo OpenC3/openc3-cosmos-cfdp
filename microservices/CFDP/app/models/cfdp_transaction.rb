@@ -23,6 +23,7 @@ require_relative 'cfdp_checksum'
 require_relative 'cfdp_null_checksum'
 require_relative 'cfdp_crc_checksum'
 require 'tempfile'
+require 'base64'
 
 class CfdpTransaction
   include OpenC3::Api
@@ -232,13 +233,13 @@ class CfdpTransaction
       'condition_code' => @condition_code,
       'delivery_code' => @delivery_code,
       'file_status' => @file_status,
-      'metadata_pdu_hash' => @metadata_pdu_hash.to_json,
+      'metadata_pdu_hash' => @metadata_pdu_hash ? Base64.strict_encode64(Marshal.dump(@metadata_pdu_hash)) : nil,
       'metadata_pdu_count' => @metadata_pdu_count,
       'create_time' => @create_time&.iso8601(6),
       'proxy_response_info' => @proxy_response_info,
       'proxy_response_needed' => @proxy_response_needed,
       'canceling_entity_id' => @canceling_entity_id,
-      'fault_handler_overrides' => @fault_handler_overrides&.empty? ? nil : @fault_handler_overrides.to_json,
+      'fault_handler_overrides' => (@fault_handler_overrides&.empty? ? nil : Base64.strict_encode64(Marshal.dump(@fault_handler_overrides))),
       'source_file_name' => @source_file_name,
       'destination_file_name' => @destination_file_name
     }
@@ -268,14 +269,14 @@ class CfdpTransaction
     @condition_code = state_data['condition_code'] || 'NO_ERROR'
     @delivery_code = state_data['delivery_code']
     @file_status = state_data['file_status']
-    @metadata_pdu_hash = state_data['metadata_pdu_hash'] ? JSON.parse(state_data['metadata_pdu_hash']) : nil
+    @metadata_pdu_hash = state_data['metadata_pdu_hash'] ? Marshal.load(Base64.strict_decode64(state_data['metadata_pdu_hash'])) : nil
     @metadata_pdu_count = state_data['metadata_pdu_count']&.to_i || 0
     @create_time = state_data['create_time'] ? Time.parse(state_data['create_time']) : nil
     @complete_time = nil # Completed transactions are not persisted
     @proxy_response_info = state_data['proxy_response_info']
     @proxy_response_needed = state_data['proxy_response_needed'] == 'true'
     @canceling_entity_id = state_data['canceling_entity_id']&.to_i
-    @fault_handler_overrides = state_data['fault_handler_overrides'] ? JSON.parse(state_data['fault_handler_overrides']) : {}
+    @fault_handler_overrides = state_data['fault_handler_overrides'] ? Marshal.load(Base64.strict_decode64(state_data['fault_handler_overrides'])) : {}
     @source_file_name = state_data['source_file_name']
     @destination_file_name = state_data['destination_file_name']
 
