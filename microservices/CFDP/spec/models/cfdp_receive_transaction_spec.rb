@@ -169,6 +169,7 @@ RSpec.describe CfdpReceiveTransaction do
     allow(@mock_tempfile).to receive(:write)
     allow(@mock_tempfile).to receive(:close)
     allow(@mock_tempfile).to receive(:unlink)
+    allow(@mock_tempfile).to receive(:path).and_return("/tmp/cfdp_test")
     allow(Tempfile).to receive(:new).and_return(@mock_tempfile)
 
     # Mock checksum classes

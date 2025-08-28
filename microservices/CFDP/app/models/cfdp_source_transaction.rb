@@ -460,4 +460,56 @@ class CfdpSourceTransaction < CfdpTransaction
 
     CfdpMib.complete_source_file(source_file) if source_file
   end
+
+  def save_state
+    super
+
+    child_state_data = {
+      'source_entity' => @source_entity&.to_json,
+      'finished_pdu_hash' => @finished_pdu_hash&.to_json,
+      'destination_entity' => @destination_entity&.to_json,
+      'eof_count' => @eof_count,
+      'segmentation_control' => @segmentation_control,
+      'transmission_mode' => @transmission_mode,
+      'target_name' => @target_name,
+      'packet_name' => @packet_name,
+      'item_name' => @item_name,
+      'metadata_pdu' => @metadata_pdu,
+      'eof_pdu' => @eof_pdu,
+      'eof_ack_timeout' => @eof_ack_timeout&.iso8601(6),
+      'eof_ack_pdu_hash' => @eof_ack_pdu_hash&.to_json,
+      'keep_alive_pdu_hash' => @keep_alive_pdu_hash&.to_json
+    }
+
+    child_state_data.each do |field, value|
+      if value.nil?
+        OpenC3::Store.hdel("cfdp_transaction_state:#{@id}", field)
+      else
+        OpenC3::Store.hset("cfdp_transaction_state:#{@id}", field, value.to_s)
+      end
+    end
+  end
+
+  def load_state(transaction_id)
+    return false unless super(transaction_id)
+
+    state_data = OpenC3::Store.hgetall("cfdp_transaction_state:#{transaction_id}")
+
+    @source_entity = state_data['source_entity'] ? JSON.parse(state_data['source_entity']) : nil
+    @finished_pdu_hash = state_data['finished_pdu_hash'] ? JSON.parse(state_data['finished_pdu_hash']) : nil
+    @destination_entity = state_data['destination_entity'] ? JSON.parse(state_data['destination_entity']) : nil
+    @eof_count = state_data['eof_count']&.to_i || 0
+    @segmentation_control = state_data['segmentation_control']
+    @transmission_mode = state_data['transmission_mode']
+    @target_name = state_data['target_name']
+    @packet_name = state_data['packet_name']
+    @item_name = state_data['item_name']
+    @metadata_pdu = state_data['metadata_pdu']
+    @eof_pdu = state_data['eof_pdu']
+    @eof_ack_timeout = state_data['eof_ack_timeout'] ? Time.parse(state_data['eof_ack_timeout']) : nil
+    @eof_ack_pdu_hash = state_data['eof_ack_pdu_hash'] ? JSON.parse(state_data['eof_ack_pdu_hash']) : nil
+    @keep_alive_pdu_hash = state_data['keep_alive_pdu_hash'] ? JSON.parse(state_data['keep_alive_pdu_hash']) : nil
+
+    return true
+  end
 end

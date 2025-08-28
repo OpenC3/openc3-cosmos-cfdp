@@ -228,7 +228,7 @@ class CfdpTransaction
       'condition_code' => @condition_code,
       'delivery_code' => @delivery_code,
       'file_status' => @file_status,
-      'metadata_pdu_hash' => @metadata_pdu_hash,
+      'metadata_pdu_hash' => @metadata_pdu_hash.to_json,
       'metadata_pdu_count' => @metadata_pdu_count,
       'create_time' => @create_time&.iso8601(6),
       'proxy_response_info' => @proxy_response_info,
@@ -264,7 +264,7 @@ class CfdpTransaction
     @condition_code = state_data['condition_code'] || 'NO_ERROR'
     @delivery_code = state_data['delivery_code']
     @file_status = state_data['file_status']
-    @metadata_pdu_hash = state_data['metadata_pdu_hash']
+    @metadata_pdu_hash = state_data['metadata_pdu_hash'] ? JSON.parse(state_data['metadata_pdu_hash']) : nil
     @metadata_pdu_count = state_data['metadata_pdu_count']&.to_i || 0
     @create_time = state_data['create_time'] ? Time.parse(state_data['create_time']) : nil
     @complete_time = nil # Completed transactions are not persisted

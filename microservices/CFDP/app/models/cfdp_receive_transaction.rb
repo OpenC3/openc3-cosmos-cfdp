@@ -599,4 +599,99 @@ class CfdpReceiveTransaction < CfdpTransaction
 
     save_state if @id
   end
+
+  def save_state
+    super
+
+    child_state_data = {
+      'transmission_mode' => @transmission_mode,
+      'messages_to_user' => @messages_to_user&.to_json,
+      'filestore_requests' => @filestore_requests&.to_json,
+      'tmp_file_path' => @tmp_file&.path,
+      'segments' => @segments&.to_json,
+      'eof_pdu_hash' => @eof_pdu_hash&.to_json,
+      'checksum_type' => @checksum.class.name,
+      'full_checksum_needed' => @full_checksum_needed,
+      'file_size' => @file_size,
+      'filestore_responses' => @filestore_responses&.to_json,
+      'nak_timeout' => @nak_timeout&.iso8601(6),
+      'nak_timeout_count' => @nak_timeout_count,
+      'check_timeout' => @check_timeout&.iso8601(6),
+      'check_timeout_count' => @check_timeout_count,
+      'nak_start_of_scope' => @nak_start_of_scope,
+      'keep_alive_count' => @keep_alive_count,
+      'finished_count' => @finished_count,
+      'source_entity_id' => @source_entity_id,
+      'inactivity_timeout' => @inactivity_timeout&.iso8601(6),
+      'inactivity_count' => @inactivity_count,
+      'keep_alive_timeout' => @keep_alive_timeout&.iso8601(6),
+      'finished_ack_timeout' => @finished_ack_timeout&.iso8601(6),
+      'finished_pdu' => @finished_pdu,
+      'finished_ack_pdu_hash' => @finished_ack_pdu_hash&.to_json,
+      'prompt_pdu_hash' => @prompt_pdu_hash&.to_json
+    }
+
+    child_state_data.each do |field, value|
+      if value.nil?
+        OpenC3::Store.hdel("cfdp_transaction_state:#{@id}", field)
+      else
+        OpenC3::Store.hset("cfdp_transaction_state:#{@id}", field, value.to_s)
+      end
+    end
+  end
+
+  def load_state(transaction_id)
+    return false unless super(transaction_id)
+
+    state_data = OpenC3::Store.hgetall("cfdp_transaction_state:#{transaction_id}")
+
+    @transmission_mode = state_data['transmission_mode']
+    @messages_to_user = state_data['messages_to_user'] ? JSON.parse(state_data['messages_to_user']) : []
+    @filestore_requests = state_data['filestore_requests'] ? JSON.parse(state_data['filestore_requests']) : []
+
+    if state_data['tmp_file_path']
+      begin
+        @tmp_file = File.open(state_data['tmp_file_path'], 'r+b')
+      rescue
+        @tmp_file = nil
+      end
+    else
+      @tmp_file = nil
+    end
+
+    @segments = state_data['segments'] ? JSON.parse(state_data['segments']) : {}
+    @eof_pdu_hash = state_data['eof_pdu_hash'] ? JSON.parse(state_data['eof_pdu_hash']) : nil
+
+    case state_data['checksum_type']
+    when 'CfdpChecksum'
+      @checksum = CfdpChecksum.new
+    when 'CfdpNullChecksum'
+      @checksum = CfdpNullChecksum.new
+    when 'CfdpCrcChecksum'
+      @checksum = CfdpCrcChecksum.new(0, 0, false, false)
+    else
+      @checksum = CfdpNullChecksum.new
+    end
+
+    @full_checksum_needed = state_data['full_checksum_needed'] == 'true'
+    @file_size = state_data['file_size']&.to_i || 0
+    @filestore_responses = state_data['filestore_responses'] ? JSON.parse(state_data['filestore_responses']) : []
+    @nak_timeout = state_data['nak_timeout'] ? Time.parse(state_data['nak_timeout']) : nil
+    @nak_timeout_count = state_data['nak_timeout_count']&.to_i || 0
+    @check_timeout = state_data['check_timeout'] ? Time.parse(state_data['check_timeout']) : nil
+    @check_timeout_count = state_data['check_timeout_count']&.to_i || 0
+    @nak_start_of_scope = state_data['nak_start_of_scope']&.to_i || 0
+    @keep_alive_count = state_data['keep_alive_count']&.to_i || 0
+    @finished_count = state_data['finished_count']&.to_i || 0
+    @source_entity_id = state_data['source_entity_id']&.to_i
+    @inactivity_timeout = state_data['inactivity_timeout'] ? Time.parse(state_data['inactivity_timeout']) : nil
+    @inactivity_count = state_data['inactivity_count']&.to_i || 0
+    @keep_alive_timeout = state_data['keep_alive_timeout'] ? Time.parse(state_data['keep_alive_timeout']) : nil
+    @finished_ack_timeout = state_data['finished_ack_timeout'] ? Time.parse(state_data['finished_ack_timeout']) : nil
+    @finished_pdu = state_data['finished_pdu']
+    @finished_ack_pdu_hash = state_data['finished_ack_pdu_hash'] ? JSON.parse(state_data['finished_ack_pdu_hash']) : nil
+    @prompt_pdu_hash = state_data['prompt_pdu_hash'] ? JSON.parse(state_data['prompt_pdu_hash']) : nil
+
+    return true
+  end
 end
