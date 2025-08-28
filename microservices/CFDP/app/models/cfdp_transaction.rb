@@ -157,12 +157,12 @@ class CfdpTransaction
 
   def freeze
     OpenC3::Logger.info("CFDP Freeze Transaction #{@id}", scope: ENV['OPENC3_SCOPE'])
-    @freeze = true
+    @frozen = true
   end
 
   def unfreeze
     OpenC3::Logger.info("CFDP Unfreeze Transaction #{@id}", scope: ENV['OPENC3_SCOPE'])
-    @freeze = false
+    @frozen = false
   end
 
   def build_report

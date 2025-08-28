@@ -181,13 +181,13 @@ RSpec.describe CfdpTransaction do
     describe "freeze and unfreeze" do
       it "freezes the transaction" do
         transaction.freeze
-        expect(transaction.instance_variable_get(:@freeze)).to be true
+        expect(transaction.instance_variable_get(:@frozen)).to be true
       end
 
       it "unfreezes the transaction" do
-        transaction.instance_variable_set(:@freeze, true)
+        transaction.instance_variable_set(:@frozen, true)
         transaction.unfreeze
-        expect(transaction.instance_variable_get(:@freeze)).to be false
+        expect(transaction.instance_variable_get(:@frozen)).to be false
       end
     end
 

@@ -88,7 +88,7 @@ class CfdpSourceTransaction < CfdpTransaction
   end
 
   def handle_suspend
-    while @state == "SUSPENDED" or @freeze
+    while @state == "SUSPENDED" or @frozen
       sleep(1)
     end
   end
