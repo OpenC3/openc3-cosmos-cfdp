@@ -42,26 +42,30 @@ class CfdpTransaction
   attr_accessor :proxy_response_info
   attr_accessor :proxy_response_needed
 
+  def self.redis_key_prefix
+    ENV['OPENC3_MICROSERVICE_NAME'] ? "#{ENV['OPENC3_MICROSERVICE_NAME']}:" : ""
+  end
+
   def self.build_transaction_id(source_entity_id, transaction_seq_num)
     "#{source_entity_id}__#{transaction_seq_num}"
   end
 
   def self.get_saved_transaction_ids
-    OpenC3::Store.smembers("cfdp_saved_transaction_ids") || []
+    OpenC3::Store.smembers("#{redis_key_prefix}cfdp_saved_transaction_ids") || []
   end
 
   def self.clear_saved_transaction_ids
-    OpenC3::Store.del("cfdp_saved_transaction_ids")
+    OpenC3::Store.del("#{redis_key_prefix}cfdp_saved_transaction_ids")
   end
 
   def self.has_saved_state?(transaction_id)
-    OpenC3::Store.sismember("cfdp_saved_transaction_ids", transaction_id)
+    OpenC3::Store.sismember("#{redis_key_prefix}cfdp_saved_transaction_ids", transaction_id)
   end
 
   def remove_saved_state
     if @id
-      OpenC3::Store.del("cfdp_transaction_state:#{@id}")
-      OpenC3::Store.srem("cfdp_saved_transaction_ids", @id)
+      OpenC3::Store.del("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}")
+      OpenC3::Store.srem("#{self.class.redis_key_prefix}cfdp_saved_transaction_ids", @id)
       OpenC3::Logger.debug("CFDP Transaction #{@id} state removed", scope: ENV['OPENC3_SCOPE'])
     end
   end
@@ -241,18 +245,18 @@ class CfdpTransaction
 
     state_data.each do |field, value|
       if value.nil?
-        OpenC3::Store.hdel("cfdp_transaction_state:#{@id}", field)
+        OpenC3::Store.hdel("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", field)
       else
-        OpenC3::Store.hset("cfdp_transaction_state:#{@id}", field, value.to_s)
+        OpenC3::Store.hset("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", field, value.to_s)
       end
     end
 
-    OpenC3::Store.sadd("cfdp_saved_transaction_ids", @id)
+    OpenC3::Store.sadd("#{self.class.redis_key_prefix}cfdp_saved_transaction_ids", @id)
     OpenC3::Logger.debug("CFDP Transaction #{@id} state saved", scope: ENV['OPENC3_SCOPE'])
   end
 
   def load_state(transaction_id)
-    state_data = OpenC3::Store.hgetall("cfdp_transaction_state:#{transaction_id}")
+    state_data = OpenC3::Store.hgetall("#{self.class.redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
     return false if state_data.empty?
 
     @id = state_data['id']

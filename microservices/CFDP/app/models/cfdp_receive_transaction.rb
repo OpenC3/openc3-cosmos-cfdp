@@ -633,9 +633,9 @@ class CfdpReceiveTransaction < CfdpTransaction
 
     child_state_data.each do |field, value|
       if value.nil?
-        OpenC3::Store.hdel("cfdp_transaction_state:#{@id}", field)
+        OpenC3::Store.hdel("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", field)
       else
-        OpenC3::Store.hset("cfdp_transaction_state:#{@id}", field, value.to_s)
+        OpenC3::Store.hset("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", field, value.to_s)
       end
     end
   end
@@ -643,7 +643,7 @@ class CfdpReceiveTransaction < CfdpTransaction
   def load_state(transaction_id)
     return false unless super(transaction_id)
 
-    state_data = OpenC3::Store.hgetall("cfdp_transaction_state:#{transaction_id}")
+    state_data = OpenC3::Store.hgetall("#{self.class.redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
 
     @transmission_mode = state_data['transmission_mode']
     @messages_to_user = state_data['messages_to_user'] ? JSON.parse(state_data['messages_to_user']) : []

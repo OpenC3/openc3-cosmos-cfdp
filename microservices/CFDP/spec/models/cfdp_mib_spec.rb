@@ -25,6 +25,9 @@ RSpec.describe CfdpMib do
     allow(OpenC3::Logger).to receive(:debug)
     allow(CfdpTransaction).to receive(:clear_saved_transaction_ids)
     CfdpMib.clear
+
+    @redis_prefix = 'CFDP_MICROSERVICE_NAME'
+    allow(CfdpTransaction).to receive(:redis_key_prefix).and_return(@redis_prefix)
   end
 
   describe "entity management" do
@@ -750,20 +753,20 @@ RSpec.describe CfdpMib do
       mock_redis
       allow(OpenC3::Logger).to receive(:debug)
 
-      OpenC3::Store.sadd("cfdp_saved_transaction_ids", "tx1")
-      OpenC3::Store.sadd("cfdp_saved_transaction_ids", "tx2")
-      OpenC3::Store.sadd("cfdp_saved_transaction_ids", "orphaned_tx")
-      OpenC3::Store.hset("cfdp_transaction_state:orphaned_tx", "id", "orphaned_tx")
+      OpenC3::Store.sadd("#{@redis_prefix}cfdp_saved_transaction_ids", "tx1")
+      OpenC3::Store.sadd("#{@redis_prefix}cfdp_saved_transaction_ids", "tx2")
+      OpenC3::Store.sadd("#{@redis_prefix}cfdp_saved_transaction_ids", "orphaned_tx")
+      OpenC3::Store.hset("#{@redis_prefix}cfdp_transaction_state:orphaned_tx", "id", "orphaned_tx")
 
       allow(@active_tx).to receive(:remove_saved_state).and_return(true)
       allow(@recent_tx).to receive(:remove_saved_state).and_return(true)
       allow(@old_tx).to receive(:remove_saved_state).and_return(true)
       expect(CfdpTransaction.has_saved_state?("orphaned_tx")).to be true
-      expect(OpenC3::Store.exists("cfdp_transaction_state:orphaned_tx")).to be > 0
+      expect(OpenC3::Store.exists("#{@redis_prefix}cfdp_transaction_state:orphaned_tx")).to be > 0
 
       CfdpMib.cleanup_old_transactions
       expect(CfdpTransaction.has_saved_state?("orphaned_tx")).to be false
-      expect(OpenC3::Store.exists("cfdp_transaction_state:orphaned_tx")).to eq(0)
+      expect(OpenC3::Store.exists("#{@redis_prefix}cfdp_transaction_state:orphaned_tx")).to eq(0)
     end
   end
 
@@ -772,10 +775,10 @@ RSpec.describe CfdpMib do
       mock_redis
       allow(CfdpTransaction).to receive(:clear_saved_transaction_ids).and_call_original
 
-      OpenC3::Store.sadd("cfdp_saved_transaction_ids", "tx1")
-      OpenC3::Store.sadd("cfdp_saved_transaction_ids", "tx2")
-      OpenC3::Store.hset("cfdp_transaction_state:tx1", "id", "tx1")
-      OpenC3::Store.hset("cfdp_transaction_state:tx2", "id", "tx2")
+      OpenC3::Store.sadd("#{@redis_prefix}cfdp_saved_transaction_ids", "tx1")
+      OpenC3::Store.sadd("#{@redis_prefix}cfdp_saved_transaction_ids", "tx2")
+      OpenC3::Store.hset("#{@redis_prefix}cfdp_transaction_state:tx1", "id", "tx1")
+      OpenC3::Store.hset("#{@redis_prefix}cfdp_transaction_state:tx2", "id", "tx2")
       expect(CfdpTransaction.get_saved_transaction_ids.length).to eq(2)
 
       CfdpMib.clear
@@ -874,7 +877,7 @@ RSpec.describe CfdpMib do
       expect(OpenC3::Logger).to have_received(:error).with("CFDP error loading saved transaction 1__999: Transaction creation failed", scope: 'DEFAULT')
 
       # Verify cleanup of invalid state
-      expect(OpenC3::Store.exists("cfdp_transaction_state:1__999")).to eq(0)
+      expect(OpenC3::Store.exists("#{@redis_prefix}cfdp_transaction_state:1__999")).to eq(0)
       expect(CfdpTransaction.has_saved_state?("1__999")).to be false
       expect(OpenC3::Logger).to have_received(:debug).with("CFDP no saved transactions to load", scope: 'DEFAULT')
     end

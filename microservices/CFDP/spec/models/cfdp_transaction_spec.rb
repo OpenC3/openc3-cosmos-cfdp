@@ -47,6 +47,9 @@ RSpec.describe CfdpTransaction do
     # Mock Api module
     allow_any_instance_of(CfdpTransaction).to receive(:cmd)
 
+    @redis_prefix = 'CFDP_MICROSERVICE_NAME'
+    allow(CfdpTransaction).to receive(:redis_key_prefix).and_return(@redis_prefix)
+
     ENV['OPENC3_SCOPE'] = 'DEFAULT'
   end
 
@@ -333,11 +336,11 @@ RSpec.describe CfdpTransaction do
 
         transaction.save_state
 
-        expect(OpenC3::Store.hget("cfdp_transaction_state:1__123", "id")).to eq("1__123")
-        expect(OpenC3::Store.hget("cfdp_transaction_state:1__123", "state")).to eq("ACTIVE")
-        expect(OpenC3::Store.hget("cfdp_transaction_state:1__123", "source_file_name")).to eq("source.txt")
-        expect(OpenC3::Store.hget("cfdp_transaction_state:1__123", "destination_file_name")).to eq("dest.txt")
-        expect(OpenC3::Store.hget("cfdp_transaction_state:1__123", "transaction_seq_num")).to eq("123")
+        expect(OpenC3::Store.hget("#{@redis_prefix}cfdp_transaction_state:1__123", "id")).to eq("1__123")
+        expect(OpenC3::Store.hget("#{@redis_prefix}cfdp_transaction_state:1__123", "state")).to eq("ACTIVE")
+        expect(OpenC3::Store.hget("#{@redis_prefix}cfdp_transaction_state:1__123", "source_file_name")).to eq("source.txt")
+        expect(OpenC3::Store.hget("#{@redis_prefix}cfdp_transaction_state:1__123", "destination_file_name")).to eq("dest.txt")
+        expect(OpenC3::Store.hget("#{@redis_prefix}cfdp_transaction_state:1__123", "transaction_seq_num")).to eq("123")
         expect(OpenC3::Logger).to have_received(:debug).with("CFDP Transaction 1__123 state saved", scope: 'DEFAULT')
       end
 
@@ -349,9 +352,9 @@ RSpec.describe CfdpTransaction do
 
         transaction.save_state
 
-        expect(OpenC3::Store.hexists("cfdp_transaction_state:1__123", "delivery_code")).to be false
-        expect(OpenC3::Store.hexists("cfdp_transaction_state:1__123", "file_status")).to be false
-        expect(OpenC3::Store.hexists("cfdp_transaction_state:1__123", "complete_time")).to be false
+        expect(OpenC3::Store.hexists("#{@redis_prefix}cfdp_transaction_state:1__123", "delivery_code")).to be false
+        expect(OpenC3::Store.hexists("#{@redis_prefix}cfdp_transaction_state:1__123", "file_status")).to be false
+        expect(OpenC3::Store.hexists("#{@redis_prefix}cfdp_transaction_state:1__123", "complete_time")).to be false
       end
     end
 
@@ -359,7 +362,7 @@ RSpec.describe CfdpTransaction do
       it "loads transaction state from OpenC3::Store" do
         mock_redis
 
-        state_key = "cfdp_transaction_state:1__123"
+        state_key = "#{@redis_prefix}cfdp_transaction_state:1__123"
         OpenC3::Store.hset(state_key, "id", "1__123")
         OpenC3::Store.hset(state_key, "frozen", "false")
         OpenC3::Store.hset(state_key, "state", "SUSPENDED")
@@ -407,8 +410,7 @@ RSpec.describe CfdpTransaction do
       it "handles missing fields with defaults" do
         mock_redis
 
-        state_key = "cfdp_transaction_state:1__123"
-        OpenC3::Store.hset(state_key, "id", "1__123")
+        OpenC3::Store.hset("#{@redis_prefix}cfdp_transaction_state:1__123", "id", "1__123")
 
         allow(OpenC3::Logger).to receive(:debug)
 
@@ -545,14 +547,14 @@ RSpec.describe CfdpTransaction do
         transaction.save_state
         expect(CfdpTransaction.get_saved_transaction_ids).to include("1__999")
         expect(CfdpTransaction.has_saved_state?("1__999")).to be true
-        expect(OpenC3::Store.exists("cfdp_transaction_state:1__999")).to be > 0
+        expect(OpenC3::Store.exists("#{@redis_prefix}cfdp_transaction_state:1__999")).to be > 0
 
         # Remove saved state
         transaction.remove_saved_state
 
         expect(CfdpTransaction.get_saved_transaction_ids).not_to include("1__999")
         expect(CfdpTransaction.has_saved_state?("1__999")).to be false
-        expect(OpenC3::Store.exists("cfdp_transaction_state:1__999")).to eq(0)
+        expect(OpenC3::Store.exists("#{@redis_prefix}cfdp_transaction_state:1__999")).to eq(0)
       end
 
       it "clears all saved transaction IDs" do

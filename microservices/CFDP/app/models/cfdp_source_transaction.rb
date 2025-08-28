@@ -483,9 +483,9 @@ class CfdpSourceTransaction < CfdpTransaction
 
     child_state_data.each do |field, value|
       if value.nil?
-        OpenC3::Store.hdel("cfdp_transaction_state:#{@id}", field)
+        OpenC3::Store.hdel("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", field)
       else
-        OpenC3::Store.hset("cfdp_transaction_state:#{@id}", field, value.to_s)
+        OpenC3::Store.hset("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", field, value.to_s)
       end
     end
   end
@@ -493,7 +493,7 @@ class CfdpSourceTransaction < CfdpTransaction
   def load_state(transaction_id)
     return false unless super(transaction_id)
 
-    state_data = OpenC3::Store.hgetall("cfdp_transaction_state:#{transaction_id}")
+    state_data = OpenC3::Store.hgetall("#{self.class.redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
 
     @source_entity = state_data['source_entity'] ? JSON.parse(state_data['source_entity']) : nil
     @finished_pdu_hash = state_data['finished_pdu_hash'] ? JSON.parse(state_data['finished_pdu_hash']) : nil

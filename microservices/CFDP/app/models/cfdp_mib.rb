@@ -672,8 +672,8 @@ class CfdpMib
       rescue => error
         OpenC3::Logger.error("CFDP error loading saved transaction #{transaction_id}: #{error.message}", scope: ENV['OPENC3_SCOPE'])
         # Remove invalid saved state
-        OpenC3::Store.del("cfdp_transaction_state:#{transaction_id}")
-        OpenC3::Store.srem("cfdp_saved_transaction_ids", transaction_id)
+        OpenC3::Store.del("#{CfdpTransaction.redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
+        OpenC3::Store.srem("#{CfdpTransaction.redis_key_prefix}cfdp_saved_transaction_ids", transaction_id)
       end
     end
 
@@ -750,8 +750,8 @@ class CfdpMib
     saved_ids = CfdpTransaction.get_saved_transaction_ids
     saved_ids.each do |saved_id|
       unless @@transactions.key?(saved_id)
-        OpenC3::Store.del("cfdp_transaction_state:#{saved_id}")
-        OpenC3::Store.srem("cfdp_saved_transaction_ids", saved_id)
+        OpenC3::Store.del("#{CfdpTransaction.redis_key_prefix}cfdp_transaction_state:#{saved_id}")
+        OpenC3::Store.srem("#{CfdpTransaction.redis_key_prefix}cfdp_saved_transaction_ids", saved_id)
         OpenC3::Logger.debug("CFDP removed orphaned saved state: #{saved_id}", scope: ENV['OPENC3_SCOPE'])
       end
     end
