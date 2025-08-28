@@ -42,6 +42,9 @@ require 'openc3/models/microservice_model'
 require 'openc3/utilities/bucket'
 require 'openc3/utilities/logger'
 require 'openc3/config/config_parser'
+require_relative 'cfdp_transaction'
+require_relative 'cfdp_source_transaction'
+require_relative 'cfdp_receive_transaction'
 require 'tempfile'
 require 'fileutils'
 require 'json'
@@ -633,6 +636,52 @@ class CfdpMib
     raise "OPTION source_entity_id is required" unless source_entity_defined
     raise "OPTION destination_entity_id is required" unless destination_entity_defined
     raise "OPTION root_path is required" unless root_path_defined
+
+    load_saved_transactions
+  end
+
+  def self.load_saved_transactions
+    saved_transaction_ids = CfdpTransaction.get_saved_transaction_ids
+    loaded_count = 0
+
+    saved_transaction_ids.each do |transaction_id|
+      begin
+        source_entity_id = transaction_id.split('__')[0].to_i
+        if source_entity_id == @@source_entity_id
+          # This is a source transaction (we initiated it)
+          transaction = CfdpSourceTransaction.new(source_entity: @@entities[source_entity_id])
+        else
+          # This is a receive transaction (initiated by remote entity)
+          # We need to create a dummy PDU hash for initialization
+          dummy_pdu = {
+            "SOURCE_ENTITY_ID" => source_entity_id,
+            "SEQUENCE_NUMBER" => transaction_id.split('__')[1].to_i,
+            "TRANSMISSION_MODE" => "UNACKNOWLEDGED" # Default, will be overridden by loaded state
+          }
+          transaction = CfdpReceiveTransaction.new(dummy_pdu)
+        end
+
+        if transaction.load_state(transaction_id)
+          @@transactions[transaction_id] = transaction
+          loaded_count += 1
+          OpenC3::Logger.info("CFDP loaded saved transaction: #{transaction_id}", scope: ENV['OPENC3_SCOPE'])
+        else
+          OpenC3::Logger.warn("CFDP failed to load saved transaction: #{transaction_id}", scope: ENV['OPENC3_SCOPE'])
+        end
+
+      rescue => error
+        OpenC3::Logger.error("CFDP error loading saved transaction #{transaction_id}: #{error.message}", scope: ENV['OPENC3_SCOPE'])
+        # Remove invalid saved state
+        OpenC3::Store.del("#{CfdpTransaction.redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
+        OpenC3::Store.srem("#{CfdpTransaction.redis_key_prefix}cfdp_saved_transaction_ids", transaction_id)
+      end
+    end
+
+    if loaded_count > 0
+      OpenC3::Logger.info("CFDP loaded #{loaded_count} saved transactions", scope: ENV['OPENC3_SCOPE'])
+    else
+      OpenC3::Logger.debug("CFDP no saved transactions to load", scope: ENV['OPENC3_SCOPE'])
+    end
   end
 
   def self.directory_listing(directory_name, directory_file_name)
@@ -679,6 +728,8 @@ class CfdpMib
     @@bucket = nil
     @@root_path = "/"
     @@transactions = {}
+    CfdpTransaction.clear_saved_transaction_ids
+    OpenC3::Logger.debug("CFDP cleared all saved transaction states", scope: ENV['OPENC3_SCOPE'])
   end
 
   def self.cleanup_old_transactions
@@ -691,7 +742,18 @@ class CfdpMib
       end
     end
     to_remove.each do |id|
+      transaction = @@transactions[id]
+      transaction.remove_saved_state if transaction
       @@transactions.delete(id)
+    end
+
+    saved_ids = CfdpTransaction.get_saved_transaction_ids
+    saved_ids.each do |saved_id|
+      unless @@transactions.key?(saved_id)
+        OpenC3::Store.del("#{CfdpTransaction.redis_key_prefix}cfdp_transaction_state:#{saved_id}")
+        OpenC3::Store.srem("#{CfdpTransaction.redis_key_prefix}cfdp_saved_transaction_ids", saved_id)
+        OpenC3::Logger.debug("CFDP removed orphaned saved state: #{saved_id}", scope: ENV['OPENC3_SCOPE'])
+      end
     end
   end
 end

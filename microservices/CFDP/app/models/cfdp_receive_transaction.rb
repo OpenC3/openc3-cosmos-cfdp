@@ -18,6 +18,7 @@
 # See https://github.com/OpenC3/openc3-cosmos-cfdp/pull/12 for details
 
 require_relative 'cfdp_transaction'
+require 'base64'
 
 class CfdpReceiveTransaction < CfdpTransaction
   def initialize(pdu_hash)
@@ -188,6 +189,7 @@ class CfdpReceiveTransaction < CfdpTransaction
     @state = "FINISHED" unless @state == "CANCELED" or @state == "ABANDONED"
     @transaction_status = "TERMINATED"
     @complete_time = Time.now.utc
+    remove_saved_state
     OpenC3::Logger.info("CFDP Finished Receive Transaction #{@id}, #{@condition_code}", scope: ENV['OPENC3_SCOPE'])
 
     if CfdpMib.source_entity['transaction_finished_indication']
@@ -438,7 +440,10 @@ class CfdpReceiveTransaction < CfdpTransaction
     case pdu_hash["DIRECTIVE_CODE"]
     when "METADATA"
       @metadata_pdu_count += 1
-      return if @metadata_pdu_hash # Discard repeats
+      if @metadata_pdu_hash # Discard repeats
+        save_state if @id
+        return
+      end
       @metadata_pdu_hash = pdu_hash
       @source_entity_id = @metadata_pdu_hash['SOURCE_ENTITY_ID']
       kw_args = {}
@@ -592,5 +597,102 @@ class CfdpReceiveTransaction < CfdpTransaction
 
       send_naks() if need_send_naks
     end
+
+    save_state if @id
+  end
+
+  def save_state
+    super
+
+    child_state_data = {
+      'transmission_mode' => @transmission_mode,
+      'messages_to_user' => @messages_to_user ? Base64.strict_encode64(Marshal.dump(@messages_to_user)) : nil,
+      'filestore_requests' => @filestore_requests ? Base64.strict_encode64(Marshal.dump(@filestore_requests)) : nil,
+      'tmp_file_path' => @tmp_file&.path,
+      'segments' => @segments ? Base64.strict_encode64(Marshal.dump(@segments)) : nil,
+      'eof_pdu_hash' => @eof_pdu_hash ? Base64.strict_encode64(Marshal.dump(@eof_pdu_hash)) : nil,
+      'checksum_type' => @checksum.class.name,
+      'full_checksum_needed' => @full_checksum_needed,
+      'file_size' => @file_size,
+      'filestore_responses' => @filestore_responses ? Base64.strict_encode64(Marshal.dump(@filestore_responses)) : nil,
+      'nak_timeout' => @nak_timeout&.iso8601(6),
+      'nak_timeout_count' => @nak_timeout_count,
+      'check_timeout' => @check_timeout&.iso8601(6),
+      'check_timeout_count' => @check_timeout_count,
+      'nak_start_of_scope' => @nak_start_of_scope,
+      'keep_alive_count' => @keep_alive_count,
+      'finished_count' => @finished_count,
+      'source_entity_id' => @source_entity_id,
+      'inactivity_timeout' => @inactivity_timeout&.iso8601(6),
+      'inactivity_count' => @inactivity_count,
+      'keep_alive_timeout' => @keep_alive_timeout&.iso8601(6),
+      'finished_ack_timeout' => @finished_ack_timeout&.iso8601(6),
+      'finished_pdu' => @finished_pdu,
+      'finished_ack_pdu_hash' => @finished_ack_pdu_hash ? Base64.strict_encode64(Marshal.dump(@finished_ack_pdu_hash)) : nil,
+      'prompt_pdu_hash' => @prompt_pdu_hash ? Base64.strict_encode64(Marshal.dump(@prompt_pdu_hash)) : nil
+    }
+
+    child_state_data.each do |field, value|
+      if value.nil?
+        OpenC3::Store.hdel("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", field)
+      else
+        OpenC3::Store.hset("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", field, value.to_s)
+      end
+    end
+  end
+
+  def load_state(transaction_id)
+    return false unless super(transaction_id)
+
+    state_data = OpenC3::Store.hgetall("#{self.class.redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
+
+    @transmission_mode = state_data['transmission_mode']
+    @messages_to_user = state_data['messages_to_user'] ? Marshal.load(Base64.strict_decode64(state_data['messages_to_user'])) : []
+    @filestore_requests = state_data['filestore_requests'] ? Marshal.load(Base64.strict_decode64(state_data['filestore_requests'])) : []
+
+    if state_data['tmp_file_path']
+      begin
+        @tmp_file = File.open(state_data['tmp_file_path'], 'r+b')
+      rescue
+        @tmp_file = nil
+      end
+    else
+      @tmp_file = nil
+    end
+
+    @segments = state_data['segments'] ? Marshal.load(Base64.strict_decode64(state_data['segments'])) : {}
+    @eof_pdu_hash = state_data['eof_pdu_hash'] ? Marshal.load(Base64.strict_decode64(state_data['eof_pdu_hash'])) : nil
+
+    case state_data['checksum_type']
+    when 'CfdpChecksum'
+      @checksum = CfdpChecksum.new
+    when 'CfdpNullChecksum'
+      @checksum = CfdpNullChecksum.new
+    when 'CfdpCrcChecksum'
+      @checksum = CfdpCrcChecksum.new(0, 0, false, false)
+    else
+      @checksum = CfdpNullChecksum.new
+    end
+
+    @full_checksum_needed = state_data['full_checksum_needed'] == 'true'
+    @file_size = state_data['file_size']&.to_i || 0
+    @filestore_responses = state_data['filestore_responses'] ? Marshal.load(Base64.strict_decode64(state_data['filestore_responses'])) : []
+    @nak_timeout = state_data['nak_timeout'] ? Time.parse(state_data['nak_timeout']) : nil
+    @nak_timeout_count = state_data['nak_timeout_count']&.to_i || 0
+    @check_timeout = state_data['check_timeout'] ? Time.parse(state_data['check_timeout']) : nil
+    @check_timeout_count = state_data['check_timeout_count']&.to_i || 0
+    @nak_start_of_scope = state_data['nak_start_of_scope']&.to_i || 0
+    @keep_alive_count = state_data['keep_alive_count']&.to_i || 0
+    @finished_count = state_data['finished_count']&.to_i || 0
+    @source_entity_id = state_data['source_entity_id']&.to_i
+    @inactivity_timeout = state_data['inactivity_timeout'] ? Time.parse(state_data['inactivity_timeout']) : nil
+    @inactivity_count = state_data['inactivity_count']&.to_i || 0
+    @keep_alive_timeout = state_data['keep_alive_timeout'] ? Time.parse(state_data['keep_alive_timeout']) : nil
+    @finished_ack_timeout = state_data['finished_ack_timeout'] ? Time.parse(state_data['finished_ack_timeout']) : nil
+    @finished_pdu = state_data['finished_pdu']
+    @finished_ack_pdu_hash = state_data['finished_ack_pdu_hash'] ? Marshal.load(Base64.strict_decode64(state_data['finished_ack_pdu_hash'])) : nil
+    @prompt_pdu_hash = state_data['prompt_pdu_hash'] ? Marshal.load(Base64.strict_decode64(state_data['prompt_pdu_hash'])) : nil
+
+    return true
   end
 end
