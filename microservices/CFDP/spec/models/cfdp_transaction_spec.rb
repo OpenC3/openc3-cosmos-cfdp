@@ -326,7 +326,7 @@ RSpec.describe CfdpTransaction do
     end
 
     describe "save_state" do
-      it "saves transaction state to OpenC3::Store" do
+      it "saves transaction state to OpenC3::Store as serialized data" do
         mock_redis
         transaction.instance_variable_set(:@id, "1__123")
         transaction.instance_variable_set(:@source_file_name, "source.txt")
@@ -337,15 +337,21 @@ RSpec.describe CfdpTransaction do
 
         transaction.save_state
 
-        expect(OpenC3::Store.hget("#{@redis_prefix}cfdp_transaction_state:1__123", "id")).to eq("1__123")
-        expect(OpenC3::Store.hget("#{@redis_prefix}cfdp_transaction_state:1__123", "state")).to eq("ACTIVE")
-        expect(OpenC3::Store.hget("#{@redis_prefix}cfdp_transaction_state:1__123", "source_file_name")).to eq("source.txt")
-        expect(OpenC3::Store.hget("#{@redis_prefix}cfdp_transaction_state:1__123", "destination_file_name")).to eq("dest.txt")
-        expect(OpenC3::Store.hget("#{@redis_prefix}cfdp_transaction_state:1__123", "transaction_seq_num")).to eq("123")
+        # Verify serialized data is stored
+        serialized_data = OpenC3::Store.get("#{@redis_prefix}cfdp_transaction_state:1__123")
+        expect(serialized_data).not_to be_nil
+
+        # Deserialize and verify structure
+        state_data = Marshal.load(Base64.strict_decode64(serialized_data))
+        expect(state_data["id"]).to eq("1__123")
+        expect(state_data["state"]).to eq("ACTIVE")
+        expect(state_data["source_file_name"]).to eq("source.txt")
+        expect(state_data["destination_file_name"]).to eq("dest.txt")
+        expect(state_data["transaction_seq_num"]).to eq(123)
         expect(OpenC3::Logger).to have_received(:debug).with("CFDP Transaction 1__123 state saved", scope: 'DEFAULT')
       end
 
-      it "handles nil values by not setting them in store" do
+      it "handles nil values by not including them in serialized data" do
         mock_redis
         transaction.instance_variable_set(:@id, "1__123")
 
@@ -353,9 +359,15 @@ RSpec.describe CfdpTransaction do
 
         transaction.save_state
 
-        expect(OpenC3::Store.hexists("#{@redis_prefix}cfdp_transaction_state:1__123", "delivery_code")).to be false
-        expect(OpenC3::Store.hexists("#{@redis_prefix}cfdp_transaction_state:1__123", "file_status")).to be false
-        expect(OpenC3::Store.hexists("#{@redis_prefix}cfdp_transaction_state:1__123", "complete_time")).to be false
+        # Verify serialized data is stored
+        serialized_data = OpenC3::Store.get("#{@redis_prefix}cfdp_transaction_state:1__123")
+        expect(serialized_data).not_to be_nil
+
+        # Deserialize and verify nil values are not included
+        state_data = Marshal.load(Base64.strict_decode64(serialized_data))
+        expect(state_data).not_to have_key("delivery_code")
+        expect(state_data).not_to have_key("file_status")
+        expect(state_data).not_to have_key("complete_time")
       end
     end
 
@@ -363,20 +375,25 @@ RSpec.describe CfdpTransaction do
       it "loads transaction state from OpenC3::Store" do
         mock_redis
 
+        state_data = {
+          "id" => "1__123",
+          "frozen" => false,
+          "state" => "SUSPENDED",
+          "transaction_status" => "ACTIVE",
+          "progress" => 50,
+          "transaction_seq_num" => 123,
+          "condition_code" => "SUSPEND_REQUEST_RECEIVED",
+          "source_file_name" => "source.txt",
+          "destination_file_name" => "dest.txt",
+          "create_time" => "2023-01-01T10:00:00.000000Z",
+          "proxy_response_needed" => true,
+          "metadata_pdu_count" => 5,
+          "fault_handler_overrides" => {"FILE_SIZE_ERROR" => "ABANDON_TRANSACTION"}
+        }
+
         state_key = "#{@redis_prefix}cfdp_transaction_state:1__123"
-        OpenC3::Store.hset(state_key, "id", "1__123")
-        OpenC3::Store.hset(state_key, "frozen", "false")
-        OpenC3::Store.hset(state_key, "state", "SUSPENDED")
-        OpenC3::Store.hset(state_key, "transaction_status", "ACTIVE")
-        OpenC3::Store.hset(state_key, "progress", "50")
-        OpenC3::Store.hset(state_key, "transaction_seq_num", "123")
-        OpenC3::Store.hset(state_key, "condition_code", "SUSPEND_REQUEST_RECEIVED")
-        OpenC3::Store.hset(state_key, "source_file_name", "source.txt")
-        OpenC3::Store.hset(state_key, "destination_file_name", "dest.txt")
-        OpenC3::Store.hset(state_key, "create_time", "2023-01-01T10:00:00.000000Z")
-        OpenC3::Store.hset(state_key, "proxy_response_needed", "true")
-        OpenC3::Store.hset(state_key, "metadata_pdu_count", "5")
-        OpenC3::Store.hset(state_key, "fault_handler_overrides", Base64.strict_encode64(Marshal.dump({"FILE_SIZE_ERROR" => "ABANDON_TRANSACTION"})))
+        serialized_data = Base64.strict_encode64(Marshal.dump(state_data))
+        OpenC3::Store.set(state_key, serialized_data)
 
         allow(OpenC3::Logger).to receive(:debug)
 
@@ -411,7 +428,10 @@ RSpec.describe CfdpTransaction do
       it "handles missing fields with defaults" do
         mock_redis
 
-        OpenC3::Store.hset("#{@redis_prefix}cfdp_transaction_state:1__123", "id", "1__123")
+        state_data = {"id" => "1__123"}
+        state_key = "#{@redis_prefix}cfdp_transaction_state:1__123"
+        serialized_data = Base64.strict_encode64(Marshal.dump(state_data))
+        OpenC3::Store.set(state_key, serialized_data)
 
         allow(OpenC3::Logger).to receive(:debug)
 
@@ -548,14 +568,14 @@ RSpec.describe CfdpTransaction do
         transaction.save_state
         expect(CfdpTransaction.get_saved_transaction_ids).to include("1__999")
         expect(CfdpTransaction.has_saved_state?("1__999")).to be true
-        expect(OpenC3::Store.exists("#{@redis_prefix}cfdp_transaction_state:1__999")).to be > 0
+        expect(OpenC3::Store.get("#{@redis_prefix}cfdp_transaction_state:1__999")).not_to be_nil
 
         # Remove saved state
         transaction.remove_saved_state
 
         expect(CfdpTransaction.get_saved_transaction_ids).not_to include("1__999")
         expect(CfdpTransaction.has_saved_state?("1__999")).to be false
-        expect(OpenC3::Store.exists("#{@redis_prefix}cfdp_transaction_state:1__999")).to eq(0)
+        expect(OpenC3::Store.get("#{@redis_prefix}cfdp_transaction_state:1__999")).to be_nil
       end
 
       it "clears all saved transaction IDs" do

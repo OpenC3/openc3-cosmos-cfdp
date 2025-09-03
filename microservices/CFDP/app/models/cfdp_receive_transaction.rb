@@ -602,19 +602,35 @@ class CfdpReceiveTransaction < CfdpTransaction
   end
 
   def save_state
-    super
-
-    child_state_data = {
+    state_data = {
+      'id' => @id,
+      'frozen' => @frozen,
+      'state' => @state,
+      'transaction_status' => @transaction_status,
+      'progress' => @progress,
+      'transaction_seq_num' => @transaction_seq_num,
+      'condition_code' => @condition_code,
+      'delivery_code' => @delivery_code,
+      'file_status' => @file_status,
+      'metadata_pdu_hash' => @metadata_pdu_hash,
+      'metadata_pdu_count' => @metadata_pdu_count,
+      'create_time' => @create_time&.iso8601(6),
+      'proxy_response_info' => @proxy_response_info,
+      'proxy_response_needed' => @proxy_response_needed,
+      'canceling_entity_id' => @canceling_entity_id,
+      'fault_handler_overrides' => @fault_handler_overrides,
+      'source_file_name' => @source_file_name,
+      'destination_file_name' => @destination_file_name,
       'transmission_mode' => @transmission_mode,
-      'messages_to_user' => @messages_to_user ? Base64.strict_encode64(Marshal.dump(@messages_to_user)) : nil,
-      'filestore_requests' => @filestore_requests ? Base64.strict_encode64(Marshal.dump(@filestore_requests)) : nil,
+      'messages_to_user' => @messages_to_user,
+      'filestore_requests' => @filestore_requests,
       'tmp_file_path' => @tmp_file&.path,
-      'segments' => @segments ? Base64.strict_encode64(Marshal.dump(@segments)) : nil,
-      'eof_pdu_hash' => @eof_pdu_hash ? Base64.strict_encode64(Marshal.dump(@eof_pdu_hash)) : nil,
+      'segments' => @segments,
+      'eof_pdu_hash' => @eof_pdu_hash,
       'checksum_type' => @checksum.class.name,
       'full_checksum_needed' => @full_checksum_needed,
       'file_size' => @file_size,
-      'filestore_responses' => @filestore_responses ? Base64.strict_encode64(Marshal.dump(@filestore_responses)) : nil,
+      'filestore_responses' => @filestore_responses,
       'nak_timeout' => @nak_timeout&.iso8601(6),
       'nak_timeout_count' => @nak_timeout_count,
       'check_timeout' => @check_timeout&.iso8601(6),
@@ -628,27 +644,54 @@ class CfdpReceiveTransaction < CfdpTransaction
       'keep_alive_timeout' => @keep_alive_timeout&.iso8601(6),
       'finished_ack_timeout' => @finished_ack_timeout&.iso8601(6),
       'finished_pdu' => @finished_pdu,
-      'finished_ack_pdu_hash' => @finished_ack_pdu_hash ? Base64.strict_encode64(Marshal.dump(@finished_ack_pdu_hash)) : nil,
-      'prompt_pdu_hash' => @prompt_pdu_hash ? Base64.strict_encode64(Marshal.dump(@prompt_pdu_hash)) : nil
+      'finished_ack_pdu_hash' => @finished_ack_pdu_hash,
+      'prompt_pdu_hash' => @prompt_pdu_hash
     }
+    state_data.compact!
 
-    child_state_data.each do |field, value|
-      if value.nil?
-        OpenC3::Store.hdel("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", field)
-      else
-        OpenC3::Store.hset("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", field, value.to_s)
-      end
-    end
+    # Store as Base64-encoded Marshal dump to handle all data types safely
+    serialized_data = Base64.strict_encode64(Marshal.dump(state_data))
+    OpenC3::Store.set("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", serialized_data)
+    OpenC3::Store.sadd("#{self.class.redis_key_prefix}cfdp_saved_transaction_ids", @id)
+    OpenC3::Logger.debug("CFDP Transaction #{@id} state saved", scope: ENV['OPENC3_SCOPE'])
   end
 
   def load_state(transaction_id)
-    return false unless super(transaction_id)
+    serialized_data = OpenC3::Store.get("#{self.class.redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
+    return false unless serialized_data
 
-    state_data = OpenC3::Store.hgetall("#{self.class.redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
+    begin
+      state_data = Marshal.load(Base64.strict_decode64(serialized_data))
+    rescue => e
+      OpenC3::Logger.error("CFDP Transaction #{transaction_id} failed to deserialize state: #{e.message}", scope: ENV['OPENC3_SCOPE'])
+      return false
+    end
 
+    # Load base state
+    @id = state_data['id']
+    @frozen = state_data['frozen']
+    @state = state_data['state'] || 'ACTIVE'
+    @transaction_status = state_data['transaction_status'] || 'ACTIVE'
+    @progress = state_data['progress'] || 0
+    @transaction_seq_num = state_data['transaction_seq_num']
+    @condition_code = state_data['condition_code'] || 'NO_ERROR'
+    @delivery_code = state_data['delivery_code']
+    @file_status = state_data['file_status']
+    @metadata_pdu_hash = state_data['metadata_pdu_hash']
+    @metadata_pdu_count = state_data['metadata_pdu_count'] || 0
+    @create_time = state_data['create_time'] ? Time.parse(state_data['create_time']) : nil
+    @complete_time = nil # Completed transactions are not persisted
+    @proxy_response_info = state_data['proxy_response_info']
+    @proxy_response_needed = state_data['proxy_response_needed']
+    @canceling_entity_id = state_data['canceling_entity_id']
+    @fault_handler_overrides = state_data['fault_handler_overrides'] || {}
+    @source_file_name = state_data['source_file_name']
+    @destination_file_name = state_data['destination_file_name']
+
+    # Load receive-specific state
     @transmission_mode = state_data['transmission_mode']
-    @messages_to_user = state_data['messages_to_user'] ? Marshal.load(Base64.strict_decode64(state_data['messages_to_user'])) : []
-    @filestore_requests = state_data['filestore_requests'] ? Marshal.load(Base64.strict_decode64(state_data['filestore_requests'])) : []
+    @messages_to_user = state_data['messages_to_user'] || []
+    @filestore_requests = state_data['filestore_requests'] || []
 
     if state_data['tmp_file_path']
       begin
@@ -660,8 +703,8 @@ class CfdpReceiveTransaction < CfdpTransaction
       @tmp_file = nil
     end
 
-    @segments = state_data['segments'] ? Marshal.load(Base64.strict_decode64(state_data['segments'])) : {}
-    @eof_pdu_hash = state_data['eof_pdu_hash'] ? Marshal.load(Base64.strict_decode64(state_data['eof_pdu_hash'])) : nil
+    @segments = state_data['segments'] || {}
+    @eof_pdu_hash = state_data['eof_pdu_hash']
 
     case state_data['checksum_type']
     when 'CfdpChecksum'
@@ -674,25 +717,26 @@ class CfdpReceiveTransaction < CfdpTransaction
       @checksum = CfdpNullChecksum.new
     end
 
-    @full_checksum_needed = state_data['full_checksum_needed'] == 'true'
-    @file_size = state_data['file_size']&.to_i || 0
-    @filestore_responses = state_data['filestore_responses'] ? Marshal.load(Base64.strict_decode64(state_data['filestore_responses'])) : []
+    @full_checksum_needed = state_data['full_checksum_needed']
+    @file_size = state_data['file_size'] || 0
+    @filestore_responses = state_data['filestore_responses'] || []
     @nak_timeout = state_data['nak_timeout'] ? Time.parse(state_data['nak_timeout']) : nil
-    @nak_timeout_count = state_data['nak_timeout_count']&.to_i || 0
+    @nak_timeout_count = state_data['nak_timeout_count'] || 0
     @check_timeout = state_data['check_timeout'] ? Time.parse(state_data['check_timeout']) : nil
-    @check_timeout_count = state_data['check_timeout_count']&.to_i || 0
-    @nak_start_of_scope = state_data['nak_start_of_scope']&.to_i || 0
-    @keep_alive_count = state_data['keep_alive_count']&.to_i || 0
-    @finished_count = state_data['finished_count']&.to_i || 0
-    @source_entity_id = state_data['source_entity_id']&.to_i
+    @check_timeout_count = state_data['check_timeout_count'] || 0
+    @nak_start_of_scope = state_data['nak_start_of_scope'] || 0
+    @keep_alive_count = state_data['keep_alive_count'] || 0
+    @finished_count = state_data['finished_count'] || 0
+    @source_entity_id = state_data['source_entity_id']
     @inactivity_timeout = state_data['inactivity_timeout'] ? Time.parse(state_data['inactivity_timeout']) : nil
-    @inactivity_count = state_data['inactivity_count']&.to_i || 0
+    @inactivity_count = state_data['inactivity_count'] || 0
     @keep_alive_timeout = state_data['keep_alive_timeout'] ? Time.parse(state_data['keep_alive_timeout']) : nil
     @finished_ack_timeout = state_data['finished_ack_timeout'] ? Time.parse(state_data['finished_ack_timeout']) : nil
     @finished_pdu = state_data['finished_pdu']
-    @finished_ack_pdu_hash = state_data['finished_ack_pdu_hash'] ? Marshal.load(Base64.strict_decode64(state_data['finished_ack_pdu_hash'])) : nil
-    @prompt_pdu_hash = state_data['prompt_pdu_hash'] ? Marshal.load(Base64.strict_decode64(state_data['prompt_pdu_hash'])) : nil
+    @finished_ack_pdu_hash = state_data['finished_ack_pdu_hash']
+    @prompt_pdu_hash = state_data['prompt_pdu_hash']
 
+    OpenC3::Logger.debug("CFDP Transaction #{@id} state loaded", scope: ENV['OPENC3_SCOPE'])
     return true
   end
 end

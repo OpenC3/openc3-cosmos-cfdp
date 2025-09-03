@@ -67,20 +67,18 @@ class CfdpSourceTransaction < CfdpTransaction
     save_state()
     put_options_data = {
       'destination_entity_id' => destination_entity_id,
-      'fault_handler_overrides' => fault_handler_overrides ? Base64.strict_encode64(Marshal.dump(fault_handler_overrides)) : nil,
+      'fault_handler_overrides' => fault_handler_overrides,
       'flow_label' => flow_label,
       'transmission_mode' => transmission_mode,
       'closure_requested' => closure_requested,
-      'messages_to_user' => messages_to_user ? Base64.strict_encode64(Marshal.dump(messages_to_user)) : nil,
-      'filestore_requests' => filestore_requests ? Base64.strict_encode64(Marshal.dump(filestore_requests)) : nil
+      'messages_to_user' => messages_to_user,
+      'filestore_requests' => filestore_requests
     }
-    put_options_data.each do |field, value|
-      if value.nil?
-        OpenC3::Store.hdel("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}:put_options", field)
-      else
-        OpenC3::Store.hset("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}:put_options", field, value.to_s)
-      end
-    end
+
+    # Remove nil values and store as Base64-encoded Marshal dump
+    put_options_data.compact!
+    serialized_data = Base64.strict_encode64(Marshal.dump(put_options_data))
+    OpenC3::Store.set("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}:put_options", serialized_data)
 
     begin
       copy_file()
@@ -416,16 +414,23 @@ class CfdpSourceTransaction < CfdpTransaction
   end
 
   def copy_file
-    put_options = OpenC3::Store.hgetall("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}:put_options")
-    return unless put_options
+    serialized_data = OpenC3::Store.get("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}:put_options")
+    return unless serialized_data
 
-    destination_entity_id = put_options['destination_entity_id']&.to_i
-    fault_handler_overrides = put_options['fault_handler_overrides'] ? Marshal.load(Base64.strict_decode64(put_options['fault_handler_overrides'])) : []
+    begin
+      put_options = Marshal.load(Base64.strict_decode64(serialized_data))
+    rescue => e
+      OpenC3::Logger.error("CFDP Transaction #{@id} failed to deserialize put_options: #{e.message}", scope: ENV['OPENC3_SCOPE'])
+      return
+    end
+
+    destination_entity_id = put_options['destination_entity_id']
+    fault_handler_overrides = put_options['fault_handler_overrides'] || []
     flow_label = put_options['flow_label']
     transmission_mode = put_options['transmission_mode']
     closure_requested = put_options['closure_requested']
-    messages_to_user = put_options['messages_to_user'] ? Marshal.load(Base64.strict_decode64(put_options['messages_to_user'])) : []
-    filestore_requests = put_options['filestore_requests'] ? Marshal.load(Base64.strict_decode64(put_options['filestore_requests'])) : []
+    messages_to_user = put_options['messages_to_user'] || []
+    filestore_requests = put_options['filestore_requests'] || []
 
     @copy_state = "setup" if @copy_state.nil?
     save_state()
@@ -644,12 +649,29 @@ class CfdpSourceTransaction < CfdpTransaction
   end
 
   def save_state
-    super
-
-    child_state_data = {
-      'source_entity' => @source_entity ? Base64.strict_encode64(Marshal.dump(@source_entity)) : nil,
-      'finished_pdu_hash' => @finished_pdu_hash ? Base64.strict_encode64(Marshal.dump(@finished_pdu_hash)) : nil,
-      'destination_entity' => @destination_entity ? Base64.strict_encode64(Marshal.dump(@destination_entity)) : nil,
+    state_data = {
+      'id' => @id,
+      'frozen' => @frozen,
+      'state' => @state,
+      'transaction_status' => @transaction_status,
+      'progress' => @progress,
+      'transaction_seq_num' => @transaction_seq_num,
+      'condition_code' => @condition_code,
+      'delivery_code' => @delivery_code,
+      'file_status' => @file_status,
+      'metadata_pdu_hash' => @metadata_pdu_hash,
+      'metadata_pdu_count' => @metadata_pdu_count,
+      'create_time' => @create_time&.iso8601(6),
+      'proxy_response_info' => @proxy_response_info,
+      'proxy_response_needed' => @proxy_response_needed,
+      'canceling_entity_id' => @canceling_entity_id,
+      'fault_handler_overrides' => @fault_handler_overrides,
+      'source_file_name' => (StringIO === @source_file_name ? nil : @source_file_name),
+      'source_file_stringio_data' => (StringIO === @source_file_name ? @source_file_name.string : nil),
+      'destination_file_name' => @destination_file_name,
+      'source_entity' => @source_entity,
+      'finished_pdu_hash' => @finished_pdu_hash,
+      'destination_entity' => @destination_entity,
       'eof_count' => @eof_count,
       'segmentation_control' => @segmentation_control,
       'transmission_mode' => @transmission_mode,
@@ -659,33 +681,64 @@ class CfdpSourceTransaction < CfdpTransaction
       'metadata_pdu' => @metadata_pdu,
       'eof_pdu' => @eof_pdu,
       'eof_ack_timeout' => @eof_ack_timeout&.iso8601(6),
-      'eof_ack_pdu_hash' => @eof_ack_pdu_hash ? Base64.strict_encode64(Marshal.dump(@eof_ack_pdu_hash)) : nil,
-      'keep_alive_pdu_hash' => @keep_alive_pdu_hash ? Base64.strict_encode64(Marshal.dump(@keep_alive_pdu_hash)) : nil,
+      'eof_ack_pdu_hash' => @eof_ack_pdu_hash,
+      'keep_alive_pdu_hash' => @keep_alive_pdu_hash,
       'copy_state' => @copy_state,
       'file_offset' => @file_offset,
-      'file_checksum' => @file_checksum ? Base64.strict_encode64(Marshal.dump(@file_checksum)) : nil,
+      'file_checksum' => @file_checksum,
       'file_size' => @file_size,
       'read_size' => @read_size
     }
+    state_data.compact!
 
-    child_state_data.each do |field, value|
-      if value.nil?
-        OpenC3::Store.hdel("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", field)
-      else
-        OpenC3::Store.hset("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", field, value.to_s)
-      end
-    end
+    # Store as Base64-encoded Marshal dump to handle all data types safely
+    serialized_data = Base64.strict_encode64(Marshal.dump(state_data))
+    OpenC3::Store.set("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", serialized_data)
+    OpenC3::Store.sadd("#{self.class.redis_key_prefix}cfdp_saved_transaction_ids", @id)
+    OpenC3::Logger.debug("CFDP Transaction #{@id} state saved", scope: ENV['OPENC3_SCOPE'])
   end
 
   def load_state(transaction_id)
-    return false unless super(transaction_id)
+    serialized_data = OpenC3::Store.get("#{self.class.redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
+    return false unless serialized_data
 
-    state_data = OpenC3::Store.hgetall("#{self.class.redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
+    begin
+      state_data = Marshal.load(Base64.strict_decode64(serialized_data))
+    rescue => e
+      OpenC3::Logger.error("CFDP Transaction #{transaction_id} failed to deserialize state: #{e.message}", scope: ENV['OPENC3_SCOPE'])
+      return false
+    end
 
-    @source_entity = state_data['source_entity'] ? Marshal.load(Base64.strict_decode64(state_data['source_entity'])) : nil
-    @finished_pdu_hash = state_data['finished_pdu_hash'] ? Marshal.load(Base64.strict_decode64(state_data['finished_pdu_hash'])) : nil
-    @destination_entity = state_data['destination_entity'] ? Marshal.load(Base64.strict_decode64(state_data['destination_entity'])) : nil
-    @eof_count = state_data['eof_count']&.to_i || 0
+    # Load base state
+    @id = state_data['id']
+    @frozen = state_data['frozen']
+    @state = state_data['state'] || 'ACTIVE'
+    @transaction_status = state_data['transaction_status'] || 'ACTIVE'
+    @progress = state_data['progress'] || 0
+    @transaction_seq_num = state_data['transaction_seq_num']
+    @condition_code = state_data['condition_code'] || 'NO_ERROR'
+    @delivery_code = state_data['delivery_code']
+    @file_status = state_data['file_status']
+    @metadata_pdu_hash = state_data['metadata_pdu_hash']
+    @metadata_pdu_count = state_data['metadata_pdu_count'] || 0
+    @create_time = state_data['create_time'] ? Time.parse(state_data['create_time']) : nil
+    @complete_time = nil # Completed transactions are not persisted
+    @proxy_response_info = state_data['proxy_response_info']
+    @proxy_response_needed = state_data['proxy_response_needed']
+    @canceling_entity_id = state_data['canceling_entity_id']
+    @fault_handler_overrides = state_data['fault_handler_overrides'] || {}
+    if state_data['source_file_stringio_data']
+      @source_file_name = StringIO.new(state_data['source_file_stringio_data'])
+    else
+      @source_file_name = state_data['source_file_name']
+    end
+    @destination_file_name = state_data['destination_file_name']
+
+    # Load source-specific state
+    @source_entity = state_data['source_entity']
+    @finished_pdu_hash = state_data['finished_pdu_hash']
+    @destination_entity = state_data['destination_entity']
+    @eof_count = state_data['eof_count'] || 0
     @segmentation_control = state_data['segmentation_control']
     @transmission_mode = state_data['transmission_mode']
     @target_name = state_data['target_name']
@@ -694,14 +747,15 @@ class CfdpSourceTransaction < CfdpTransaction
     @metadata_pdu = state_data['metadata_pdu']
     @eof_pdu = state_data['eof_pdu']
     @eof_ack_timeout = state_data['eof_ack_timeout'] ? Time.parse(state_data['eof_ack_timeout']) : nil
-    @eof_ack_pdu_hash = state_data['eof_ack_pdu_hash'] ? Marshal.load(Base64.strict_decode64(state_data['eof_ack_pdu_hash'])) : nil
-    @keep_alive_pdu_hash = state_data['keep_alive_pdu_hash'] ? Marshal.load(Base64.strict_decode64(state_data['keep_alive_pdu_hash'])) : nil
+    @eof_ack_pdu_hash = state_data['eof_ack_pdu_hash']
+    @keep_alive_pdu_hash = state_data['keep_alive_pdu_hash']
     @copy_state = state_data['copy_state']
-    @file_offset = state_data['file_offset']&.to_i
-    @file_checksum = state_data['file_checksum'] ? Marshal.load(Base64.strict_decode64(state_data['file_checksum'])) : nil
-    @file_size = state_data['file_size']&.to_i
-    @read_size = state_data['read_size']&.to_i
+    @file_offset = state_data['file_offset']
+    @file_checksum = state_data['file_checksum']
+    @file_size = state_data['file_size']
+    @read_size = state_data['read_size']
 
+    OpenC3::Logger.debug("CFDP Transaction #{@id} state loaded", scope: ENV['OPENC3_SCOPE'])
     return true
   end
 end
