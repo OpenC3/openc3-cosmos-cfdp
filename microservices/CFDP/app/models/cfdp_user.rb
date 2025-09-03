@@ -126,6 +126,7 @@ class CfdpUser
     end
 
     resume_incomplete_source_transactions
+    return @thread
   end
 
   def receive_packet(topic, msg_id, msg_hash, redis)

@@ -57,6 +57,11 @@ class CfdpTransaction
   end
 
   def self.clear_saved_transaction_ids
+    transaction_ids = OpenC3::Store.smembers("#{redis_key_prefix}cfdp_saved_transaction_ids") || []
+    transaction_ids.each do |transaction_id|
+      OpenC3::Store.del("#{redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
+      OpenC3::Store.del("#{redis_key_prefix}cfdp_transaction_state:#{transaction_id}:put_options")
+    end
     OpenC3::Store.del("#{redis_key_prefix}cfdp_saved_transaction_ids")
   end
 

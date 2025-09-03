@@ -251,7 +251,8 @@ class CfdpSourceTransaction < CfdpTransaction
     end
 
     if source_file
-      @file_checksum = get_checksum(@destination_entity['default_checksum_type'])
+      # Only create a new checksum object if we don't have one (not resuming from saved state)
+      @file_checksum = get_checksum(@destination_entity['default_checksum_type']) unless @file_checksum
       unless @file_checksum
         # Unsupported algorithm - Use modular instead
         @condition_code = "UNSUPPORTED_CHECKSUM_TYPE"
