@@ -23,6 +23,7 @@ require 'base64'
 class CfdpSourceTransaction < CfdpTransaction
 
   attr_reader :filestore_responses # not persisted because it's only used at completion for writing 'Transaction-Finished'
+  attr_reader :copy_state
 
   def initialize(source_entity: nil)
     super()
@@ -248,35 +249,42 @@ class CfdpSourceTransaction < CfdpTransaction
     else
       @copy_state = "send_eof_pdu"
       save_state()
-      return
+      return true
     end
 
     if source_file
-      checksum = get_checksum(@destination_entity['default_checksum_type'])
-      unless checksum
+      @file_checksum = get_checksum(@destination_entity['default_checksum_type'])
+      unless @file_checksum
         # Unsupported algorithm - Use modular instead
         @condition_code = "UNSUPPORTED_CHECKSUM_TYPE"
         handle_fault()
-        checksum = CfdpChecksum.new
+        @file_checksum = CfdpChecksum.new
+      end
+
+      if @state == "CANCELED"
+        @copy_state = "send_eof_pdu"
+        save_state()
+        return true
+      end
+      handle_suspend()
+      return false if @state == "ABANDONED"
+
+      if source_file.closed?
+        OpenC3::Logger.info("CFDP Source Transaction #{@id} tried to send file data PDU but source_file was already closed.", scope: ENV['OPENC3_SCOPE'])
+        @copy_state = "send_eof_pdu" 
+        save_state()
+        return true
       end
 
       # Send File Data PDUs
       @file_offset = 0 unless @file_offset
-      @file_checksum_obj = checksum unless @file_checksum_obj
-
       source_file.seek(@file_offset, IO::SEEK_SET) if @file_offset > 0
-
-      # Send one chunk of file data
-      return if @state == "CANCELED"
-      handle_suspend()
-      return if @state == "ABANDONED"
-
       file_data = source_file.read(@read_size)
       if file_data.nil? or file_data.length <= 0
         @copy_state = "send_eof_pdu" 
         save_state()
         CfdpMib.complete_source_file(source_file)
-        return
+        return true
       end
 
       file_data_pdu = CfdpPdu.build_file_data_pdu(
@@ -291,7 +299,7 @@ class CfdpSourceTransaction < CfdpTransaction
       cmd_params = {}
       cmd_params[@item_name] = file_data_pdu
       cfdp_cmd(@destination_entity, @target_name, @packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
-      @file_checksum_obj.add(@file_offset, file_data)
+      @file_checksum.add(@file_offset, file_data)
       @file_offset += file_data.length
       @progress = @file_offset
       save_state()
@@ -300,6 +308,7 @@ class CfdpSourceTransaction < CfdpTransaction
       @copy_state = "send_eof_pdu"
       save_state()
     end
+    return true
   end
 
   def copy_file_send_eof_pdu(
@@ -325,7 +334,7 @@ class CfdpSourceTransaction < CfdpTransaction
       else
         source_file = CfdpMib.get_source_file(source_file_name)
       end
-      file_checksum = @file_checksum_obj ? @file_checksum_obj.checksum(source_file, false) : 0
+      file_checksum = @file_checksum ? @file_checksum.checksum(source_file, false) : 0
       CfdpMib.complete_source_file(source_file)
     else
       source_file = nil
@@ -408,6 +417,8 @@ class CfdpSourceTransaction < CfdpTransaction
 
   def copy_file
     put_options = OpenC3::Store.hgetall("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}:put_options")
+    return unless put_options
+
     destination_entity_id = put_options['destination_entity_id']&.to_i
     fault_handler_overrides = put_options['fault_handler_overrides'] ? Marshal.load(Base64.strict_decode64(put_options['fault_handler_overrides'])) : []
     flow_label = put_options['flow_label']
@@ -420,6 +431,8 @@ class CfdpSourceTransaction < CfdpTransaction
     save_state()
 
     while true
+      return if @state == "ABANDONED"
+
       case @copy_state
       when "setup"
         copy_file_setup_and_send_metadata(
@@ -435,9 +448,8 @@ class CfdpSourceTransaction < CfdpTransaction
           messages_to_user: messages_to_user,
           filestore_requests: filestore_requests
         )
-        return if @state == "ABANDONED"
       when "send_file_data_pdu"
-        copy_file_send_file_data_pdu(
+        continue = copy_file_send_file_data_pdu(
           transaction_seq_num: @transaction_seq_num,
           transaction_id: @id,
           destination_entity_id: destination_entity_id,
@@ -450,7 +462,7 @@ class CfdpSourceTransaction < CfdpTransaction
           messages_to_user: messages_to_user,
           filestore_requests: filestore_requests
         )
-        return if @state == "ABANDONED" or @state == "CANCELED"
+        break unless continue
       when "send_eof_pdu"
         copy_file_send_eof_pdu(
           transaction_seq_num: @transaction_seq_num,
@@ -465,7 +477,6 @@ class CfdpSourceTransaction < CfdpTransaction
           messages_to_user: messages_to_user,
           filestore_requests: filestore_requests
         )
-        return if @state == "ABANDONED"
       when "cleanup"
         copy_file_cleanup(
           transaction_seq_num: @transaction_seq_num,
@@ -652,7 +663,7 @@ class CfdpSourceTransaction < CfdpTransaction
       'keep_alive_pdu_hash' => @keep_alive_pdu_hash ? Base64.strict_encode64(Marshal.dump(@keep_alive_pdu_hash)) : nil,
       'copy_state' => @copy_state,
       'file_offset' => @file_offset,
-      'file_checksum_obj' => @file_checksum_obj ? Base64.strict_encode64(Marshal.dump(@file_checksum_obj)) : nil,
+      'file_checksum' => @file_checksum ? Base64.strict_encode64(Marshal.dump(@file_checksum)) : nil,
       'file_size' => @file_size,
       'read_size' => @read_size
     }
@@ -687,7 +698,7 @@ class CfdpSourceTransaction < CfdpTransaction
     @keep_alive_pdu_hash = state_data['keep_alive_pdu_hash'] ? Marshal.load(Base64.strict_decode64(state_data['keep_alive_pdu_hash'])) : nil
     @copy_state = state_data['copy_state']
     @file_offset = state_data['file_offset']&.to_i
-    @file_checksum_obj = state_data['file_checksum_obj'] ? Marshal.load(Base64.strict_decode64(state_data['file_checksum_obj'])) : nil
+    @file_checksum = state_data['file_checksum'] ? Marshal.load(Base64.strict_decode64(state_data['file_checksum'])) : nil
     @file_size = state_data['file_size']&.to_i
     @read_size = state_data['read_size']&.to_i
 

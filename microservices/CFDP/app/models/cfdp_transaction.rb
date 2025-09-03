@@ -67,7 +67,7 @@ class CfdpTransaction
     if @id
       OpenC3::Store.del("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}")
       OpenC3::Store.srem("#{self.class.redis_key_prefix}cfdp_saved_transaction_ids", @id)
-      OpenC3::Logger.debug("CFDP Transaction #{@id} state removed", scope: ENV['OPENC3_SCOPE'])
+      OpenC3::Logger.info("CFDP Transaction #{@id} state removed", scope: ENV['OPENC3_SCOPE'])
     end
   end
 

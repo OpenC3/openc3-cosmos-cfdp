@@ -124,6 +124,8 @@ class CfdpUser
         OpenC3::Logger.error(err.formatted, scope: ENV['OPENC3_SCOPE'])
       end
     end
+
+    resume_incomplete_source_transactions
   end
 
   def receive_packet(topic, msg_id, msg_hash, redis)
@@ -151,6 +153,21 @@ class CfdpUser
     @item_name_lookup = {}
     @source_transactions = []
     @source_threads = []
+  end
+
+  def resume_incomplete_source_transactions()
+    CfdpMib.transactions.each do |transaction_id, transaction|
+      if transaction_id.split('__')[0].to_i == CfdpMib.source_entity_id && transaction.copy_state != "complete" # && transaction.copy_state != nil?
+        @source_transactions << transaction
+        @source_threads << Thread.new do
+          begin
+            transaction.copy_file()
+          rescue => err
+            OpenC3::Logger.error(err.formatted, scope: ENV['OPENC3_SCOPE'])
+          end
+        end
+      end
+    end
   end
 
   def start_source_transaction(params, proxy_response_info: nil)
