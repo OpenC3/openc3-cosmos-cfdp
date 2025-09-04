@@ -410,8 +410,6 @@ class CfdpSourceTransaction < CfdpTransaction
 
     @copy_state = "complete"
     save_state()
-    OpenC3::Store.del("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}:put_options")
-    notice_of_completion()
   end
 
   def copy_file
@@ -437,7 +435,7 @@ class CfdpSourceTransaction < CfdpTransaction
     save_state()
 
     while true
-      return if @state == "ABANDONED"
+      break if @state == "ABANDONED"
 
       case @copy_state
       when "setup"
@@ -498,9 +496,11 @@ class CfdpSourceTransaction < CfdpTransaction
           filestore_requests: filestore_requests
         )
       when "complete"
-        return
+        notice_of_completion
+        break
       end
     end
+    remove_saved_state
   end
 
   def notice_of_completion
@@ -521,7 +521,6 @@ class CfdpSourceTransaction < CfdpTransaction
     @state = "FINISHED" unless @state == "CANCELED" or @state == "ABANDONED"
     @transaction_status = "TERMINATED"
     @complete_time = Time.now.utc
-    remove_saved_state
     OpenC3::Logger.info("CFDP Finished Source Transaction #{@id}, #{@condition_code}", scope: ENV['OPENC3_SCOPE'])
 
     if CfdpMib.source_entity['transaction_finished_indication']
