@@ -259,8 +259,10 @@ module OpenC3
           sleep 0.5
         end
 
+        # Give transactions more time to complete before stopping
+        sleep 1.0
         @user.stop
-        sleep 0.1
+        sleep 0.2
 
         get "/cfdp/indications", :params => { scope: "DEFAULT" }
         expect(response).to have_http_status(200)
