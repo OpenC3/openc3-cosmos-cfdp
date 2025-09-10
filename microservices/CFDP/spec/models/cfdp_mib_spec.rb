@@ -212,6 +212,7 @@ RSpec.describe CfdpMib do
     context "with bucket storage" do
       before(:each) do
         CfdpMib.bucket = "test-bucket"
+        CfdpMib.prevent_received_file_overwrite = true
         @mock_client = double("Bucket Client")
         allow(OpenC3::Bucket).to receive(:getClient).and_return(@mock_client)
       end

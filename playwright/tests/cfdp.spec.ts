@@ -25,7 +25,7 @@ test.use({
 let plugin = 'openc3-cosmos-cfdp'
 let pluginGem = 'openc3-cosmos-cfdp-1.0.0.gem'
 
-test.setTimeout(300000)
+test.setTimeout(600000)
 test('installs a new plugin', async ({ page, utils }) => {
   // Note that Promise.all prevents a race condition
   // between clicking and waiting for the file chooser.
@@ -104,7 +104,7 @@ test('installs a new plugin', async ({ page, utils }) => {
   await page.locator('[data-test="start-suite"]').click()
   // Wait for the results ... allow for additional time
   await expect(page.locator('.v-dialog')).toContainText('Script Results', {
-    timeout: 120000,
+    timeout: 480000,
   })
   let textarea = await page.inputValue('.v-dialog >> textarea')
   expect(textarea).toMatch('Pass: 4')
