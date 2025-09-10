@@ -115,10 +115,17 @@ SPEC_DIR = File.dirname(__FILE__)
 
 # See https://rubydoc.info/gems/rspec-core/RSpec/Core/Configuration
 RSpec.configure do |config|
+  # orig_stdout = $stdout
+
   config.before(:all) do
     # Most tests want to disable authorization for simplicity
     $openc3_authorize = false
+    $stdout = StringIO.new
   end
+
+  # config.after(:all) do
+  #   $stdout = orig_stdout
+  # end
 
   # rspec-expectations config goes here. You can use an alternate
   # assertion/expectation library such as wrong or the stdlib/minitest
