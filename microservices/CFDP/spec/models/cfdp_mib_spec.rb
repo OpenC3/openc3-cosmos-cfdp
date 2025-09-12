@@ -752,7 +752,6 @@ RSpec.describe CfdpMib do
 
     it "cleans up orphaned saved states" do
       mock_redis
-      allow(OpenC3::Logger).to receive(:debug)
 
       OpenC3::Store.sadd("#{@redis_prefix}cfdp_saved_transaction_ids", "tx1")
       OpenC3::Store.sadd("#{@redis_prefix}cfdp_saved_transaction_ids", "tx2")
@@ -793,7 +792,6 @@ RSpec.describe CfdpMib do
       allow(OpenC3::Logger).to receive(:info)
       allow(OpenC3::Logger).to receive(:warn)
       allow(OpenC3::Logger).to receive(:error)
-      allow(OpenC3::Logger).to receive(:debug)
 
       # Setup entities for testing
       CfdpMib.define_entity(1)
@@ -807,7 +805,7 @@ RSpec.describe CfdpMib do
       CfdpMib.load_saved_transactions
 
       expect(CfdpMib.transactions).to be_empty
-      expect(OpenC3::Logger).to have_received(:debug).with("CFDP no saved transactions to load", scope: 'DEFAULT')
+      expect(OpenC3::Logger).to have_received(:info).with("CFDP loaded 0 saved transactions", scope: 'DEFAULT')
     end
 
     it "loads a source transaction successfully" do
@@ -818,7 +816,11 @@ RSpec.describe CfdpMib do
       # Mock the CfdpSourceTransaction creation and loading
       mock_transaction = double("CfdpSourceTransaction")
       allow(mock_transaction).to receive(:load_state).with("1__123").and_return(true)
-      expect(CfdpSourceTransaction).to receive(:new).with(source_entity: CfdpMib.entity(1)).and_return(mock_transaction)
+      expect(CfdpSourceTransaction).to receive(:new).with(source_entity: CfdpMib.entity(1)) do |args|
+        # Simulate the constructor behavior of adding to transactions hash
+        CfdpMib.transactions["1__123"] = mock_transaction
+        mock_transaction
+      end
 
       CfdpMib.load_saved_transactions
 
@@ -840,7 +842,11 @@ RSpec.describe CfdpMib do
         "SEQUENCE_NUMBER" => 456,
         "TRANSMISSION_MODE" => "UNACKNOWLEDGED"
       }
-      expect(CfdpReceiveTransaction).to receive(:new).with(expected_pdu).and_return(mock_transaction)
+      expect(CfdpReceiveTransaction).to receive(:new).with(expected_pdu) do |args|
+        # Simulate the constructor behavior of adding to transactions hash
+        CfdpMib.transactions["2__456"] = mock_transaction
+        mock_transaction
+      end
 
       CfdpMib.load_saved_transactions
 
@@ -862,7 +868,7 @@ RSpec.describe CfdpMib do
 
       expect(CfdpMib.transactions).not_to have_key("1__789")
       expect(OpenC3::Logger).to have_received(:warn).with("CFDP failed to load saved transaction: 1__789", scope: 'DEFAULT')
-      expect(OpenC3::Logger).to have_received(:debug).with("CFDP no saved transactions to load", scope: 'DEFAULT')
+      expect(OpenC3::Logger).to have_received(:info).with("CFDP loaded 0 saved transactions", scope: 'DEFAULT')
     end
 
     it "handles transaction creation errors and cleans up invalid state" do
@@ -880,7 +886,7 @@ RSpec.describe CfdpMib do
       # Verify cleanup of invalid state
       expect(OpenC3::Store.exists("#{@redis_prefix}cfdp_transaction_state:1__999")).to eq(0)
       expect(CfdpTransaction.has_saved_state?("1__999")).to be false
-      expect(OpenC3::Logger).to have_received(:debug).with("CFDP no saved transactions to load", scope: 'DEFAULT')
+      expect(OpenC3::Logger).to have_received(:info).with("CFDP loaded 0 saved transactions", scope: 'DEFAULT')
     end
 
     it "loads multiple transactions of different types" do
@@ -892,7 +898,20 @@ RSpec.describe CfdpMib do
       source_tx2 = double("CfdpSourceTransaction2")
       allow(source_tx1).to receive(:load_state).with("1__100").and_return(true)
       allow(source_tx2).to receive(:load_state).with("1__300").and_return(true)
-      expect(CfdpSourceTransaction).to receive(:new).with(source_entity: CfdpMib.entity(1)).and_return(source_tx1, source_tx2)
+
+      call_count = 0
+      expect(CfdpSourceTransaction).to receive(:new).with(source_entity: CfdpMib.entity(1)).twice do |args|
+        call_count += 1
+        if call_count == 1
+          # Simulate the constructor behavior of adding to transactions hash
+          CfdpMib.transactions["1__100"] = source_tx1
+          source_tx1
+        else
+          # Simulate the constructor behavior of adding to transactions hash
+          CfdpMib.transactions["1__300"] = source_tx2
+          source_tx2
+        end
+      end
 
       # Mock receive transaction
       receive_tx = double("CfdpReceiveTransaction")
@@ -902,7 +921,11 @@ RSpec.describe CfdpMib do
         "SEQUENCE_NUMBER" => 200,
         "TRANSMISSION_MODE" => "UNACKNOWLEDGED"
       }
-      expect(CfdpReceiveTransaction).to receive(:new).with(expected_pdu).and_return(receive_tx)
+      expect(CfdpReceiveTransaction).to receive(:new).with(expected_pdu) do |args|
+        # Simulate the constructor behavior of adding to transactions hash
+        CfdpMib.transactions["2__200"] = receive_tx
+        receive_tx
+      end
 
       CfdpMib.load_saved_transactions
 
@@ -917,7 +940,6 @@ RSpec.describe CfdpMib do
     before(:each) do
       mock_redis
       allow(OpenC3::Logger).to receive(:info)
-      allow(OpenC3::Logger).to receive(:debug)
 
       # Mock the MicroserviceModel
       @mock_model = double("MicroserviceModel")

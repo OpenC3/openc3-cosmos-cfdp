@@ -333,8 +333,6 @@ RSpec.describe CfdpTransaction do
         transaction.instance_variable_set(:@destination_file_name, "dest.txt")
         transaction.instance_variable_set(:@transaction_seq_num, 123)
 
-        allow(OpenC3::Logger).to receive(:debug)
-
         transaction.save_state
 
         # Verify serialized data is stored
@@ -348,15 +346,12 @@ RSpec.describe CfdpTransaction do
         expect(state_data["source_file_name"]).to eq("source.txt")
         expect(state_data["destination_file_name"]).to eq("dest.txt")
         expect(state_data["transaction_seq_num"]).to eq(123)
-        expect(OpenC3::Logger).to have_received(:debug).with("CFDP Transaction 1__123 state saved", scope: 'DEFAULT')
+        expect(OpenC3::Logger).to have_received(:info).with("CFDP Transaction 1__123 state saved", scope: 'DEFAULT')
       end
 
       it "handles nil values by not including them in serialized data" do
         mock_redis
         transaction.instance_variable_set(:@id, "1__123")
-
-        allow(OpenC3::Logger).to receive(:debug)
-
         transaction.save_state
 
         # Verify serialized data is stored
@@ -395,8 +390,6 @@ RSpec.describe CfdpTransaction do
         serialized_data = Base64.strict_encode64(Marshal.dump(state_data))
         OpenC3::Store.set(state_key, serialized_data)
 
-        allow(OpenC3::Logger).to receive(:debug)
-
         result = transaction.load_state("1__123")
 
         expect(result).to be true
@@ -413,15 +406,12 @@ RSpec.describe CfdpTransaction do
         expect(transaction.proxy_response_needed).to be true
         expect(transaction.metadata_pdu_count).to eq(5)
         expect(transaction.instance_variable_get(:@fault_handler_overrides)).to eq({"FILE_SIZE_ERROR" => "ABANDON_TRANSACTION"})
-        expect(OpenC3::Logger).to have_received(:debug).with("CFDP Transaction 1__123 state loaded", scope: 'DEFAULT')
+        expect(OpenC3::Logger).to have_received(:info).with("CFDP Transaction 1__123 state loaded", scope: 'DEFAULT')
       end
 
       it "returns false when no state data exists" do
         mock_redis
-        allow(OpenC3::Logger).to receive(:debug)
-
         result = transaction.load_state("nonexistent__123")
-
         expect(result).to be false
       end
 
@@ -432,8 +422,6 @@ RSpec.describe CfdpTransaction do
         state_key = "#{@redis_prefix}cfdp_transaction_state:1__123"
         serialized_data = Base64.strict_encode64(Marshal.dump(state_data))
         OpenC3::Store.set(state_key, serialized_data)
-
-        allow(OpenC3::Logger).to receive(:debug)
 
         result = transaction.load_state("1__123")
 
@@ -471,8 +459,6 @@ RSpec.describe CfdpTransaction do
         transaction.instance_variable_set(:@source_file_name, "original.txt")
         transaction.instance_variable_set(:@destination_file_name, "copy.txt")
 
-        allow(OpenC3::Logger).to receive(:debug)
-
         transaction.save_state
 
         new_transaction = CfdpTransaction.new
@@ -506,8 +492,6 @@ RSpec.describe CfdpTransaction do
         mock_redis
         transaction.instance_variable_set(:@id, "1__789")
 
-        allow(OpenC3::Logger).to receive(:debug)
-
         # Initially no saved transaction IDs
         expect(CfdpTransaction.get_saved_transaction_ids).to be_empty
         expect(CfdpTransaction.has_saved_state?("1__789")).to be false
@@ -524,8 +508,6 @@ RSpec.describe CfdpTransaction do
       it "does not duplicate transaction IDs in the set" do
         mock_redis
         transaction.instance_variable_set(:@id, "1__789")
-
-        allow(OpenC3::Logger).to receive(:debug)
 
         # Save state multiple times
         transaction.save_state
@@ -545,8 +527,6 @@ RSpec.describe CfdpTransaction do
         transaction2 = CfdpTransaction.new
         transaction2.instance_variable_set(:@id, "2__200")
 
-        allow(OpenC3::Logger).to receive(:debug)
-
         transaction1.save_state
         transaction2.save_state
 
@@ -561,8 +541,6 @@ RSpec.describe CfdpTransaction do
       it "removes transaction ID and state when requested" do
         mock_redis
         transaction.instance_variable_set(:@id, "1__999")
-
-        allow(OpenC3::Logger).to receive(:debug)
 
         # Save state
         transaction.save_state
@@ -585,9 +563,6 @@ RSpec.describe CfdpTransaction do
         transaction1.instance_variable_set(:@id, "1__111")
         transaction2 = CfdpTransaction.new
         transaction2.instance_variable_set(:@id, "2__222")
-
-        allow(OpenC3::Logger).to receive(:debug)
-
         transaction1.save_state
         transaction2.save_state
 
@@ -602,19 +577,18 @@ RSpec.describe CfdpTransaction do
         expect(CfdpTransaction.has_saved_state?("2__222")).to be false
       end
 
-      it "automatically removes saved state when transaction completes" do
+      it "keeps saved state when transaction completes" do
         mock_redis
         transaction.instance_variable_set(:@id, "1__completed")
 
         allow(OpenC3::Logger).to receive(:info)
-        allow(OpenC3::Logger).to receive(:debug)
 
         transaction.save_state
         expect(CfdpTransaction.has_saved_state?("1__completed")).to be true
 
         transaction.cancel
-        expect(CfdpTransaction.has_saved_state?("1__completed")).to be false
-        expect(CfdpTransaction.get_saved_transaction_ids).not_to include("1__completed")
+        expect(CfdpTransaction.has_saved_state?("1__completed")).to be true
+        expect(CfdpTransaction.get_saved_transaction_ids).to include("1__completed")
       end
     end
 

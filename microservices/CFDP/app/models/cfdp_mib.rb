@@ -662,7 +662,6 @@ class CfdpMib
         end
 
         if transaction.load_state(transaction_id)
-          @@transactions[transaction_id] = transaction
           loaded_count += 1
           OpenC3::Logger.info("CFDP loaded saved transaction: #{transaction_id}", scope: ENV['OPENC3_SCOPE'])
         else
@@ -676,12 +675,7 @@ class CfdpMib
         OpenC3::Store.srem("#{CfdpTransaction.redis_key_prefix}cfdp_saved_transaction_ids", transaction_id)
       end
     end
-
-    if loaded_count > 0
-      OpenC3::Logger.info("CFDP loaded #{loaded_count} saved transactions", scope: ENV['OPENC3_SCOPE'])
-    else
-      OpenC3::Logger.debug("CFDP no saved transactions to load", scope: ENV['OPENC3_SCOPE'])
-    end
+    OpenC3::Logger.info("CFDP loaded #{loaded_count} saved transactions", scope: ENV['OPENC3_SCOPE'])
   end
 
   def self.directory_listing(directory_name, directory_file_name)
@@ -729,7 +723,6 @@ class CfdpMib
     @@root_path = "/"
     @@transactions = {}
     CfdpTransaction.clear_saved_transaction_ids
-    OpenC3::Logger.debug("CFDP cleared all saved transaction states", scope: ENV['OPENC3_SCOPE'])
   end
 
   def self.cleanup_old_transactions
@@ -752,7 +745,7 @@ class CfdpMib
       unless @@transactions.key?(saved_id)
         OpenC3::Store.del("#{CfdpTransaction.redis_key_prefix}cfdp_transaction_state:#{saved_id}")
         OpenC3::Store.srem("#{CfdpTransaction.redis_key_prefix}cfdp_saved_transaction_ids", saved_id)
-        OpenC3::Logger.debug("CFDP removed orphaned saved state: #{saved_id}", scope: ENV['OPENC3_SCOPE'])
+        OpenC3::Logger.info("CFDP removed orphaned saved state: #{saved_id}", scope: ENV['OPENC3_SCOPE'])
       end
     end
   end

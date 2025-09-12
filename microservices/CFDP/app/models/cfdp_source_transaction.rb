@@ -270,7 +270,7 @@ class CfdpSourceTransaction < CfdpTransaction
 
       if source_file.closed?
         OpenC3::Logger.info("CFDP Source Transaction #{@id} tried to send file data PDU but source_file was already closed.", scope: ENV['OPENC3_SCOPE'])
-        @copy_state = "send_eof_pdu" 
+        @copy_state = "send_eof_pdu"
         save_state()
         return true
       end
@@ -280,7 +280,7 @@ class CfdpSourceTransaction < CfdpTransaction
       source_file.seek(@file_offset, IO::SEEK_SET) if @file_offset > 0
       file_data = source_file.read(@read_size)
       if file_data.nil? or file_data.length <= 0
-        @copy_state = "send_eof_pdu" 
+        @copy_state = "send_eof_pdu"
         save_state()
         CfdpMib.complete_source_file(source_file)
         return true
@@ -500,7 +500,7 @@ class CfdpSourceTransaction < CfdpTransaction
         break
       end
     end
-    remove_saved_state
+    save_state
   end
 
   def notice_of_completion
@@ -695,7 +695,7 @@ class CfdpSourceTransaction < CfdpTransaction
     serialized_data = Base64.strict_encode64(Marshal.dump(state_data))
     OpenC3::Store.set("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", serialized_data)
     OpenC3::Store.sadd("#{self.class.redis_key_prefix}cfdp_saved_transaction_ids", @id)
-    OpenC3::Logger.debug("CFDP Transaction #{@id} state saved", scope: ENV['OPENC3_SCOPE'])
+    OpenC3::Logger.info("CFDP Transaction #{@id} state saved", scope: ENV['OPENC3_SCOPE'])
   end
 
   def load_state(transaction_id)
@@ -755,7 +755,7 @@ class CfdpSourceTransaction < CfdpTransaction
     @file_size = state_data['file_size']
     @read_size = state_data['read_size']
 
-    OpenC3::Logger.debug("CFDP Transaction #{@id} state loaded", scope: ENV['OPENC3_SCOPE'])
+    OpenC3::Logger.info("CFDP Transaction #{@id} state loaded", scope: ENV['OPENC3_SCOPE'])
     return true
   end
 end

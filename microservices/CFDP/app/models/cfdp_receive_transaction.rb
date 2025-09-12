@@ -189,7 +189,7 @@ class CfdpReceiveTransaction < CfdpTransaction
     @state = "FINISHED" unless @state == "CANCELED" or @state == "ABANDONED"
     @transaction_status = "TERMINATED"
     @complete_time = Time.now.utc
-    remove_saved_state
+    save_state
     OpenC3::Logger.info("CFDP Finished Receive Transaction #{@id}, #{@condition_code}", scope: ENV['OPENC3_SCOPE'])
 
     if CfdpMib.source_entity['transaction_finished_indication']
@@ -653,7 +653,7 @@ class CfdpReceiveTransaction < CfdpTransaction
     serialized_data = Base64.strict_encode64(Marshal.dump(state_data))
     OpenC3::Store.set("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", serialized_data)
     OpenC3::Store.sadd("#{self.class.redis_key_prefix}cfdp_saved_transaction_ids", @id)
-    OpenC3::Logger.debug("CFDP Transaction #{@id} state saved", scope: ENV['OPENC3_SCOPE'])
+    OpenC3::Logger.info("CFDP Transaction #{@id} state saved", scope: ENV['OPENC3_SCOPE'])
   end
 
   def load_state(transaction_id)
@@ -736,7 +736,7 @@ class CfdpReceiveTransaction < CfdpTransaction
     @finished_ack_pdu_hash = state_data['finished_ack_pdu_hash']
     @prompt_pdu_hash = state_data['prompt_pdu_hash']
 
-    OpenC3::Logger.debug("CFDP Transaction #{@id} state loaded", scope: ENV['OPENC3_SCOPE'])
+    OpenC3::Logger.info("CFDP Transaction #{@id} state loaded", scope: ENV['OPENC3_SCOPE'])
     return true
   end
 end

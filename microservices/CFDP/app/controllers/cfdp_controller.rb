@@ -243,8 +243,11 @@ class CfdpController < ApplicationController
       return false
     end
 
+    # Don't clean up because this seems to break transactions in certain states if the microservice restarts and this method is hit.
+    # TODO: archive old transactions so they don't take up RAM but can be read later and shown in the UI
+    # CfdpMib.cleanup_old_transactions()
+
     # Authorized
-    CfdpMib.cleanup_old_transactions()
     return true
   end
 

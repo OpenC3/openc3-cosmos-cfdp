@@ -27,6 +27,15 @@ RSpec.describe CfdpReceiveTransaction do
 
     allow(OpenC3::Logger).to receive(:info)
 
+    # Mock Store class to avoid Redis dependency
+    store_double = double('Store')
+    allow(store_double).to receive(:set)
+    allow(store_double).to receive(:sadd)
+    allow(store_double).to receive(:get)
+    allow(store_double).to receive(:del)
+    allow(store_double).to receive(:srem)
+    stub_const('OpenC3::Store', store_double)
+
     @transactions = {}
     allow(CfdpMib).to receive(:transactions).and_return(@transactions)
     allow(CfdpMib).to receive(:put_destination_file).and_return(true)
@@ -198,6 +207,17 @@ RSpec.describe CfdpReceiveTransaction do
       expect(receive_transaction.instance_variable_get(:@transaction_seq_num)).to eq(123)
       expect(receive_transaction.instance_variable_get(:@transmission_mode)).to eq("ACKNOWLEDGED")
       expect(receive_transaction.instance_variable_get(:@metadata_pdu_hash)).to eq(@metadata_pdu_hash)
+    end
+
+    it "adds itself to CfdpMib transactions hash during initialization" do
+      # Clear transactions hash first
+      @transactions.clear
+
+      receive_transaction = CfdpReceiveTransaction.new(@metadata_pdu_hash)
+
+      # Verify the transaction was added to the MIB transactions hash
+      expect(@transactions["1__123"]).to eq(receive_transaction)
+      expect(@transactions).to have_key("1__123")
     end
   end
 

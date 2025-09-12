@@ -63,6 +63,7 @@ class CfdpTransaction
       OpenC3::Store.del("#{redis_key_prefix}cfdp_transaction_state:#{transaction_id}:put_options")
     end
     OpenC3::Store.del("#{redis_key_prefix}cfdp_saved_transaction_ids")
+    OpenC3::Logger.info("CFDP cleared all saved transaction states", scope: ENV['OPENC3_SCOPE'])
   end
 
   def self.has_saved_state?(transaction_id)
@@ -144,7 +145,7 @@ class CfdpTransaction
       @state = "CANCELED"
       @transaction_status = "TERMINATED"
       @complete_time = Time.now.utc
-      remove_saved_state
+      save_state
     end
   end
 
@@ -155,7 +156,7 @@ class CfdpTransaction
       @transaction_status = "TERMINATED"
       CfdpTopic.write_indication("Abandoned", transaction_id: @id, condition_code: @condition_code, progress: @progress)
       @complete_time = Time.now.utc
-      remove_saved_state
+      save_state
     end
   end
 
@@ -258,7 +259,7 @@ class CfdpTransaction
     serialized_data = Base64.strict_encode64(Marshal.dump(state_data))
     OpenC3::Store.set("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", serialized_data)
     OpenC3::Store.sadd("#{self.class.redis_key_prefix}cfdp_saved_transaction_ids", @id)
-    OpenC3::Logger.debug("CFDP Transaction #{@id} state saved", scope: ENV['OPENC3_SCOPE'])
+    OpenC3::Logger.info("CFDP Transaction #{@id} state saved", scope: ENV['OPENC3_SCOPE'])
   end
 
   def load_state(transaction_id)
@@ -292,7 +293,7 @@ class CfdpTransaction
     @source_file_name = state_data['source_file_name']
     @destination_file_name = state_data['destination_file_name']
 
-    OpenC3::Logger.debug("CFDP Transaction #{@id} state loaded", scope: ENV['OPENC3_SCOPE'])
+    OpenC3::Logger.info("CFDP Transaction #{@id} state loaded", scope: ENV['OPENC3_SCOPE'])
     return true
   end
 
