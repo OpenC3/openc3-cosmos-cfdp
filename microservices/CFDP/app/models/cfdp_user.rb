@@ -73,10 +73,13 @@ class CfdpUser
 
               transaction_id = CfdpTransaction.build_transaction_id(pdu_hash["SOURCE_ENTITY_ID"], pdu_hash["SEQUENCE_NUMBER"])
               transaction = CfdpMib.transactions[transaction_id]
-              if transaction
-                transaction.handle_pdu(pdu_hash)
-              elsif pdu_hash["DIRECTIVE_CODE"] == "METADATA" or pdu_hash["DIRECTIVE_CODE"].nil?
+
+              if pdu_hash["DIRECTIVE_CODE"] == "METADATA"
+                raise "Transaction ID conflict: #{transaction_id}" unless transaction.nil? or CfdpMib.allow_duplicate_transaction_ids
+                transaction&.delete
                 transaction = CfdpReceiveTransaction.new(pdu_hash) # Also calls handle_pdu inside
+              elsif transaction
+                transaction.handle_pdu(pdu_hash)
               else
                 raise "Unknown transaction: #{transaction_id}, #{pdu_hash}"
               end

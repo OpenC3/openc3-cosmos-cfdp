@@ -33,6 +33,8 @@ VARIABLE plugin_test_mode "false"
 
 # Prevent files from being overwritten on receive by appending a timestamp to the new file if there's a name conflict
 VARIABLE prevent_received_file_overwrite "true"
+# Allow remote to re-use transaction IDs by replacing previously received transactions
+VARIABLE allow_duplicate_transaction_ids "false"
 
 MICROSERVICE CFDP <%= cfdp_microservice_name %>
   WORK_DIR .
@@ -49,6 +51,7 @@ MICROSERVICE CFDP <%= cfdp_microservice_name %>
   OPTION cmd_info <%= cfdp_cmd_target_name %> <%= cfdp_cmd_packet_name %> <%= cfdp_cmd_item_name %>
   OPTION root_path <%= root_path %>
   OPTION prevent_received_file_overwrite <%= prevent_received_file_overwrite %>
+  OPTION allow_duplicate_transaction_ids <%= allow_duplicate_transaction_ids %>
   <% if bucket.to_s.strip != '' %>
     OPTION bucket <%= bucket %>
   <% end %>

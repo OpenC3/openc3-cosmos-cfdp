@@ -70,6 +70,11 @@ class CfdpTransaction
     OpenC3::Store.sismember("#{redis_key_prefix}cfdp_saved_transaction_ids", transaction_id)
   end
 
+  def delete
+    CfdpMib.transactions.delete @id
+    remove_saved_state
+  end
+
   def remove_saved_state
     if @id
       OpenC3::Store.del("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}:put_options")

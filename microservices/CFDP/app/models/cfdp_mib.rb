@@ -121,6 +121,7 @@ class CfdpMib
   @@bucket = nil
   @@root_path = "/"
   @@prevent_received_file_overwrite = true
+  @@allow_duplicate_transaction_ids = false
   @@transactions = {}
 
   def self.transactions
@@ -165,6 +166,14 @@ class CfdpMib
 
   def self.prevent_received_file_overwrite
     @@prevent_received_file_overwrite
+  end
+
+  def self.allow_duplicate_transaction_ids=(allow_duplicate_transaction_ids)
+    @@allow_duplicate_transaction_ids = allow_duplicate_transaction_ids
+  end
+
+  def self.allow_duplicate_transaction_ids
+    @@allow_duplicate_transaction_ids
   end
 
   def self.define_entity(entity_id)
@@ -553,6 +562,8 @@ class CfdpMib
         CfdpMib.root_path = value
       when 'prevent_received_file_overwrite'
         CfdpMib.prevent_received_file_overwrite = value.downcase != "false"
+      when 'allow_duplicate_transaction_ids'
+        CfdpMib.allow_duplicate_transaction_ids = value.downcase != "false"
       else
         if current_entity_id
           case field_name
