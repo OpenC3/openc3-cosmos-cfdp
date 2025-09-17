@@ -103,7 +103,7 @@ indications = cfdp_directory_listing(remote_entity_id: 1, directory_name: "/file
 
 ### `cfdp_put_dir`
 
-This is a conveninence method that allows you to easily send multiple files. This operation is not part of the CCSDS specification, so it is implemented by initiating a PUT request for each file in the given directory. It is used the same way as `cfdp_put()`, but you must pass the path to a directory instead of a file (e.g. `"/tmp"` instead of `"/tmp/foo.txt"`).
+This is a conveninence method that allows you to easily send multiple files. This operation is not part of the CFDP specification, so it is implemented by initiating a separate PUT request for each file in the given directory. It is used the same way as `cfdp_put()`, but you must pass the path to a directory instead of a file (e.g. `"/tmp"` instead of `"/tmp/foo.txt"`).
 
 ## MIB Configuration
 
