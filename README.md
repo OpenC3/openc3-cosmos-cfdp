@@ -101,6 +101,10 @@ indications = cfdp_directory_listing(remote_entity_id: 1, directory_name: "/file
 
 ```
 
+### `cfdp_put_dir`
+
+This is a conveninence method that allows you to easily send multiple files. This operation is not part of the CCSDS specification, so it is implemented by initiating a PUT request for each file in the given directory. It is used the same way as `cfdp_put()`, but you must pass the path to a directory instead of a file (e.g. `"/tmp"` instead of `"/tmp/foo.txt"`).
+
 ## MIB Configuration
 
 The CFDP Management Information Base (MIB) is configured by passing options to the CFDP microservice in plugin.txt. See the local [plugin.txt](plugin.txt), for example:
@@ -139,6 +143,9 @@ These settings are applied to the CFDP microservice via `OPTION <name> <value>` 
 | suspended_indication            | Issue Suspended.indication                                                                        | true or false                       | true                            |
 | resume_indication               | Issue Resume.indication                                                                           | true or false                       | true                            |
 | transaction_retain_seconds      | Time to keep completed transactions in seconds.                                                   | Floating point value greater than 0 | 86400                           |
+| plugin_test_mode                | Puts the plugin into test mode by creating two dummy entities that can send/receive transactions  | true or false                       | false                           |
+| prevent_received_file_overwrite | Appends a timestamp to the file name for received files if the file already exists                | true or false                       | true                            |
+| allow_duplicate_transaction_ids | Allows receiving transactions with an ID that was previously used by deleting the old transaction | true or false                       | false                           |
 
 ### Remote Entity Configuration
 
