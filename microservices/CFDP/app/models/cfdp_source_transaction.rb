@@ -21,6 +21,7 @@ require_relative 'cfdp_transaction'
 require 'base64'
 
 class CfdpSourceTransaction < CfdpTransaction
+  FILE_PDU_SAVE_STATE_INTERVAL = 100
 
   attr_reader :filestore_responses # not persisted because it's only used at completion for writing 'Transaction-Finished'
   attr_reader :copy_state
@@ -36,6 +37,7 @@ class CfdpSourceTransaction < CfdpTransaction
     @finished_pdu_hash = nil
     @destination_entity = nil
     @eof_count = 0
+    @file_pdus_sent = 0
     @filestore_responses = []
     @metadata_pdu_hash = {} # non-nil to avoid cfdp_user thinking it needs to be set
     @copy_state = nil
@@ -301,7 +303,8 @@ class CfdpSourceTransaction < CfdpTransaction
       @file_checksum.add(@file_offset, file_data)
       @file_offset += file_data.length
       @progress = @file_offset
-      save_state()
+      @file_pdus_sent += 1
+      save_state() if @file_pdus_sent % FILE_PDU_SAVE_STATE_INTERVAL == 0 # Only save periodically to not hurt performance too much
       CfdpMib.complete_source_file(source_file)
     else
       @copy_state = "send_eof_pdu"
@@ -500,7 +503,7 @@ class CfdpSourceTransaction < CfdpTransaction
         break
       end
     end
-    save_state
+    save_state()
   end
 
   def notice_of_completion
@@ -673,6 +676,7 @@ class CfdpSourceTransaction < CfdpTransaction
       'finished_pdu_hash' => @finished_pdu_hash,
       'destination_entity' => @destination_entity,
       'eof_count' => @eof_count,
+      'file_pdus_sent' => @file_pdus_sent,
       'segmentation_control' => @segmentation_control,
       'transmission_mode' => @transmission_mode,
       'target_name' => @target_name,
@@ -695,7 +699,6 @@ class CfdpSourceTransaction < CfdpTransaction
     serialized_data = Base64.strict_encode64(Marshal.dump(state_data))
     OpenC3::Store.set("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", serialized_data)
     OpenC3::Store.sadd("#{self.class.redis_key_prefix}cfdp_saved_transaction_ids", @id)
-    OpenC3::Logger.info("CFDP Transaction #{@id} state saved", scope: ENV['OPENC3_SCOPE'])
   end
 
   def load_state(transaction_id)
@@ -739,6 +742,7 @@ class CfdpSourceTransaction < CfdpTransaction
     @finished_pdu_hash = state_data['finished_pdu_hash']
     @destination_entity = state_data['destination_entity']
     @eof_count = state_data['eof_count'] || 0
+    @file_pdus_sent = state_data['file_pdus_sent'] || 0
     @segmentation_control = state_data['segmentation_control']
     @transmission_mode = state_data['transmission_mode']
     @target_name = state_data['target_name']

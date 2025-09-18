@@ -346,7 +346,6 @@ RSpec.describe CfdpTransaction do
         expect(state_data["source_file_name"]).to eq("source.txt")
         expect(state_data["destination_file_name"]).to eq("dest.txt")
         expect(state_data["transaction_seq_num"]).to eq(123)
-        expect(OpenC3::Logger).to have_received(:info).with("CFDP Transaction 1__123 state saved", scope: 'DEFAULT')
       end
 
       it "handles nil values by not including them in serialized data" do

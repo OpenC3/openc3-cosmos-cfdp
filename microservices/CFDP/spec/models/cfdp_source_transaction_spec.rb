@@ -94,4 +94,59 @@ RSpec.describe CfdpSourceTransaction do
       expect(source_transaction.copy_state).to be_nil
     end
   end
+
+  describe "save_state optimization during file PDU transmission" do
+    before(:each) do
+      mock_redis()
+
+      @destination_entity = {
+        'id' => 2,
+        'name' => 'DESTINATION',
+        'maximum_file_segment_length' => 100,
+        'default_transmission_mode' => 'UNACKNOWLEDGED',
+        'default_checksum_type' => 'NULL',
+        'cmd_info' => ['TGT', 'PKT', 'ITEM']
+      }
+      allow(CfdpMib).to receive(:entity).with(2).and_return(@destination_entity)
+      allow(CfdpMib).to receive(:get_source_file).and_return(StringIO.new("A" * 15000))
+      allow(CfdpMib).to receive(:complete_source_file)
+      allow(CfdpPdu).to receive(:build_file_data_pdu).and_return("mock_pdu")
+
+      @source_transaction = CfdpSourceTransaction.new
+      @source_transaction.instance_variable_set(:@destination_entity, @destination_entity)
+      @source_transaction.instance_variable_set(:@source_file_name, "test.txt")
+      @source_transaction.instance_variable_set(:@destination_file_name, "test.txt")
+      @source_transaction.instance_variable_set(:@file_size, 15000)
+      @source_transaction.instance_variable_set(:@read_size, 100)
+      @source_transaction.instance_variable_set(:@segmentation_control, "NOT_PRESERVED")
+      @source_transaction.instance_variable_set(:@transmission_mode, "UNACKNOWLEDGED")
+      @source_transaction.instance_variable_set(:@target_name, "TGT")
+      @source_transaction.instance_variable_set(:@packet_name, "PKT")
+      @source_transaction.instance_variable_set(:@item_name, "ITEM")
+      checksum_mock = instance_double("CfdpChecksum", add: nil)
+      @source_transaction.instance_variable_set(:@file_checksum, checksum_mock)
+
+      allow(@source_transaction).to receive(:cfdp_cmd)
+    end
+
+    it "only calls save_state every 100 PDUs during file transmission" do
+      allow(@source_transaction).to receive(:save_state)
+
+      150.times do |i|
+        @source_transaction.send(:copy_file_send_file_data_pdu,
+          transaction_seq_num: 123,
+          transaction_id: "1__123",
+          destination_entity_id: 2,
+          source_file_name: "test.txt",
+          destination_file_name: "test.txt",
+          fault_handler_overrides: [],
+          transmission_mode: "UNACKNOWLEDGED",
+          closure_requested: nil,
+          messages_to_user: [],
+          filestore_requests: [])
+      end
+
+      expect(@source_transaction).to have_received(:save_state).exactly(1).times
+    end
+  end
 end

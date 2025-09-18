@@ -264,7 +264,6 @@ class CfdpTransaction
     serialized_data = Base64.strict_encode64(Marshal.dump(state_data))
     OpenC3::Store.set("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", serialized_data)
     OpenC3::Store.sadd("#{self.class.redis_key_prefix}cfdp_saved_transaction_ids", @id)
-    OpenC3::Logger.info("CFDP Transaction #{@id} state saved", scope: ENV['OPENC3_SCOPE'])
   end
 
   def load_state(transaction_id)
