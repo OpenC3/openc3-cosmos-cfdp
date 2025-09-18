@@ -16,7 +16,8 @@
 # See https://github.com/OpenC3/openc3-cosmos-cfdp/pull/12 for details
 
 require 'rails_helper'
-require 'base64'
+require 'json'
+require 'openc3/io/json_rpc'
 
 RSpec.describe CfdpTransaction do
   before(:each) do
@@ -340,7 +341,7 @@ RSpec.describe CfdpTransaction do
         expect(serialized_data).not_to be_nil
 
         # Deserialize and verify structure
-        state_data = Marshal.load(Base64.strict_decode64(serialized_data))
+        state_data = JSON.parse(serialized_data, allow_nan: true)
         expect(state_data["id"]).to eq("1__123")
         expect(state_data["state"]).to eq("ACTIVE")
         expect(state_data["source_file_name"]).to eq("source.txt")
@@ -358,7 +359,7 @@ RSpec.describe CfdpTransaction do
         expect(serialized_data).not_to be_nil
 
         # Deserialize and verify nil values are not included
-        state_data = Marshal.load(Base64.strict_decode64(serialized_data))
+        state_data = JSON.parse(serialized_data, allow_nan: true)
         expect(state_data).not_to have_key("delivery_code")
         expect(state_data).not_to have_key("file_status")
         expect(state_data).not_to have_key("complete_time")
@@ -386,7 +387,7 @@ RSpec.describe CfdpTransaction do
         }
 
         state_key = "#{@redis_prefix}cfdp_transaction_state:1__123"
-        serialized_data = Base64.strict_encode64(Marshal.dump(state_data))
+        serialized_data = JSON.generate(state_data.as_json, allow_nan: true)
         OpenC3::Store.set(state_key, serialized_data)
 
         result = transaction.load_state("1__123")
@@ -419,7 +420,7 @@ RSpec.describe CfdpTransaction do
 
         state_data = {"id" => "1__123"}
         state_key = "#{@redis_prefix}cfdp_transaction_state:1__123"
-        serialized_data = Base64.strict_encode64(Marshal.dump(state_data))
+        serialized_data = JSON.generate(state_data.as_json, allow_nan: true)
         OpenC3::Store.set(state_key, serialized_data)
 
         result = transaction.load_state("1__123")

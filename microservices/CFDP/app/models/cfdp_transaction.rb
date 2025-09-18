@@ -23,8 +23,8 @@ require_relative 'cfdp_checksum'
 require_relative 'cfdp_null_checksum'
 require_relative 'cfdp_crc_checksum'
 require 'tempfile'
-require 'base64'
 require 'json'
+require 'openc3/io/json_rpc'
 
 class CfdpTransaction
   include OpenC3::Api
@@ -260,8 +260,8 @@ class CfdpTransaction
     # Remove nil values to clean up data
     state_data.compact!
 
-    # Store as Base64-encoded Marshal dump to handle all data types safely
-    serialized_data = Base64.strict_encode64(Marshal.dump(state_data))
+    # Store as JSON to handle all data types safely
+    serialized_data = JSON.generate(state_data.as_json, allow_nan: true)
     OpenC3::Store.set("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", serialized_data)
     OpenC3::Store.sadd("#{self.class.redis_key_prefix}cfdp_saved_transaction_ids", @id)
   end
@@ -271,7 +271,7 @@ class CfdpTransaction
     return false unless serialized_data
 
     begin
-      state_data = Marshal.load(Base64.strict_decode64(serialized_data))
+      state_data = JSON.parse(serialized_data, allow_nan: true)
     rescue => e
       OpenC3::Logger.error("CFDP Transaction #{transaction_id} failed to deserialize state: #{e.message}", scope: ENV['OPENC3_SCOPE'])
       return false
