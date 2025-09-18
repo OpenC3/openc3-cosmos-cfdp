@@ -122,6 +122,7 @@ class CfdpMib
   @@root_path = "/"
   @@prevent_received_file_overwrite = true
   @@allow_duplicate_transaction_ids = false
+  @@transaction_cleanup_frequency_hours = 24
   @@transactions = {}
 
   def self.transactions
@@ -174,6 +175,14 @@ class CfdpMib
 
   def self.allow_duplicate_transaction_ids
     @@allow_duplicate_transaction_ids
+  end
+
+  def self.transaction_cleanup_frequency_hours=(transaction_cleanup_frequency_hours)
+    @@transaction_cleanup_frequency_hours = transaction_cleanup_frequency_hours
+  end
+
+  def self.transaction_cleanup_frequency_hours
+    @@transaction_cleanup_frequency_hours
   end
 
   def self.define_entity(entity_id)
@@ -564,6 +573,8 @@ class CfdpMib
         CfdpMib.prevent_received_file_overwrite = value.downcase != "false"
       when 'allow_duplicate_transaction_ids'
         CfdpMib.allow_duplicate_transaction_ids = value.downcase != "false"
+      when 'transaction_cleanup_frequency_hours'
+        CfdpMib.transaction_cleanup_frequency_hours = Integer(value)
       else
         if current_entity_id
           case field_name
@@ -674,7 +685,6 @@ class CfdpMib
 
         if transaction.load_state(transaction_id)
           loaded_count += 1
-          OpenC3::Logger.info("CFDP loaded saved transaction: #{transaction_id}", scope: ENV['OPENC3_SCOPE'])
         else
           OpenC3::Logger.warn("CFDP failed to load saved transaction: #{transaction_id}", scope: ENV['OPENC3_SCOPE'])
         end
@@ -737,27 +747,15 @@ class CfdpMib
   end
 
   def self.cleanup_old_transactions
-    to_remove = []
     current_time = Time.now.utc
     transaction_retain_seconds = @@entities[@@source_entity_id]['transaction_retain_seconds']
+    cleaned_up_count = 0
     @@transactions.each do |id, transaction|
       if transaction.complete_time and (current_time - transaction.complete_time) > transaction_retain_seconds
-        to_remove << id
+        transaction.delete
+        cleaned_up_count += 1
       end
     end
-    to_remove.each do |id|
-      transaction = @@transactions[id]
-      transaction.remove_saved_state if transaction
-      @@transactions.delete(id)
-    end
-
-    saved_ids = CfdpTransaction.get_saved_transaction_ids
-    saved_ids.each do |saved_id|
-      unless @@transactions.key?(saved_id)
-        OpenC3::Store.del("#{CfdpTransaction.redis_key_prefix}cfdp_transaction_state:#{saved_id}")
-        OpenC3::Store.srem("#{CfdpTransaction.redis_key_prefix}cfdp_saved_transaction_ids", saved_id)
-        OpenC3::Logger.info("CFDP removed orphaned saved state: #{saved_id}", scope: ENV['OPENC3_SCOPE'])
-      end
-    end
+    OpenC3::Logger.info("CFDP cleaned up #{cleaned_up_count} completed transactions", scope: ENV['OPENC3_SCOPE'])
   end
 end

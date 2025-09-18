@@ -32,6 +32,7 @@ class CfdpUser
     @item_name_lookup = {}
     @source_transactions = []
     @source_threads = []
+    @last_cleanup_time = Time.now.utc
 
     at_exit do
       stop()
@@ -77,9 +78,12 @@ class CfdpUser
               if pdu_hash["DIRECTIVE_CODE"] == "METADATA"
                 raise "Transaction ID conflict: #{transaction_id}" unless transaction.nil? or CfdpMib.allow_duplicate_transaction_ids
                 transaction&.delete
-                transaction = CfdpReceiveTransaction.new(pdu_hash) # Also calls handle_pdu inside
-              elsif transaction
+                transaction = nil
+              end
+              if transaction
                 transaction.handle_pdu(pdu_hash)
+              elsif pdu_hash["DIRECTIVE_CODE"] == "METADATA" or pdu_hash["DIRECTIVE_CODE"].nil?
+                transaction = CfdpReceiveTransaction.new(pdu_hash) # Also calls handle_pdu inside
               else
                 raise "Unknown transaction: #{transaction_id}, #{pdu_hash}"
               end
@@ -121,6 +125,13 @@ class CfdpUser
           end
           proxy_responses.each do |params|
             start_source_transaction(params)
+          end
+
+          current_time = Time.now.utc
+          frequency_seconds = CfdpMib.transaction_cleanup_frequency_hours * 3600
+          if (current_time - @last_cleanup_time) >= frequency_seconds
+            CfdpMib.cleanup_old_transactions()
+            @last_cleanup_time = current_time
           end
         end
       rescue => err
