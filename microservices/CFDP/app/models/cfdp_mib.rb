@@ -48,6 +48,7 @@ require_relative 'cfdp_receive_transaction'
 require 'tempfile'
 require 'fileutils'
 require 'json'
+require 'json/add/string'
 
 class Tempfile
   def persist(filename)

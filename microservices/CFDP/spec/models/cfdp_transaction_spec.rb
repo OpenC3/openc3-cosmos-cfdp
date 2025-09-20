@@ -17,6 +17,7 @@
 
 require 'rails_helper'
 require 'json'
+require 'json/add/string'
 require 'openc3/io/json_rpc'
 
 RSpec.describe CfdpTransaction do

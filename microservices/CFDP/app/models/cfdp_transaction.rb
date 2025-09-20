@@ -24,6 +24,7 @@ require_relative 'cfdp_null_checksum'
 require_relative 'cfdp_crc_checksum'
 require 'tempfile'
 require 'json'
+require 'json/add/string'
 require 'openc3/io/json_rpc'
 
 class CfdpTransaction

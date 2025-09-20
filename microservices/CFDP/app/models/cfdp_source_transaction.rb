@@ -19,6 +19,7 @@
 
 require_relative 'cfdp_transaction'
 require 'json'
+require 'json/add/string'
 require 'openc3/io/json_rpc'
 
 class CfdpSourceTransaction < CfdpTransaction
