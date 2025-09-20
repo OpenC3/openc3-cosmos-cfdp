@@ -3,7 +3,7 @@
 # separate terms of service, privacy policy, and support
 # documentation.
 
-name: OpenC3 Playwright Tests
+name: Playwright Tests
 
 # Only run on a push to master to avoid running for all the dependabot PRs
 on:
@@ -19,15 +19,15 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           repository: OpenC3/cosmos-project.git
           path: cosmos
           ref: main
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: 22
           cache: "yarn"
           cache-dependency-path: "**/yarn.lock"
       - name: Install playwright dependencies

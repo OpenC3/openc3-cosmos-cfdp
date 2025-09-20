@@ -190,7 +190,7 @@ module OpenC3
                     :target_name => "CFDPTEST",
                     :packet_name => "CFDP_PDU",
                     :received_count => 1,
-                    :json_data => JSON.generate(prompt_params.as_json(:allow_nan => true)),
+                    :json_data => JSON.generate(prompt_params.as_json, allow_nan: true),
                   }
                   safe_write_topic("DEFAULT__DECOM__{CFDPTEST}__CFDP_PDU", msg_hash, nil)
                 end
@@ -202,7 +202,7 @@ module OpenC3
                 :target_name => target_name,
                 :packet_name => cmd_name,
                 :received_count => 1,
-                :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
+                :json_data => JSON.generate(cmd_params.as_json, allow_nan: true),
               }
               safe_write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
               # Duplicate metadata should be ignored
@@ -248,7 +248,7 @@ module OpenC3
                   :target_name => target_name,
                   :packet_name => cmd_name,
                   :received_count => 1,
-                  :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
+                  :json_data => JSON.generate(cmd_params.as_json, allow_nan: true),
                 }
                 safe_write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
               end
@@ -1325,7 +1325,7 @@ module OpenC3
           :target_name => "CFDPTEST",
           :packet_name => "CFDP_PDU",
           :received_count => 1,
-          :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
+          :json_data => JSON.generate(cmd_params.as_json, allow_nan: true),
         }
         error_message = ''
         allow(OpenC3::Logger).to receive(:error) do |msg|

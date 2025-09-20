@@ -18,7 +18,6 @@
 # See https://github.com/OpenC3/openc3-cosmos-cfdp/pull/12 for details
 
 require_relative 'cfdp_transaction'
-require 'json'
 require 'openc3/io/json_rpc'
 
 class CfdpReceiveTransaction < CfdpTransaction
@@ -651,7 +650,7 @@ class CfdpReceiveTransaction < CfdpTransaction
     state_data.compact!
 
     # Store as JSON to handle all data types safely
-    serialized_data = JSON.generate(state_data, allow_nan: true)
+    serialized_data = JSON.generate(state_data.as_json, allow_nan: true)
     OpenC3::Store.set("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", serialized_data)
     OpenC3::Store.sadd("#{self.class.redis_key_prefix}cfdp_saved_transaction_ids", @id)
   end
