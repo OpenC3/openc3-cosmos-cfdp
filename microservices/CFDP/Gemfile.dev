@@ -13,6 +13,9 @@ gem 'rack-cors', '~> 2.0'
 # Windows does not include zoneinfo files, so bundle the tzinfo-data gem
 gem 'tzinfo-data'
 
+# Breaking change in 2.14 for require 'json/add/string'
+gem 'json', '~> 2.14'
+
 group :development, :test do
   gem 'rspec-rails', '~> 7.0'
   gem 'simplecov', '~> 0.22'
@@ -27,9 +30,9 @@ if ENV['OPENC3_DEVEL']
 elsif ENV['OPENC3_PATH']
   gem 'openc3', :path => ENV['OPENC3_PATH']
 else
-  gem 'openc3', '>= 5.4.2.pre'
+  gem 'openc3', '>= 5.4.2'
 end
 
 if ENV['OPENC3_ENTERPRISE_TAG']
-  gem 'openc3-enterprise', '>= 5.4.2.pre'
+  gem 'openc3-enterprise', '>= 5.4.2'
 end
