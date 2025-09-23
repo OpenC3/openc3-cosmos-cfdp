@@ -602,6 +602,7 @@ class CfdpReceiveTransaction < CfdpTransaction
   end
 
   def save_state
+    puts "Save state id:#{@id}"
     state_data = {
       'id' => @id,
       'frozen' => @frozen,
@@ -627,7 +628,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       'tmp_file_path' => @tmp_file&.path,
       'segments' => @segments,
       'eof_pdu_hash' => @eof_pdu_hash,
-      'checksum_type' => @checksum.class.name,
+      'checksum' => @checksum&.as_json,
       'full_checksum_needed' => @full_checksum_needed,
       'file_size' => @file_size,
       'filestore_responses' => @filestore_responses,
@@ -657,6 +658,7 @@ class CfdpReceiveTransaction < CfdpTransaction
 
   def load_state(transaction_id)
     state_data = super(transaction_id, no_log: true)
+    puts "state_data:#{state_data}"
     return false unless state_data
 
     # Load receive-specific state
@@ -676,18 +678,7 @@ class CfdpReceiveTransaction < CfdpTransaction
 
     @segments = state_data['segments'] || {}
     @eof_pdu_hash = state_data['eof_pdu_hash']
-
-    case state_data['checksum_type']
-    when 'CfdpChecksum'
-      @checksum = CfdpChecksum.new
-    when 'CfdpNullChecksum'
-      @checksum = CfdpNullChecksum.new
-    when 'CfdpCrcChecksum'
-      @checksum = CfdpCrcChecksum.new(0, 0, false, false)
-    else
-      @checksum = CfdpNullChecksum.new
-    end
-
+    @checksum = state_data['checksum']
     @full_checksum_needed = state_data['full_checksum_needed']
     @file_size = state_data['file_size'] || 0
     @filestore_responses = state_data['filestore_responses'] || []
@@ -708,6 +699,6 @@ class CfdpReceiveTransaction < CfdpTransaction
     @prompt_pdu_hash = state_data['prompt_pdu_hash']
 
     OpenC3::Logger.info("CFDP Transaction #{@id} state loaded", scope: ENV['OPENC3_SCOPE'])
-    return true
+    return state_data
   end
 end

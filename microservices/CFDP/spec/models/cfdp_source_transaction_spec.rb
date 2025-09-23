@@ -123,8 +123,7 @@ RSpec.describe CfdpSourceTransaction do
       @source_transaction.instance_variable_set(:@target_name, "TGT")
       @source_transaction.instance_variable_set(:@packet_name, "PKT")
       @source_transaction.instance_variable_set(:@item_name, "ITEM")
-      checksum_mock = instance_double("CfdpChecksum", add: nil)
-      @source_transaction.instance_variable_set(:@file_checksum, checksum_mock)
+      @source_transaction.instance_variable_set(:@file_checksum, CfdpChecksum.new(100))
 
       allow(@source_transaction).to receive(:cfdp_cmd)
     end
@@ -147,6 +146,33 @@ RSpec.describe CfdpSourceTransaction do
       end
 
       expect(@source_transaction).to have_received(:save_state).exactly(1).times
+    end
+
+    it "calls save_state when destination file name is missing" do
+      @source_transaction.copy_file_send_file_data_pdu(
+        transaction_seq_num: 123,
+        transaction_id: "1__123",
+        destination_entity_id: 2,
+        source_file_name: "test.txt",
+        destination_file_name: nil,
+        fault_handler_overrides: [],
+        transmission_mode: "UNACKNOWLEDGED",
+        closure_requested: nil,
+        messages_to_user: [],
+        filestore_requests: [])
+
+      state = @source_transaction.load_state("1__123")
+      # Spot check some state to ensure it all round trips
+      expect(state["source_file_name"]).to eq("test.txt")
+      expect(state["destination_file_name"]).to eq("test.txt")
+      expect(state["source_entity"]["id"]).to eq(1)
+      expect(state["source_entity"]["name"]).to eq("SOURCE")
+      expect(state["destination_entity"]["id"]).to eq(2)
+      expect(state["destination_entity"]["name"]).to eq("DESTINATION")
+      expect(state["destination_entity"]["cmd_info"]).to eq(["TGT", "PKT", "ITEM"])
+      # CfdpChecksum round trips as a class
+      expect(state["file_checksum"]).to be_a CfdpChecksum
+      expect(state["file_checksum"].checksum(false, false)).to eq(100)
     end
   end
 end

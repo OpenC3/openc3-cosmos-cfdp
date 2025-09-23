@@ -1,6 +1,6 @@
 # encoding: ascii-8bit
 
-# Copyright 2023 OpenC3, Inc.
+# Copyright 2025 OpenC3, Inc.
 # All Rights Reserved.
 #
 # Licensed for Evaluation and Educational Use
@@ -15,8 +15,8 @@
 # The development of this software was funded in-whole or in-part by MethaneSAT LLC.
 
 class CfdpChecksum
-  def initialize
-    @checksum = 0
+  def initialize(checksum = 0)
+    @checksum = checksum
   end
 
   def add(offset, data)
@@ -48,5 +48,13 @@ class CfdpChecksum
 
   def check(file, other_checksum, full_checksum_needed)
     checksum(file, full_checksum_needed) == other_checksum
+  end
+
+  def self.json_create(object)
+    return CfdpChecksum.new(object['raw'])
+  end
+
+  def as_json(_options = nil)
+    return { "json_class" => self.class.to_s, "raw" => @checksum }
   end
 end

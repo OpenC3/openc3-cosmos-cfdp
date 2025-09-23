@@ -1,6 +1,6 @@
 # encoding: ascii-8bit
 
-# Copyright 2023 OpenC3, Inc.
+# Copyright 2025 OpenC3, Inc.
 # All Rights Reserved.
 #
 # Licensed for Evaluation and Educational Use
@@ -25,5 +25,13 @@ class CfdpNullChecksum
 
   def check(file, other_checkum, full_checksum_needed)
     true
+  end
+
+  def self.json_create(object)
+    return CfdpNullChecksum.new()
+  end
+
+  def as_json(_options = nil)
+    return { "json_class" => self.class.to_s }
   end
 end

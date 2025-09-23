@@ -691,7 +691,7 @@ class CfdpSourceTransaction < CfdpTransaction
       'keep_alive_pdu_hash' => @keep_alive_pdu_hash,
       'copy_state' => @copy_state,
       'file_offset' => @file_offset,
-      'file_checksum' => @file_checksum,
+      'file_checksum' => @file_checksum&.as_json,
       'file_size' => @file_size,
       'read_size' => @read_size
     }
@@ -733,6 +733,6 @@ class CfdpSourceTransaction < CfdpTransaction
     @read_size = state_data['read_size']
 
     OpenC3::Logger.info("CFDP Transaction #{@id} state loaded", scope: ENV['OPENC3_SCOPE'])
-    return true
+    return state_data
   end
 end

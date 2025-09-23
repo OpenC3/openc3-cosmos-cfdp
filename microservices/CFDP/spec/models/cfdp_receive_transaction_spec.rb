@@ -20,21 +20,14 @@ require 'tempfile'
 
 RSpec.describe CfdpReceiveTransaction do
   before(:each) do
+    mock_redis()
+
     # Mock the CfdpTopic static methods directly
     allow(CfdpTopic).to receive(:write_indication)
     ENV['OPENC3_MICROSERVICE_NAME'] = 'DEFAULT__API__CFDP'
     ENV['OPENC3_SCOPE'] = 'DEFAULT'
 
     allow(OpenC3::Logger).to receive(:info)
-
-    # Mock Store class to avoid Redis dependency
-    store_double = double('Store')
-    allow(store_double).to receive(:set)
-    allow(store_double).to receive(:sadd)
-    allow(store_double).to receive(:get)
-    allow(store_double).to receive(:del)
-    allow(store_double).to receive(:srem)
-    stub_const('OpenC3::Store', store_double)
 
     @transactions = {}
     allow(CfdpMib).to receive(:transactions).and_return(@transactions)
@@ -181,17 +174,8 @@ RSpec.describe CfdpReceiveTransaction do
     allow(@mock_tempfile).to receive(:path).and_return("/tmp/cfdp_test")
     allow(Tempfile).to receive(:new).and_return(@mock_tempfile)
 
-    # Mock checksum classes
-    @mock_null_checksum = double("CfdpNullChecksum")
-    allow(@mock_null_checksum).to receive(:add)
-    allow(@mock_null_checksum).to receive(:check).and_return(true)
-    allow(CfdpNullChecksum).to receive(:new).and_return(@mock_null_checksum)
-
     # Mock cmd method from OpenC3::Api that's included in CfdpTransaction
     allow_any_instance_of(CfdpReceiveTransaction).to receive(:cmd)
-
-    # Mock get_checksum method
-    allow_any_instance_of(CfdpReceiveTransaction).to receive(:get_checksum).and_return(@mock_null_checksum)
 
     # Mock CfdpPdu build methods
     allow(CfdpPdu).to receive(:build_ack_pdu).and_return("ACK_PDU")
@@ -285,6 +269,15 @@ RSpec.describe CfdpReceiveTransaction do
   end
 
   describe "check_complete" do
+    before(:each) do
+      # Mock checksum classes
+      @mock_null_checksum = double("CfdpNullChecksum")
+      allow(@mock_null_checksum).to receive(:add)
+      allow(@mock_null_checksum).to receive(:check).and_return(true)
+      allow(CfdpNullChecksum).to receive(:new).and_return(@mock_null_checksum)
+      allow_any_instance_of(CfdpReceiveTransaction).to receive(:get_checksum).and_return(@mock_null_checksum)
+    end
+
     it "returns false if metadata or EOF not received" do
       receive_transaction = CfdpReceiveTransaction.new(@metadata_pdu_hash)
       # Clear metadata_pdu_hash
@@ -614,6 +607,21 @@ RSpec.describe CfdpReceiveTransaction do
       expect(CfdpPdu).not_to receive(:build_finished_pdu)
 
       receive_transaction.notice_of_completion
+    end
+
+    it "saves state" do
+      receive_transaction = CfdpReceiveTransaction.new(@metadata_pdu_hash)
+      expect(CfdpPdu).to receive(:build_finished_pdu)
+
+      receive_transaction.notice_of_completion
+
+      state = receive_transaction.load_state("1__123")
+      # Spot check some state to ensure it all round trips
+      expect(state["source_file_name"]).to eq("source.txt")
+      expect(state["destination_file_name"]).to eq("destination.txt")
+      expect(state["metadata_pdu_hash"]["DIRECTIVE_CODE"]).to eq("METADATA")
+      # checksum round trips as a class
+      expect(state["checksum"]).to be_a CfdpChecksum
     end
   end
 end
