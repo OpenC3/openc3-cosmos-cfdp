@@ -122,7 +122,7 @@ class CfdpApi < OpenC3::JsonApi
           raise "CFDP put_dir failed"
         end
       end
-      return JSON.parse(response.body)
+      return JSON.parse(response.body, :allow_nan => true, :create_additions => true)
     rescue => error
       raise "CFDP put_dir failed due to #{error.formatted}"
     end
@@ -178,7 +178,7 @@ class CfdpApi < OpenC3::JsonApi
         end
       end
       # Hash of continuation, and indications array
-      return JSON.parse(response.body)
+      return JSON.parse(response.body, :allow_nan => true, :create_additions => true)
     rescue => error
       raise "CFDP indications failed due to #{error.formatted}"
     end
@@ -216,7 +216,7 @@ class CfdpApi < OpenC3::JsonApi
         end
       end
       # Array of Transaction Hashes
-      return JSON.parse(response.body)
+      return JSON.parse(response.body, :allow_nan => true, :create_additions => true)
     rescue => error
       raise "CFDP transactions failed due to #{error.formatted}"
     end

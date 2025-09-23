@@ -266,7 +266,7 @@ module OpenC3
 
         get "/cfdp/indications", :params => { scope: "DEFAULT" }
         expect(response).to have_http_status(200)
-        json = JSON.parse(response.body)
+        json = JSON.parse(response.body, allow_nan: true, create_additions: true)
         yield json['indications'] if block_given?
       end
 

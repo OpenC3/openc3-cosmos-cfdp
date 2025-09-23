@@ -28,7 +28,7 @@ class CfdpTopic < OpenC3::Topic
       msg_hash[key] = value
     end
 
-    data_hash = {"data" => JSON.generate(msg_hash.as_json(allow_nan: true), allow_nan: true)}
+    data_hash = {"data" => JSON.generate(msg_hash.as_json, allow_nan: true)}
     OpenC3::Topic.write_topic("#{ENV['OPENC3_MICROSERVICE_NAME']}__CFDP", data_hash, '*', 1000)
   end
 

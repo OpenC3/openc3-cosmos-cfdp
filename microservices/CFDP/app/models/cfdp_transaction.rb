@@ -267,12 +267,12 @@ class CfdpTransaction
     OpenC3::Store.sadd("#{self.class.redis_key_prefix}cfdp_saved_transaction_ids", @id)
   end
 
-  def load_state(transaction_id)
+  def load_state(transaction_id, no_log: false)
     serialized_data = OpenC3::Store.get("#{self.class.redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
     return false unless serialized_data
 
     begin
-      state_data = JSON.parse(serialized_data, allow_nan: true)
+      state_data = JSON.parse(serialized_data, allow_nan: true, create_additions: true)
     rescue => e
       OpenC3::Logger.error("CFDP Transaction #{transaction_id} failed to deserialize state: #{e.message}", scope: ENV['OPENC3_SCOPE'])
       return false
@@ -298,8 +298,8 @@ class CfdpTransaction
     @source_file_name = state_data['source_file_name']
     @destination_file_name = state_data['destination_file_name']
 
-    OpenC3::Logger.info("CFDP Transaction #{@id} state loaded", scope: ENV['OPENC3_SCOPE'])
-    return true
+    OpenC3::Logger.info("CFDP Transaction #{@id} state loaded", scope: ENV['OPENC3_SCOPE']) unless no_log
+    return state_data
   end
 
   def cfdp_cmd(entity, target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])

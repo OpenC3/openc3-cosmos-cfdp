@@ -634,7 +634,7 @@ RSpec.describe CfdpMib do
       expect(result).to be_a(String)
 
       # Parse the JSON and verify it contains the expected entries
-      json = JSON.parse(result)
+      json = JSON.parse(result, allow_nan: true, create_additions: true)
       expect(json).to be_an(Array)
       expect(json.size).to eq(3) # file1.txt, file2.txt, subdir
 

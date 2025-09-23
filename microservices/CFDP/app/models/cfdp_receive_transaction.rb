@@ -656,36 +656,8 @@ class CfdpReceiveTransaction < CfdpTransaction
   end
 
   def load_state(transaction_id)
-    serialized_data = OpenC3::Store.get("#{self.class.redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
-    return false unless serialized_data
-
-    begin
-      state_data = JSON.parse(serialized_data, allow_nan: true)
-    rescue => e
-      OpenC3::Logger.error("CFDP Transaction #{transaction_id} failed to deserialize state: #{e.message}", scope: ENV['OPENC3_SCOPE'])
-      return false
-    end
-
-    # Load base state
-    @id = state_data['id']
-    @frozen = state_data['frozen']
-    @state = state_data['state'] || 'ACTIVE'
-    @transaction_status = state_data['transaction_status'] || 'ACTIVE'
-    @progress = state_data['progress'] || 0
-    @transaction_seq_num = state_data['transaction_seq_num']
-    @condition_code = state_data['condition_code'] || 'NO_ERROR'
-    @delivery_code = state_data['delivery_code']
-    @file_status = state_data['file_status']
-    @metadata_pdu_hash = state_data['metadata_pdu_hash']
-    @metadata_pdu_count = state_data['metadata_pdu_count'] || 0
-    @create_time = state_data['create_time'] ? Time.parse(state_data['create_time']) : nil
-    @complete_time = nil # Completed transactions are not persisted
-    @proxy_response_info = state_data['proxy_response_info']
-    @proxy_response_needed = state_data['proxy_response_needed']
-    @canceling_entity_id = state_data['canceling_entity_id']
-    @fault_handler_overrides = state_data['fault_handler_overrides'] || {}
-    @source_file_name = state_data['source_file_name']
-    @destination_file_name = state_data['destination_file_name']
+    state_data = super(transaction_id, no_log: true)
+    return false unless state_data
 
     # Load receive-specific state
     @transmission_mode = state_data['transmission_mode']

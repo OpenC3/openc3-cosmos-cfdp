@@ -118,7 +118,6 @@ RSpec.configure do |config|
   config.before(:all) do
     # Most tests want to disable authorization for simplicity
     $openc3_authorize = false
-    $stdout = StringIO.new
   end
 
   # rspec-expectations config goes here. You can use an alternate

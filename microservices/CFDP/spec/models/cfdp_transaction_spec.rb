@@ -202,7 +202,7 @@ RSpec.describe CfdpTransaction do
         expect(report).to be_a(String)
 
         # Parse and verify JSON structure
-        json = JSON.parse(report)
+        json = JSON.parse(report, allow_nan: true, create_additions: true)
         expect(json["id"]).to eq("1__123")
         expect(json["state"]).to eq("ACTIVE")
         expect(json["transaction_status"]).to eq("ACTIVE")
@@ -342,7 +342,7 @@ RSpec.describe CfdpTransaction do
         expect(serialized_data).not_to be_nil
 
         # Deserialize and verify structure
-        state_data = JSON.parse(serialized_data, allow_nan: true)
+        state_data = JSON.parse(serialized_data, allow_nan: true, create_additions: true)
         expect(state_data["id"]).to eq("1__123")
         expect(state_data["state"]).to eq("ACTIVE")
         expect(state_data["source_file_name"]).to eq("source.txt")
@@ -360,7 +360,7 @@ RSpec.describe CfdpTransaction do
         expect(serialized_data).not_to be_nil
 
         # Deserialize and verify nil values are not included
-        state_data = JSON.parse(serialized_data, allow_nan: true)
+        state_data = JSON.parse(serialized_data, allow_nan: true, create_additions: true)
         expect(state_data).not_to have_key("delivery_code")
         expect(state_data).not_to have_key("file_status")
         expect(state_data).not_to have_key("complete_time")
@@ -393,7 +393,7 @@ RSpec.describe CfdpTransaction do
 
         result = transaction.load_state("1__123")
 
-        expect(result).to be true
+        expect(result).to be_truthy
         expect(transaction.id).to eq("1__123")
         expect(transaction.frozen).to be false
         expect(transaction.state).to eq("SUSPENDED")
@@ -426,7 +426,7 @@ RSpec.describe CfdpTransaction do
 
         result = transaction.load_state("1__123")
 
-        expect(result).to be true
+        expect(result).to be_truthy
         expect(transaction.state).to eq("ACTIVE")
         expect(transaction.transaction_status).to eq("ACTIVE")
         expect(transaction.progress).to eq(0)
@@ -465,7 +465,7 @@ RSpec.describe CfdpTransaction do
         new_transaction = CfdpTransaction.new
         result = new_transaction.load_state("1__456")
 
-        expect(result).to be true
+        expect(result).to be_truthy
         expect(new_transaction.id).to eq("1__456")
         expect(new_transaction.frozen).to be true
         expect(new_transaction.state).to eq("SUSPENDED")
