@@ -247,56 +247,58 @@ class CfdpTransaction
       'condition_code' => @condition_code,
       'delivery_code' => @delivery_code,
       'file_status' => @file_status,
-      'metadata_pdu_hash' => JSON.generate(@metadata_pdu_hash&.as_json, allow_nan: true),
+      'metadata_pdu_hash' => @metadata_pdu_hash,
       'metadata_pdu_count' => @metadata_pdu_count,
       'create_time' => @create_time&.iso8601(6),
       'proxy_response_info' => @proxy_response_info,
       'proxy_response_needed' => @proxy_response_needed,
       'canceling_entity_id' => @canceling_entity_id,
-      'fault_handler_overrides' => JSON.generate(@fault_handler_overrides&.as_json, allow_nan: true),
-      'source_file_name' => (StringIO === @source_file_name ? nil : @source_file_name),
-      'source_file_stringio_data' => (StringIO === @source_file_name ? @source_file_name.string : nil),
+      'fault_handler_overrides' => @fault_handler_overrides,
+      'source_file_name' => @source_file_name,
       'destination_file_name' => @destination_file_name
     }
-    state_data.each do |field, value|
-      if value.nil?
-        OpenC3::Store.hdel("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", field)
-      else
-        OpenC3::Store.hset("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", field, value.to_s)
-      end
-    end
+
+    # Remove nil values to clean up data
+    state_data.compact!
+
+    # Store as JSON to handle all data types safely
+    serialized_data = JSON.generate(state_data.as_json, allow_nan: true)
+    OpenC3::Store.set("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", serialized_data)
     OpenC3::Store.sadd("#{self.class.redis_key_prefix}cfdp_saved_transaction_ids", @id)
   end
 
-  def load_state(transaction_id, no_log: false)
-    state_data = OpenC3::Store.hgetall("#{self.class.redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
-    return false unless state_data && !state_data.empty?
+  def load_state(transaction_id)
+    serialized_data = OpenC3::Store.get("#{self.class.redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
+    return false unless serialized_data
+
+    begin
+      state_data = JSON.parse(serialized_data, allow_nan: true)
+    rescue => e
+      OpenC3::Logger.error("CFDP Transaction #{transaction_id} failed to deserialize state: #{e.message}", scope: ENV['OPENC3_SCOPE'])
+      return false
+    end
 
     @id = state_data['id']
-    @frozen = state_data['frozen'] == 'true'
+    @frozen = state_data['frozen']
     @state = state_data['state'] || 'ACTIVE'
     @transaction_status = state_data['transaction_status'] || 'ACTIVE'
-    @progress = state_data['progress']&.to_i || 0
-    @transaction_seq_num = state_data['transaction_seq_num']&.to_i
+    @progress = state_data['progress'] || 0
+    @transaction_seq_num = state_data['transaction_seq_num']
     @condition_code = state_data['condition_code'] || 'NO_ERROR'
     @delivery_code = state_data['delivery_code']
     @file_status = state_data['file_status']
-    @metadata_pdu_hash = state_data['metadata_pdu_hash'] ? JSON.parse(state_data['metadata_pdu_hash']) : nil
-    @metadata_pdu_count = state_data['metadata_pdu_count']&.to_i || 0
+    @metadata_pdu_hash = state_data['metadata_pdu_hash']
+    @metadata_pdu_count = state_data['metadata_pdu_count'] || 0
     @create_time = state_data['create_time'] ? Time.parse(state_data['create_time']) : nil
     @complete_time = nil # Completed transactions are not persisted
     @proxy_response_info = state_data['proxy_response_info']
-    @proxy_response_needed = state_data['proxy_response_needed'] == 'true'
-    @canceling_entity_id = state_data['canceling_entity_id']&.to_i
-    @fault_handler_overrides = state_data['fault_handler_overrides'] ? JSON.parse(state_data['fault_handler_overrides']) : {}
-    if state_data['source_file_stringio_data']
-      @source_file_name = StringIO.new(state_data['source_file_stringio_data'])
-    else
-      @source_file_name = state_data['source_file_name']
-    end
+    @proxy_response_needed = state_data['proxy_response_needed']
+    @canceling_entity_id = state_data['canceling_entity_id']
+    @fault_handler_overrides = state_data['fault_handler_overrides'] || {}
+    @source_file_name = state_data['source_file_name']
     @destination_file_name = state_data['destination_file_name']
 
-    OpenC3::Logger.info("CFDP Transaction #{@id} state loaded", scope: ENV['OPENC3_SCOPE']) unless no_log
+    OpenC3::Logger.info("CFDP Transaction #{@id} state loaded", scope: ENV['OPENC3_SCOPE'])
     return true
   end
 
