@@ -666,7 +666,7 @@ class CfdpReceiveTransaction < CfdpTransaction
 
     if state_data['tmp_file_path']
       begin
-        @tmp_file = File.open(state_data['tmp_file_path'], 'r+b')
+        @tmp_file = File.open(File.basename(state_data['tmp_file_path']), 'r+b')
       rescue
         @tmp_file = nil
       end
