@@ -27,14 +27,7 @@ RSpec.describe CfdpReceiveTransaction do
 
     allow(OpenC3::Logger).to receive(:info)
 
-    # Mock Store class to avoid Redis dependency
-    store_double = double('Store')
-    allow(store_double).to receive(:set)
-    allow(store_double).to receive(:sadd)
-    allow(store_double).to receive(:get)
-    allow(store_double).to receive(:del)
-    allow(store_double).to receive(:srem)
-    stub_const('OpenC3::Store', store_double)
+    mock_redis
 
     @transactions = {}
     allow(CfdpMib).to receive(:transactions).and_return(@transactions)

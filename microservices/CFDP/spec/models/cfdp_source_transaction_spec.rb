@@ -134,11 +134,7 @@ RSpec.describe CfdpSourceTransaction do
 
       150.times do |i|
         @source_transaction.send(:copy_file_send_file_data_pdu,
-          transaction_seq_num: 123,
-          transaction_id: "1__123",
           destination_entity_id: 2,
-          source_file_name: "test.txt",
-          destination_file_name: "test.txt",
           fault_handler_overrides: [],
           transmission_mode: "UNACKNOWLEDGED",
           closure_requested: nil,
