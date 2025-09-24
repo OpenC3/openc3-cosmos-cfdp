@@ -312,7 +312,7 @@ class CfdpMib
   end
 
   def self.complete_source_file(file)
-    file.close
+    file.close if file
   end
 
   def self.put_destination_file(destination_filename, tmp_file, timestamp_format = "_%Y%m%d_%H%M%S")

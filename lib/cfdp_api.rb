@@ -1,6 +1,6 @@
 # encoding: ascii-8bit
 
-# Copyright 2023 OpenC3, Inc.
+# Copyright 2025 OpenC3, Inc.
 # All Rights Reserved.
 #
 # Licensed for Evaluation and Educational Use
@@ -238,7 +238,12 @@ class CfdpApi < OpenC3::JsonApi
           raise "CFDP #{method_name} failed"
         end
       end
-      return response.body
+      # String of "null" results from the controller "render json: null"
+      if response.body == "null"
+        return nil
+      else
+        return response.body
+      end
     rescue => error
       raise "CFDP #{method_name} failed due to #{error.formatted}"
     end

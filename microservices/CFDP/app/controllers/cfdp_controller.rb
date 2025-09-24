@@ -1,6 +1,6 @@
 # encoding: ascii-8bit
 
-# Copyright 2023 OpenC3, Inc.
+# Copyright 2025 OpenC3, Inc.
 # All Rights Reserved.
 #
 # Licensed for Evaluation and Educational Use
@@ -64,7 +64,11 @@ class CfdpController < ApplicationController
     return unless check_authorization()
     transaction = $cfdp_user.cancel(params)
     if transaction
-      render json: transaction.id
+      if transaction.state == "CANCELED"
+        render json: transaction.id
+      else
+        render json: nil
+      end
     else
       render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }.as_json(), :status => 404
     end
@@ -80,7 +84,11 @@ class CfdpController < ApplicationController
     return unless check_authorization()
     transaction = $cfdp_user.suspend(params)
     if transaction
-      render json: transaction.id
+      if transaction.state == "SUSPENDED"
+        render json: transaction.id
+      else
+        render json: nil
+      end
     else
       render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }.as_json(), :status => 404
     end
@@ -96,7 +104,11 @@ class CfdpController < ApplicationController
     return unless check_authorization()
     transaction = $cfdp_user.resume(params)
     if transaction
-      render json: transaction.id
+      if transaction.state == "ACTIVE"
+        render json: transaction.id
+      else
+        render json: nil
+      end
     else
       render :json => { :status => 'error', :message => "Transaction #{params[:transaction_id]} not found" }.as_json(), :status => 404
     end

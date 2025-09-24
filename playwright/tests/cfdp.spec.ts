@@ -1,5 +1,5 @@
 /*
-# Copyright 2022 OpenC3, Inc.
+# Copyright 2025 OpenC3, Inc.
 # All Rights Reserved.
 #
 # This program is free software; you can modify and/or redistribute it
@@ -80,17 +80,11 @@ test('runs the CFDP test suite', async ({ page, utils }) => {
   await expect(
     page.locator('.v-dialog').getByText('CFDP', { exact: true })
   ).toBeVisible()
-  await page
-    .locator('[data-test=file-open-save-search] input')
-    .fill('cfdp_')
+  await page.locator('[data-test=file-open-save-search] input').fill('cfdp_')
   await utils.sleep(100)
-  await page
-    .locator('[data-test=file-open-save-search] input')
-    .fill('test_')
+  await page.locator('[data-test=file-open-save-search] input').fill('test_')
   await utils.sleep(100)
-  await page
-    .locator('[data-test=file-open-save-search] input')
-    .fill('suite')
+  await page.locator('[data-test=file-open-save-search] input').fill('suite')
   await utils.sleep(100)
   await page.getByText('cfdp_test_suite.rb').first().click()
   await page.locator('[data-test="file-open-save-submit-btn"]').click()
@@ -113,7 +107,11 @@ test('runs the CFDP test suite', async ({ page, utils }) => {
   expect(textarea).toMatch('Pass: 4')
 })
 
-test.only('continues transaction after microservice restart', async ({ page, utils, context }) => {
+test('continues transaction after microservice restart', async ({
+  page,
+  utils,
+  context,
+}) => {
   await page.goto('/tools/scriptrunner')
 
   // Open the suite (we're just gonna run the group setup, though)
@@ -123,17 +121,11 @@ test.only('continues transaction after microservice restart', async ({ page, uti
   await expect(
     page.locator('.v-dialog').getByText('CFDP', { exact: true })
   ).toBeVisible()
-  await page
-    .locator('[data-test=file-open-save-search] input')
-    .fill('cfdp_')
+  await page.locator('[data-test=file-open-save-search] input').fill('cfdp_')
   await utils.sleep(100)
-  await page
-    .locator('[data-test=file-open-save-search] input')
-    .fill('test_')
+  await page.locator('[data-test=file-open-save-search] input').fill('test_')
   await utils.sleep(100)
-  await page
-    .locator('[data-test=file-open-save-search] input')
-    .fill('suite')
+  await page.locator('[data-test=file-open-save-search] input').fill('suite')
   await utils.sleep(100)
   await page.getByText('cfdp_test_suite.rb').first().click()
   await page.locator('[data-test="file-open-save-submit-btn"]').click()
@@ -167,9 +159,7 @@ test.only('continues transaction after microservice restart', async ({ page, uti
     .locator('[data-test=file-open-save-search] input')
     .fill('interrupt_')
   await utils.sleep(100)
-  await page
-    .locator('[data-test=file-open-save-search] input')
-    .fill('test')
+  await page.locator('[data-test=file-open-save-search] input').fill('test')
   await utils.sleep(100)
   await page.getByText('interrupt_test.rb').first().click()
   await page.locator('[data-test="file-open-save-submit-btn"]').click()
@@ -202,7 +192,8 @@ test.only('continues transaction after microservice restart', async ({ page, uti
   await pageTwo.locator('[data-test="confirm-dialog-start"]').click()
 
   await expect(page.locator('[data-test=output-messages]')).toContainText(
-    'Script completed: CFDP/procedures/interrupt_test.rb', {
+    'Script completed: CFDP/procedures/interrupt_test.rb',
+    {
       timeout: 600000, // 10min }
     }
   )
