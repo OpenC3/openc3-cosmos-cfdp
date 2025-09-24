@@ -22,6 +22,8 @@ require 'openc3/io/json_rpc'
 
 RSpec.describe CfdpTransaction do
   before(:each) do
+    mock_redis()
+
     # Mock CfdpTopic
     allow(CfdpTopic).to receive(:write_indication)
 
@@ -329,7 +331,6 @@ RSpec.describe CfdpTransaction do
 
     describe "save_state" do
       it "saves transaction state to OpenC3::Store as serialized data" do
-        mock_redis
         transaction.instance_variable_set(:@id, "1__123")
         transaction.instance_variable_set(:@source_file_name, "source.txt")
         transaction.instance_variable_set(:@destination_file_name, "dest.txt")
