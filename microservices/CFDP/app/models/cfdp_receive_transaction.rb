@@ -602,7 +602,6 @@ class CfdpReceiveTransaction < CfdpTransaction
   end
 
   def save_state
-    puts "Save state id:#{@id}"
     state_data = {
       'id' => @id,
       'frozen' => @frozen,
@@ -658,7 +657,6 @@ class CfdpReceiveTransaction < CfdpTransaction
 
   def load_state(transaction_id)
     state_data = super(transaction_id, no_log: true)
-    puts "state_data:#{state_data}"
     return false unless state_data
 
     # Load receive-specific state
