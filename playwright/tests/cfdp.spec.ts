@@ -28,7 +28,7 @@ test.setTimeout(1800000) // 30min
 const plugin = 'openc3-cosmos-cfdp'
 const pluginGem = 'openc3-cosmos-cfdp-1.0.0.gem'
 
-test('installs the CFDP plugin', async ({ page }) => {
+test('installs the CFDP plugin', async ({ page, utils }) => {
   await page.goto('/tools/admin/plugins')
 
   // Note that Promise.all prevents a race condition
@@ -47,30 +47,17 @@ test('installs the CFDP plugin', async ({ page }) => {
   await expect(page.locator('[data-test=plugin-alert]')).toContainText(
     'Started installing'
   )
-  // Plugin install can go so fast we can't count on 'Running' to be present so try catch this
-  let regexp = new RegExp(`Processing plugin_install: .* - Running`)
-  try {
-    await expect(page.locator('[data-test=process-list]')).toContainText(
-      regexp,
-      {
-        timeout: 30000,
-      }
-    )
-  } catch {}
-  // Ensure no Running are left
-  await expect(page.locator('[data-test=process-list]')).not.toContainText(
-    regexp,
-    {
-      timeout: 30000,
-    }
-  )
   // Check for Complete
-  regexp = new RegExp(`Processing plugin_install: ${pluginGem} - Complete`)
-  await expect(page.locator('[data-test=process-list]')).toContainText(regexp)
+  let regexp = new RegExp(`Processing plugin_install: ${pluginGem} - Complete`)
+  await expect(page.locator('[data-test=process-list]')).toContainText(regexp, {
+    timeout: 30000,
+  })
 
   await expect(
     page.locator(`[data-test=plugin-list] div:has-text("${plugin}")`).first()
   ).toContainText('CFDP')
+
+  await utils.sleep(10000) // Allow the plugin microservices to start
 })
 
 test('runs the CFDP test suite', async ({ page, utils }) => {
