@@ -203,6 +203,7 @@ class CfdpReceiveTransaction < CfdpTransaction
 
   def complete_file_received?
     return false unless @file_size
+    return true if @file_size == 0
     offset = 0
     while offset
       next_offset = @segments[offset]

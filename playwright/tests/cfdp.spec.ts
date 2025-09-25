@@ -57,7 +57,7 @@ test('installs the CFDP plugin', async ({ page, utils }) => {
     page.locator(`[data-test=plugin-list] div:has-text("${plugin}")`).first()
   ).toContainText('CFDP')
 
-  await utils.sleep(10000) // Allow the plugin microservices to start
+  await utils.sleep(60000) // Allow the plugin microservices to start
 })
 
 test('runs the CFDP test suite', async ({ page, utils }) => {

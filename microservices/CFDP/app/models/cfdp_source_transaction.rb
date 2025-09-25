@@ -399,16 +399,12 @@ class CfdpSourceTransaction < CfdpTransaction
       start_time = Time.now
       while (Time.now - start_time) < @source_entity['check_interval']
         sleep(1)
-        break if @finished_pdu_hash or @eof_ack_pdu_hash
+        break if @finished_pdu_hash
       end
       if @finished_pdu_hash
         @file_status = @finished_pdu_hash['FILE_STATUS']
         @delivery_code = @finished_pdu_hash['DELIVERY_CODE']
         @condition_code = @finished_pdu_hash['CONDITION_CODE'] unless @canceling_entity_id
-      elsif @eof_ack_pdu_hash
-        @file_status = "UNREPORTED"
-        @delivery_code = "DATA_INCOMPLETE"
-        @condition_code = @eof_ack_pdu_hash['CONDITION_CODE'] unless @canceling_entity_id
       else
         unless @canceling_entity_id
           @condition_code = "CHECK_LIMIT_REACHED"
