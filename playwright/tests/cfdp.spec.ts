@@ -57,7 +57,7 @@ test('installs the CFDP plugin', async ({ page, utils }) => {
     page.locator(`[data-test=plugin-list] div:has-text("${plugin}")`).first()
   ).toContainText('CFDP')
 
-  await utils.sleep(60000) // Allow the plugin microservices to start
+  await utils.sleep(10000) // Allow the plugin microservices to start
 })
 
 test('runs the CFDP test suite', async ({ page, utils }) => {
@@ -164,6 +164,10 @@ test('continues transaction after microservice restart', async ({
   await page.locator('[data-test="clear-log"]').click()
   await page.locator('[data-test="confirm-dialog-clear"]').click()
   await page.locator('[data-test="start-button"]').click()
+  await expect(page.locator('[data-test=state] input')).toHaveValue(/running/, {
+    timeout: 20000,
+  })
+  await utils.sleep(1000)
 
   // In another tab, restart the CfdpUser microservice
   const pageTwo = await context.newPage()
