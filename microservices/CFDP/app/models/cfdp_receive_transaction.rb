@@ -21,7 +21,7 @@ require_relative 'cfdp_transaction'
 require 'openc3/io/json_rpc'
 
 class CfdpReceiveTransaction < CfdpTransaction
-  def initialize(pdu_hash)
+  def initialize(pdu_hash, no_persist: false)
     super()
     @id = CfdpTransaction.build_transaction_id(pdu_hash["SOURCE_ENTITY_ID"], pdu_hash["SEQUENCE_NUMBER"])
     @transaction_seq_num = pdu_hash["SEQUENCE_NUMBER"]
@@ -50,7 +50,7 @@ class CfdpReceiveTransaction < CfdpTransaction
     @inactivity_count = 0
     @keep_alive_timeout = nil
     CfdpMib.transactions[@id] = self
-    handle_pdu(pdu_hash)
+    handle_pdu(pdu_hash, no_persist: no_persist)
     @inactivity_timeout = Time.now + CfdpMib.entity(@source_entity_id)['keep_alive_interval']
     @keep_alive_timeout = Time.now + CfdpMib.entity(@source_entity_id)['keep_alive_interval'] if @transmission_mode == 'ACKNOWLEDGED' and CfdpMib.entity(@source_entity_id)['enable_keep_alive']
   end
@@ -434,7 +434,11 @@ class CfdpReceiveTransaction < CfdpTransaction
     end
   end
 
-  def handle_pdu(pdu_hash)
+  def handle_pdu(pdu_hash, no_persist: false)
+    # The no_persist option is used when a transaction is being revived from a saved state
+    # (see: CfdpMib.load_saved_transactions). It prevents overwriting the saved state in the
+    # backing store with default values when the constructor calls handle_pdu.
+
     source_entity = CfdpMib.entity(@source_entity_id)
     @inactivity_timeout = Time.now + source_entity['keep_alive_interval'] if source_entity
 
@@ -442,7 +446,7 @@ class CfdpReceiveTransaction < CfdpTransaction
     when "METADATA"
       @metadata_pdu_count += 1
       if @metadata_pdu_hash # Discard repeats
-        save_state if @id
+        save_state if @id and not no_persist
         return
       end
       @metadata_pdu_hash = pdu_hash
@@ -599,7 +603,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       send_naks() if need_send_naks
     end
 
-    save_state if @id
+    save_state if @id and not no_persist
   end
 
   def save_state
@@ -675,7 +679,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       @tmp_file = nil
     end
 
-    @segments = state_data['segments'] || {}
+    @segments = state_data['segments']&.transform_keys(&:to_i) || {}
     @eof_pdu_hash = state_data['eof_pdu_hash']
     @checksum = state_data['checksum']
     @full_checksum_needed = state_data['full_checksum_needed']

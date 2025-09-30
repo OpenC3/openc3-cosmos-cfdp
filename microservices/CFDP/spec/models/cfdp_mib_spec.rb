@@ -826,7 +826,7 @@ RSpec.describe CfdpMib do
       # Mock the CfdpSourceTransaction creation and loading
       mock_transaction = double("CfdpSourceTransaction")
       allow(mock_transaction).to receive(:load_state).with("1__123").and_return(true)
-      expect(CfdpSourceTransaction).to receive(:new).with(source_entity: CfdpMib.entity(1)) do |args|
+      expect(CfdpSourceTransaction).to receive(:new).with(source_entity: CfdpMib.entity(1), transaction_seq_num: 123) do |args|
         # Simulate the constructor behavior of adding to transactions hash
         CfdpMib.transactions["1__123"] = mock_transaction
         mock_transaction
@@ -847,11 +847,12 @@ RSpec.describe CfdpMib do
       mock_transaction = double("CfdpReceiveTransaction")
       allow(mock_transaction).to receive(:load_state).with("2__456").and_return(true)
       expected_pdu = {
+        "DIRECTIVE_CODE" => "METADATA",
         "SOURCE_ENTITY_ID" => 2,
         "SEQUENCE_NUMBER" => 456,
         "TRANSMISSION_MODE" => "UNACKNOWLEDGED"
       }
-      expect(CfdpReceiveTransaction).to receive(:new).with(expected_pdu) do |args|
+      expect(CfdpReceiveTransaction).to receive(:new).with(expected_pdu, no_persist: true) do |args|
         # Simulate the constructor behavior of adding to transactions hash
         CfdpMib.transactions["2__456"] = mock_transaction
         mock_transaction
@@ -870,7 +871,7 @@ RSpec.describe CfdpMib do
       # Mock transaction that fails to load state
       mock_transaction = double("CfdpSourceTransaction")
       allow(mock_transaction).to receive(:load_state).with("1__789").and_return(false)
-      expect(CfdpSourceTransaction).to receive(:new).with(source_entity: CfdpMib.entity(1)).and_return(mock_transaction)
+      expect(CfdpSourceTransaction).to receive(:new).with(source_entity: CfdpMib.entity(1), transaction_seq_num: 789).and_return(mock_transaction)
 
       CfdpMib.load_saved_transactions
 
@@ -907,29 +908,27 @@ RSpec.describe CfdpMib do
       allow(source_tx1).to receive(:load_state).with("1__100").and_return(true)
       allow(source_tx2).to receive(:load_state).with("1__300").and_return(true)
 
-      call_count = 0
-      expect(CfdpSourceTransaction).to receive(:new).with(source_entity: CfdpMib.entity(1)).twice do |args|
-        call_count += 1
-        if call_count == 1
-          # Simulate the constructor behavior of adding to transactions hash
-          CfdpMib.transactions["1__100"] = source_tx1
-          source_tx1
-        else
-          # Simulate the constructor behavior of adding to transactions hash
-          CfdpMib.transactions["1__300"] = source_tx2
-          source_tx2
-        end
+      expect(CfdpSourceTransaction).to receive(:new).with(source_entity: CfdpMib.entity(1), transaction_seq_num: 100) do |args|
+        # Simulate the constructor behavior of adding to transactions hash
+        CfdpMib.transactions["1__100"] = source_tx1
+        source_tx1
+      end
+      expect(CfdpSourceTransaction).to receive(:new).with(source_entity: CfdpMib.entity(1), transaction_seq_num: 300) do |args|
+        # Simulate the constructor behavior of adding to transactions hash
+        CfdpMib.transactions["1__300"] = source_tx2
+        source_tx2
       end
 
       # Mock receive transaction
       receive_tx = double("CfdpReceiveTransaction")
       allow(receive_tx).to receive(:load_state).with("2__200").and_return(true)
       expected_pdu = {
+        "DIRECTIVE_CODE" => "METADATA",
         "SOURCE_ENTITY_ID" => 2,
         "SEQUENCE_NUMBER" => 200,
         "TRANSMISSION_MODE" => "UNACKNOWLEDGED"
       }
-      expect(CfdpReceiveTransaction).to receive(:new).with(expected_pdu) do |args|
+      expect(CfdpReceiveTransaction).to receive(:new).with(expected_pdu, no_persist: true) do |args|
         # Simulate the constructor behavior of adding to transactions hash
         CfdpMib.transactions["2__200"] = receive_tx
         receive_tx

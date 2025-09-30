@@ -156,7 +156,7 @@ class CfdpUser
   def stop
     @cancel_thread = true
     @source_transactions.each do |t|
-      t.abandon
+      t.save_state()
     end
     @thread.join if @thread
     @thread = nil

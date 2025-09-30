@@ -669,19 +669,20 @@ class CfdpMib
 
     saved_transaction_ids.each do |transaction_id|
       begin
-        source_entity_id = transaction_id.split('__')[0].to_i
+        source_entity_id, transaction_seq_num = transaction_id.split('__').map(&:to_i)
         if source_entity_id == @@source_entity_id
           # This is a source transaction (we initiated it)
-          transaction = CfdpSourceTransaction.new(source_entity: @@entities[source_entity_id])
+          transaction = CfdpSourceTransaction.new(source_entity: @@entities[source_entity_id], transaction_seq_num: transaction_seq_num)
         else
           # This is a receive transaction (initiated by remote entity)
           # We need to create a dummy PDU hash for initialization
           dummy_pdu = {
+            "DIRECTIVE_CODE" => "METADATA",
             "SOURCE_ENTITY_ID" => source_entity_id,
-            "SEQUENCE_NUMBER" => transaction_id.split('__')[1].to_i,
+            "SEQUENCE_NUMBER" => transaction_seq_num,
             "TRANSMISSION_MODE" => "UNACKNOWLEDGED" # Default, will be overridden by loaded state
           }
-          transaction = CfdpReceiveTransaction.new(dummy_pdu)
+          transaction = CfdpReceiveTransaction.new(dummy_pdu, no_persist: true) # Also calls handle_pdu inside
         end
 
         if transaction.load_state(transaction_id)

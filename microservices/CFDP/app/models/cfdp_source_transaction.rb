@@ -28,12 +28,12 @@ class CfdpSourceTransaction < CfdpTransaction
   attr_reader :filestore_responses # not persisted because it's only used at completion for writing 'Transaction-Finished'
   attr_reader :copy_state
 
-  def initialize(source_entity: nil)
+  def initialize(source_entity: nil, transaction_seq_num: CfdpModel.get_next_transaction_seq_num)
     super()
     @source_entity = source_entity
     @source_entity = CfdpMib.source_entity unless source_entity
     raise "No source entity defined" unless @source_entity
-    @transaction_seq_num = CfdpModel.get_next_transaction_seq_num
+    @transaction_seq_num = transaction_seq_num
     @id = CfdpTransaction.build_transaction_id(@source_entity['id'], @transaction_seq_num)
     CfdpMib.transactions[@id] = self
     @finished_pdu_hash = nil

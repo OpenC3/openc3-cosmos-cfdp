@@ -96,7 +96,7 @@ RSpec.describe CfdpUser, type: :model do
       allow(CfdpSourceTransaction).to receive(:new).and_return(transaction)
       allow(transaction).to receive(:proxy_response_info=)
       allow(transaction).to receive(:put)
-      allow(transaction).to receive(:abandon)
+      allow(transaction).to receive(:save_state)
 
       # Mock logger
       allow(OpenC3::Logger).to receive(:info)
@@ -128,7 +128,7 @@ RSpec.describe CfdpUser, type: :model do
       allow(CfdpSourceTransaction).to receive(:new).and_return(transaction)
       allow(transaction).to receive(:proxy_response_info=)
       allow(transaction).to receive(:put)
-      allow(transaction).to receive(:abandon)
+      allow(transaction).to receive(:save_state)
 
       # Mock logger
       allow(OpenC3::Logger).to receive(:info)
@@ -553,7 +553,7 @@ RSpec.describe CfdpUser, type: :model do
       allow(source_thread1).to receive(:alive?).and_return(true)
       allow(source_thread1).to receive(:kill)
       allow(source_thread2).to receive(:alive?).and_return(false)
-      allow(transaction).to receive(:abandon)
+      allow(transaction).to receive(:save_state)
 
       @user.instance_variable_set(:@thread, thread)
       @user.instance_variable_set(:@source_threads, [source_thread1, source_thread2])
@@ -566,7 +566,7 @@ RSpec.describe CfdpUser, type: :model do
       @user.stop
 
       expect(@user.instance_variable_get(:@cancel_thread)).to be true
-      expect(transaction).to have_received(:abandon)
+      expect(transaction).to have_received(:save_state)
       expect(thread).to have_received(:join)
       expect(source_thread1).to have_received(:kill)
       expect(@user.instance_variable_get(:@thread)).to be_nil

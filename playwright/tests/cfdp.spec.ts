@@ -169,7 +169,7 @@ test('continues transaction after microservice restart', async ({
   })
   await utils.sleep(1000)
 
-  // In another tab, restart the CfdpUser microservice
+  // In another tab, restart the CfdpUser microservices (both send and receive side)
   const pageTwo = await context.newPage()
   pageTwo.goto('/tools/admin/microservices', {
     waitUntil: 'domcontentloaded',
@@ -181,6 +181,14 @@ test('continues transaction after microservice restart', async ({
     .locator('.mdi-play')
     .click()
   await pageTwo.locator('[data-test="confirm-dialog-start"]').click()
+  await utils.sleep(1000)
+  await pageTwo
+    .locator('.v-list-item')
+    .filter({ hasText: 'DEFAULT__USER__CFDP2' })
+    .first()
+    .locator('.mdi-play')
+    .click()
+  await pageTwo.locator('[data-test="confirm-dialog-start"]').click()
 
   await expect(page.locator('[data-test=output-messages]')).toContainText(
     'Script completed: CFDP/procedures/interrupt_test.rb',
@@ -188,4 +196,37 @@ test('continues transaction after microservice restart', async ({
       timeout: 600000, // 10min }
     }
   )
+
+  // Clean up by running suite teardown
+  await page.locator('[data-test=script-runner-file]').click()
+  await page.locator('text=Open File').click()
+  await utils.sleep(500) // Allow background data to fetch
+  await expect(
+    page.locator('.v-dialog').getByText('CFDP', { exact: true })
+  ).toBeVisible()
+  await page.locator('[data-test=file-open-save-search] input').fill('cfdp_')
+  await utils.sleep(100)
+  await page.locator('[data-test=file-open-save-search] input').fill('test_')
+  await utils.sleep(100)
+  await page.locator('[data-test=file-open-save-search] input').fill('suite')
+  await utils.sleep(100)
+  await page.getByText('cfdp_test_suite.rb').first().click()
+  await page.locator('[data-test="file-open-save-submit-btn"]').click()
+  await expect(page.locator('.v-dialog')).not.toBeVisible()
+
+  // Check for potential "<User> is editing this script"
+  // This can happen if we had to do a retry on this test
+  someone = page.getByText('is editing this script')
+  if (await someone.isVisible()) {
+    await page.locator('[data-test="unlock-button"]').click()
+    await page.locator('[data-test="confirm-dialog-force unlock"]').click()
+  }
+
+  // Run group teardown to delete test files
+  await page.locator('[data-test="teardown-group"]').click()
+  await expect(page.locator('.v-dialog')).toContainText('Script Results', {
+    timeout: 10000,
+  })
+  textarea = await page.inputValue('.v-dialog >> textarea')
+  expect(textarea).toMatch('Pass: 1')
 })
