@@ -26,10 +26,15 @@ test.describe.configure({ mode: 'serial' })
 test.setTimeout(1800000) // 30min
 
 const plugin = 'openc3-cosmos-cfdp'
-const pluginGem = 'openc3-cosmos-cfdp-1.0.0.gem'
+const pluginGem = 'openc3-cosmos-cfdp-1.1.0.gem'
 
 test('installs the CFDP plugin', async ({ page, utils }) => {
   await page.goto('/tools/admin/plugins')
+
+  const pluginListItem = page.locator('[data-test=plugin-list-item]', { hasText: pluginGem })
+  if (await pluginListItem.isVisible()) {
+    return // Plugin already installed (probably either local or a retry in GH actions)
+  }
 
   // Note that Promise.all prevents a race condition
   // between clicking and waiting for the file chooser.
