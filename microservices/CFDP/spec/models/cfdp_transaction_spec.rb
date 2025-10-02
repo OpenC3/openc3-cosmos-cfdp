@@ -17,8 +17,12 @@
 
 require 'rails_helper'
 require 'json'
-require 'json/add/string'
 require 'openc3/io/json_rpc'
+begin
+  require 'json/add/string'
+rescue LoadError
+  # Earlier json didn't have this file
+end
 
 RSpec.describe CfdpTransaction do
   before(:each) do

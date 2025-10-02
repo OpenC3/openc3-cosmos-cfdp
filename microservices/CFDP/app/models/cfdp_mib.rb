@@ -48,7 +48,11 @@ require_relative 'cfdp_receive_transaction'
 require 'tempfile'
 require 'fileutils'
 require 'json'
-require 'json/add/string'
+begin
+  require 'json/add/string'
+rescue LoadError
+  # Earlier json didn't have this file
+end
 
 class Tempfile
   def persist(filename)

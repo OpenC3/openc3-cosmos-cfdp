@@ -19,8 +19,12 @@
 
 require_relative 'cfdp_transaction'
 require 'json'
-require 'json/add/string'
 require 'openc3/io/json_rpc'
+begin
+  require 'json/add/string'
+rescue LoadError
+  # Earlier json didn't have this file
+end
 
 class CfdpSourceTransaction < CfdpTransaction
   FILE_PDU_SAVE_STATE_INTERVAL = 100

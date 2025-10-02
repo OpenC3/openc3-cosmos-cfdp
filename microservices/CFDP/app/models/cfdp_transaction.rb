@@ -24,8 +24,12 @@ require_relative 'cfdp_null_checksum'
 require_relative 'cfdp_crc_checksum'
 require 'tempfile'
 require 'json'
-require 'json/add/string'
 require 'openc3/io/json_rpc'
+begin
+  require 'json/add/string'
+rescue LoadError
+  # Earlier json didn't have this file
+end
 
 class CfdpTransaction
   include OpenC3::Api
