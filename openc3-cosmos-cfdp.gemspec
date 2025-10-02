@@ -38,6 +38,4 @@ spec = Gem::Specification.new do |s|
 
   s.require_paths = ['lib', 'microservices/CFDP/app/models']
   s.files = Dir.glob("{targets,lib,tools,microservices}/**/*") + %w(Rakefile LICENSE.txt README.md plugin.txt)
-
-  s.add_runtime_dependency 'json', '~> 2.14' # Breaking change in 2.14 for require 'json/add/string'
 end
