@@ -13,9 +13,6 @@ gem 'rack-cors', '~> 2.0'
 # Windows does not include zoneinfo files, so bundle the tzinfo-data gem
 gem 'tzinfo-data'
 
-# Breaking change in 2.14 for require 'json/add/string'
-gem 'json', '~> 2.14'
-
 group :development, :test do
   gem 'rspec-rails', '~> 7.0'
   gem 'simplecov', '~> 0.22'

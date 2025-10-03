@@ -13,9 +13,6 @@ gem 'rack-cors', '~> 2.0'
 # Windows does not include zoneinfo files, so bundle the tzinfo-data gem
 gem 'tzinfo-data'
 
-# Breaking change in 2.14 for require 'json/add/string'
-gem 'json', '~> 2.14'
-
 # NOTE: Since we're not using the Gemfile.lock we can't include development
 # or test groups in the Gemfile or bundler tries to install them and fails
 
