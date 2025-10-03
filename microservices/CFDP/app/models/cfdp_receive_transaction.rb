@@ -18,9 +18,10 @@
 # See https://github.com/OpenC3/openc3-cosmos-cfdp/pull/12 for details
 
 require_relative 'cfdp_transaction'
+require 'openc3/io/json_rpc'
 
 class CfdpReceiveTransaction < CfdpTransaction
-  def initialize(pdu_hash)
+  def initialize(pdu_hash, no_persist: false)
     super()
     @id = CfdpTransaction.build_transaction_id(pdu_hash["SOURCE_ENTITY_ID"], pdu_hash["SEQUENCE_NUMBER"])
     @transaction_seq_num = pdu_hash["SEQUENCE_NUMBER"]
@@ -49,7 +50,7 @@ class CfdpReceiveTransaction < CfdpTransaction
     @inactivity_count = 0
     @keep_alive_timeout = nil
     CfdpMib.transactions[@id] = self
-    handle_pdu(pdu_hash)
+    handle_pdu(pdu_hash, no_persist: no_persist)
     @inactivity_timeout = Time.now + CfdpMib.entity(@source_entity_id)['keep_alive_interval']
     @keep_alive_timeout = Time.now + CfdpMib.entity(@source_entity_id)['keep_alive_interval'] if @transmission_mode == 'ACKNOWLEDGED' and CfdpMib.entity(@source_entity_id)['enable_keep_alive']
   end
@@ -188,6 +189,7 @@ class CfdpReceiveTransaction < CfdpTransaction
     @state = "FINISHED" unless @state == "CANCELED" or @state == "ABANDONED"
     @transaction_status = "TERMINATED"
     @complete_time = Time.now.utc
+    save_state
     OpenC3::Logger.info("CFDP Finished Receive Transaction #{@id}, #{@condition_code}", scope: ENV['OPENC3_SCOPE'])
 
     if CfdpMib.source_entity['transaction_finished_indication']
@@ -201,6 +203,7 @@ class CfdpReceiveTransaction < CfdpTransaction
 
   def complete_file_received?
     return false unless @file_size
+    return true if @file_size == 0
     offset = 0
     while offset
       next_offset = @segments[offset]
@@ -431,14 +434,21 @@ class CfdpReceiveTransaction < CfdpTransaction
     end
   end
 
-  def handle_pdu(pdu_hash)
+  def handle_pdu(pdu_hash, no_persist: false)
+    # The no_persist option is used when a transaction is being revived from a saved state
+    # (see: CfdpMib.load_saved_transactions). It prevents overwriting the saved state in the
+    # backing store with default values when the constructor calls handle_pdu.
+
     source_entity = CfdpMib.entity(@source_entity_id)
     @inactivity_timeout = Time.now + source_entity['keep_alive_interval'] if source_entity
 
     case pdu_hash["DIRECTIVE_CODE"]
     when "METADATA"
       @metadata_pdu_count += 1
-      return if @metadata_pdu_hash # Discard repeats
+      if @metadata_pdu_hash # Discard repeats
+        save_state if @id and not no_persist
+        return
+      end
       @metadata_pdu_hash = pdu_hash
       @source_entity_id = @metadata_pdu_hash['SOURCE_ENTITY_ID']
       kw_args = {}
@@ -592,5 +602,106 @@ class CfdpReceiveTransaction < CfdpTransaction
 
       send_naks() if need_send_naks
     end
+
+    save_state if @id and not no_persist
+  end
+
+  def save_state
+    state_data = {
+      'id' => @id,
+      'frozen' => @frozen,
+      'state' => @state,
+      'transaction_status' => @transaction_status,
+      'progress' => @progress,
+      'transaction_seq_num' => @transaction_seq_num,
+      'condition_code' => @condition_code,
+      'delivery_code' => @delivery_code,
+      'file_status' => @file_status,
+      'metadata_pdu_hash' => @metadata_pdu_hash,
+      'metadata_pdu_count' => @metadata_pdu_count,
+      'create_time' => @create_time&.iso8601(6),
+      'proxy_response_info' => @proxy_response_info,
+      'proxy_response_needed' => @proxy_response_needed,
+      'canceling_entity_id' => @canceling_entity_id,
+      'fault_handler_overrides' => @fault_handler_overrides,
+      'source_file_name' => @source_file_name,
+      'destination_file_name' => @destination_file_name,
+      'transmission_mode' => @transmission_mode,
+      'messages_to_user' => @messages_to_user,
+      'filestore_requests' => @filestore_requests,
+      'tmp_file_path' => @tmp_file&.path,
+      'segments' => @segments,
+      'eof_pdu_hash' => @eof_pdu_hash,
+      'checksum' => @checksum&.as_json,
+      'full_checksum_needed' => @full_checksum_needed,
+      'file_size' => @file_size,
+      'filestore_responses' => @filestore_responses,
+      'nak_timeout' => @nak_timeout&.iso8601(6),
+      'nak_timeout_count' => @nak_timeout_count,
+      'check_timeout' => @check_timeout&.iso8601(6),
+      'check_timeout_count' => @check_timeout_count,
+      'nak_start_of_scope' => @nak_start_of_scope,
+      'keep_alive_count' => @keep_alive_count,
+      'finished_count' => @finished_count,
+      'source_entity_id' => @source_entity_id,
+      'inactivity_timeout' => @inactivity_timeout&.iso8601(6),
+      'inactivity_count' => @inactivity_count,
+      'keep_alive_timeout' => @keep_alive_timeout&.iso8601(6),
+      'finished_ack_timeout' => @finished_ack_timeout&.iso8601(6),
+      'finished_pdu' => @finished_pdu,
+      'finished_ack_pdu_hash' => @finished_ack_pdu_hash,
+      'prompt_pdu_hash' => @prompt_pdu_hash
+    }
+    state_data.compact!
+
+    # Store as JSON to handle all data types safely
+    serialized_data = JSON.generate(state_data.as_json, allow_nan: true)
+    OpenC3::Store.set("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", serialized_data)
+    OpenC3::Store.sadd("#{self.class.redis_key_prefix}cfdp_saved_transaction_ids", @id)
+  end
+
+  def load_state(transaction_id)
+    state_data = super(transaction_id, no_log: true)
+    return false unless state_data
+
+    # Load receive-specific state
+    @transmission_mode = state_data['transmission_mode']
+    @messages_to_user = state_data['messages_to_user'] || []
+    @filestore_requests = state_data['filestore_requests'] || []
+
+    if state_data['tmp_file_path']
+      begin
+        @tmp_file = File.open(File.basename(state_data['tmp_file_path']), 'r+b')
+      rescue
+        @tmp_file = nil
+      end
+    else
+      @tmp_file = nil
+    end
+
+    @segments = state_data['segments']&.transform_keys(&:to_i) || {}
+    @eof_pdu_hash = state_data['eof_pdu_hash']
+    @checksum = state_data['checksum']
+    @full_checksum_needed = state_data['full_checksum_needed']
+    @file_size = state_data['file_size'] || 0
+    @filestore_responses = state_data['filestore_responses'] || []
+    @nak_timeout = state_data['nak_timeout'] ? Time.parse(state_data['nak_timeout']) : nil
+    @nak_timeout_count = state_data['nak_timeout_count'] || 0
+    @check_timeout = state_data['check_timeout'] ? Time.parse(state_data['check_timeout']) : nil
+    @check_timeout_count = state_data['check_timeout_count'] || 0
+    @nak_start_of_scope = state_data['nak_start_of_scope'] || 0
+    @keep_alive_count = state_data['keep_alive_count'] || 0
+    @finished_count = state_data['finished_count'] || 0
+    @source_entity_id = state_data['source_entity_id']
+    @inactivity_timeout = state_data['inactivity_timeout'] ? Time.parse(state_data['inactivity_timeout']) : nil
+    @inactivity_count = state_data['inactivity_count'] || 0
+    @keep_alive_timeout = state_data['keep_alive_timeout'] ? Time.parse(state_data['keep_alive_timeout']) : nil
+    @finished_ack_timeout = state_data['finished_ack_timeout'] ? Time.parse(state_data['finished_ack_timeout']) : nil
+    @finished_pdu = state_data['finished_pdu']
+    @finished_ack_pdu_hash = state_data['finished_ack_pdu_hash']
+    @prompt_pdu_hash = state_data['prompt_pdu_hash']
+
+    OpenC3::Logger.info("CFDP Transaction #{@id} state loaded", scope: ENV['OPENC3_SCOPE'])
+    return state_data
   end
 end

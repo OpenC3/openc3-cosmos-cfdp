@@ -190,7 +190,7 @@ module OpenC3
                     :target_name => "CFDPTEST",
                     :packet_name => "CFDP_PDU",
                     :received_count => 1,
-                    :json_data => JSON.generate(prompt_params.as_json(:allow_nan => true)),
+                    :json_data => JSON.generate(prompt_params.as_json, allow_nan: true),
                   }
                   safe_write_topic("DEFAULT__DECOM__{CFDPTEST}__CFDP_PDU", msg_hash, nil)
                 end
@@ -202,7 +202,7 @@ module OpenC3
                 :target_name => target_name,
                 :packet_name => cmd_name,
                 :received_count => 1,
-                :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
+                :json_data => JSON.generate(cmd_params.as_json, allow_nan: true),
               }
               safe_write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
               # Duplicate metadata should be ignored
@@ -248,7 +248,7 @@ module OpenC3
                   :target_name => target_name,
                   :packet_name => cmd_name,
                   :received_count => 1,
-                  :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
+                  :json_data => JSON.generate(cmd_params.as_json, allow_nan: true),
                 }
                 safe_write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
               end
@@ -259,12 +259,14 @@ module OpenC3
           sleep 0.5
         end
 
+        # Give transactions more time to complete before stopping
+        sleep 1.0
         @user.stop
-        sleep 0.1
+        sleep 0.2
 
         get "/cfdp/indications", :params => { scope: "DEFAULT" }
         expect(response).to have_http_status(200)
-        json = JSON.parse(response.body)
+        json = JSON.parse(response.body, allow_nan: true, create_additions: true)
         yield json['indications'] if block_given?
       end
 
@@ -1323,7 +1325,7 @@ module OpenC3
           :target_name => "CFDPTEST",
           :packet_name => "CFDP_PDU",
           :received_count => 1,
-          :json_data => JSON.generate(cmd_params.as_json(:allow_nan => true)),
+          :json_data => JSON.generate(cmd_params.as_json, allow_nan: true),
         }
         error_message = ''
         allow(OpenC3::Logger).to receive(:error) do |msg|

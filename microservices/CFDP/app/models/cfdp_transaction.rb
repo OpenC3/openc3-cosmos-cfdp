@@ -1,6 +1,6 @@
 # encoding: ascii-8bit
 
-# Copyright 2023 OpenC3, Inc.
+# Copyright 2025 OpenC3, Inc.
 # All Rights Reserved.
 #
 # Licensed for Evaluation and Educational Use
@@ -23,6 +23,13 @@ require_relative 'cfdp_checksum'
 require_relative 'cfdp_null_checksum'
 require_relative 'cfdp_crc_checksum'
 require 'tempfile'
+require 'json'
+require 'openc3/io/json_rpc'
+begin
+  require 'json/add/string'
+rescue LoadError
+  # Earlier json didn't have this file
+end
 
 class CfdpTransaction
   include OpenC3::Api
@@ -42,8 +49,44 @@ class CfdpTransaction
   attr_accessor :proxy_response_info
   attr_accessor :proxy_response_needed
 
+  def self.redis_key_prefix
+    ENV['OPENC3_MICROSERVICE_NAME'] ? "#{ENV['OPENC3_MICROSERVICE_NAME']}:" : ""
+  end
+
   def self.build_transaction_id(source_entity_id, transaction_seq_num)
     "#{source_entity_id}__#{transaction_seq_num}"
+  end
+
+  def self.get_saved_transaction_ids
+    OpenC3::Store.smembers("#{redis_key_prefix}cfdp_saved_transaction_ids") || []
+  end
+
+  def self.clear_saved_transaction_ids
+    transaction_ids = OpenC3::Store.smembers("#{redis_key_prefix}cfdp_saved_transaction_ids") || []
+    transaction_ids.each do |transaction_id|
+      OpenC3::Store.del("#{redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
+      OpenC3::Store.del("#{redis_key_prefix}cfdp_transaction_state:#{transaction_id}:put_options")
+    end
+    OpenC3::Store.del("#{redis_key_prefix}cfdp_saved_transaction_ids")
+    OpenC3::Logger.info("CFDP cleared all saved transaction states", scope: ENV['OPENC3_SCOPE'])
+  end
+
+  def self.has_saved_state?(transaction_id)
+    OpenC3::Store.sismember("#{redis_key_prefix}cfdp_saved_transaction_ids", transaction_id)
+  end
+
+  def delete
+    CfdpMib.transactions.delete @id
+    remove_saved_state
+  end
+
+  def remove_saved_state
+    if @id
+      OpenC3::Store.del("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}:put_options")
+      OpenC3::Store.del("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}")
+      OpenC3::Store.srem("#{self.class.redis_key_prefix}cfdp_saved_transaction_ids", @id)
+      OpenC3::Logger.info("CFDP Transaction #{@id} state removed", scope: ENV['OPENC3_SCOPE'])
+    end
   end
 
   def initialize
@@ -112,6 +155,7 @@ class CfdpTransaction
       @state = "CANCELED"
       @transaction_status = "TERMINATED"
       @complete_time = Time.now.utc
+      save_state
     end
   end
 
@@ -122,6 +166,7 @@ class CfdpTransaction
       @transaction_status = "TERMINATED"
       CfdpTopic.write_indication("Abandoned", transaction_id: @id, condition_code: @condition_code, progress: @progress)
       @complete_time = Time.now.utc
+      save_state
     end
   end
 
@@ -131,12 +176,12 @@ class CfdpTransaction
 
   def freeze
     OpenC3::Logger.info("CFDP Freeze Transaction #{@id}", scope: ENV['OPENC3_SCOPE'])
-    @freeze = true
+    @frozen = true
   end
 
   def unfreeze
     OpenC3::Logger.info("CFDP Unfreeze Transaction #{@id}", scope: ENV['OPENC3_SCOPE'])
-    @freeze = false
+    @frozen = false
   end
 
   def build_report
@@ -193,6 +238,72 @@ class CfdpTransaction
     else # Unsupported
       return nil
     end
+  end
+
+  def save_state
+    state_data = {
+      'id' => @id,
+      'frozen' => @frozen,
+      'state' => @state,
+      'transaction_status' => @transaction_status,
+      'progress' => @progress,
+      'transaction_seq_num' => @transaction_seq_num,
+      'condition_code' => @condition_code,
+      'delivery_code' => @delivery_code,
+      'file_status' => @file_status,
+      'metadata_pdu_hash' => @metadata_pdu_hash,
+      'metadata_pdu_count' => @metadata_pdu_count,
+      'create_time' => @create_time&.iso8601(6),
+      'proxy_response_info' => @proxy_response_info,
+      'proxy_response_needed' => @proxy_response_needed,
+      'canceling_entity_id' => @canceling_entity_id,
+      'fault_handler_overrides' => @fault_handler_overrides,
+      'source_file_name' => @source_file_name,
+      'destination_file_name' => @destination_file_name
+    }
+
+    # Remove nil values to clean up data
+    state_data.compact!
+
+    # Store as JSON to handle all data types safely
+    serialized_data = JSON.generate(state_data.as_json, allow_nan: true)
+    OpenC3::Store.set("#{self.class.redis_key_prefix}cfdp_transaction_state:#{@id}", serialized_data)
+    OpenC3::Store.sadd("#{self.class.redis_key_prefix}cfdp_saved_transaction_ids", @id)
+  end
+
+  def load_state(transaction_id, no_log: false)
+    serialized_data = OpenC3::Store.get("#{self.class.redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
+    return false unless serialized_data
+
+    begin
+      state_data = JSON.parse(serialized_data, allow_nan: true, create_additions: true)
+    rescue => e
+      OpenC3::Logger.error("CFDP Transaction #{transaction_id} failed to deserialize state: #{e.message}", scope: ENV['OPENC3_SCOPE'])
+      return false
+    end
+
+    @id = state_data['id']
+    @frozen = state_data['frozen']
+    @state = state_data['state'] || 'ACTIVE'
+    @transaction_status = state_data['transaction_status'] || 'ACTIVE'
+    @progress = state_data['progress'] || 0
+    @transaction_seq_num = state_data['transaction_seq_num']
+    @condition_code = state_data['condition_code'] || 'NO_ERROR'
+    @delivery_code = state_data['delivery_code']
+    @file_status = state_data['file_status']
+    @metadata_pdu_hash = state_data['metadata_pdu_hash']
+    @metadata_pdu_count = state_data['metadata_pdu_count'] || 0
+    @create_time = state_data['create_time'] ? Time.parse(state_data['create_time']) : nil
+    @complete_time = nil # Completed transactions are not persisted
+    @proxy_response_info = state_data['proxy_response_info']
+    @proxy_response_needed = state_data['proxy_response_needed']
+    @canceling_entity_id = state_data['canceling_entity_id']
+    @fault_handler_overrides = state_data['fault_handler_overrides'] || {}
+    @source_file_name = state_data['source_file_name']
+    @destination_file_name = state_data['destination_file_name']
+
+    OpenC3::Logger.info("CFDP Transaction #{@id} state loaded", scope: ENV['OPENC3_SCOPE']) unless no_log
+    return state_data
   end
 
   def cfdp_cmd(entity, target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])

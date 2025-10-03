@@ -186,11 +186,26 @@ RSpec.describe CfdpController, type: :controller do
       expect(@mock_user).to receive(:cancel).with(
         ActionController::Parameters.new(params)
       ).and_return(@mock_transaction)
+      allow(@mock_transaction).to receive(:state).and_return("CANCELED")
 
       post :cancel, params: params
 
       expect(response).to have_http_status(:success)
       expect(response.body).to eq("1__123")
+    end
+
+    it "handles transactions that are not canceled" do
+      params = { action: "cancel", controller: "cfdp", transaction_id: "1__123"  }
+
+      expect(@mock_user).to receive(:cancel).with(
+        ActionController::Parameters.new(params)
+      ).and_return(@mock_transaction)
+      allow(@mock_transaction).to receive(:state).and_return("FINISHED")
+
+      post :cancel, params: params
+
+      expect(response).to have_http_status(:success)
+      expect(response.body).to eq("null")
     end
 
     it "requires transaction_id" do
@@ -226,11 +241,27 @@ RSpec.describe CfdpController, type: :controller do
       expect(@mock_user).to receive(:suspend).with(
         ActionController::Parameters.new(params)
       ).and_return(@mock_transaction)
+      allow(@mock_transaction).to receive(:state).and_return("SUSPENDED")
 
       post :suspend, params: params
 
       expect(response).to have_http_status(:success)
       expect(response.body).to eq("1__123")
+    end
+
+    it "handles suspend request that do not suspend" do
+      params = { transaction_id: "1__123", controller: "cfdp", action: "suspend" }
+
+      # Expect CfdpUser to be called with proper parameters
+      expect(@mock_user).to receive(:suspend).with(
+        ActionController::Parameters.new(params)
+      ).and_return(@mock_transaction)
+      allow(@mock_transaction).to receive(:state).and_return("FINISHED")
+
+      post :suspend, params: params
+
+      expect(response).to have_http_status(:success)
+      expect(response.body).to eq("null")
     end
 
     it "requires transaction_id" do
@@ -257,11 +288,27 @@ RSpec.describe CfdpController, type: :controller do
       expect(@mock_user).to receive(:resume).with(
         ActionController::Parameters.new(params)
       ).and_return(@mock_transaction)
+      allow(@mock_transaction).to receive(:state).and_return("ACTIVE")
 
       post :resume, params: params
 
       expect(response).to have_http_status(:success)
       expect(response.body).to eq("1__123")
+    end
+
+    it "handles resume requests that do not resume" do
+      params = { action: "resume", controller: "cfdp", transaction_id: "1__123" }
+
+      # Expect CfdpUser to be called with proper parameters
+      expect(@mock_user).to receive(:resume).with(
+        ActionController::Parameters.new(params)
+      ).and_return(@mock_transaction)
+      allow(@mock_transaction).to receive(:state).and_return("FINISHED")
+
+      post :resume, params: params
+
+      expect(response).to have_http_status(:success)
+      expect(response.body).to eq("null")
     end
 
     it "requires transaction_id" do

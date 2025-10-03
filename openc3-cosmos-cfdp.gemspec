@@ -26,6 +26,7 @@ spec = Gem::Specification.new do |s|
   s.homepage = 'https://github.com/OpenC3/openc3'
 
   s.platform = Gem::Platform::RUBY
+  s.required_ruby_version = '>= 3.0'
 
   if ENV['VERSION']
     s.version = ENV['VERSION'].dup

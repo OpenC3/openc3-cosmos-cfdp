@@ -101,6 +101,10 @@ indications = cfdp_directory_listing(remote_entity_id: 1, directory_name: "/file
 
 ```
 
+### `cfdp_put_dir`
+
+This is a conveninence method that allows you to easily send multiple files. This operation is not part of the CFDP specification, so it is implemented by initiating a separate PUT request for each file in the given directory. It is used the same way as `cfdp_put()`, but you must pass the path to a directory instead of a file (e.g. `"/tmp"` instead of `"/tmp/foo.txt"`).
+
 ## MIB Configuration
 
 The CFDP Management Information Base (MIB) is configured by passing options to the CFDP microservice in plugin.txt. See the local [plugin.txt](plugin.txt), for example:
@@ -126,19 +130,23 @@ Minimum required settings:
 
 These settings are applied to the CFDP microservice via `OPTION <name> <value>` in the [plugin.txt](plugin.txt). Source Entity Configuration options generally apply to the COSMOS side of the transaction.
 
-| Setting Name                    | Description                                                                                       | Allowed Values                      | Default Value                   |
-| ------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------- |
-| root_path                       | The path to send/receive files from                                                               | Valid directory                     | N/A - Must be given             |
-| bucket                          | The bucket to send/receive files from                                                             | Valid bucket Name                   | nil - Serve from mounted volume |
-| source_entity_id                | The entity id for this CFDP microservice                                                          | Any integer                         | N/A - Must be given             |
-| tlm_info                        | A target_name, packet_name, and item_name to receive PDUs. Multiple tlm_info options can be given | COSMOS packet information           | N/A - Must be given             |
-| eof_sent_indication             | Issue EOF-Sent.indication                                                                         | true or false                       | true                            |
-| eof_recv_indication             | Issue EOF-Recv.indication                                                                         | true or false                       | true                            |
-| file_segment_recv_indication    | Issue File-Segment-Recv.indication                                                                | true or false                       | true                            |
-| transaction_finished_indication | Issue Transaction-Finished.indication                                                             | true or false                       | true                            |
-| suspended_indication            | Issue Suspended.indication                                                                        | true or false                       | true                            |
-| resume_indication               | Issue Resume.indication                                                                           | true or false                       | true                            |
-| transaction_retain_seconds      | Time to keep completed transactions in seconds.                                                   | Floating point value greater than 0 | 86400                           |
+| Setting Name                        | Description                                                                                       | Allowed Values                      | Default Value                   |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------- |
+| root_path                           | The path to send/receive files from                                                               | Valid directory                     | N/A - Must be given             |
+| bucket                              | The bucket to send/receive files from                                                             | Valid bucket Name                   | nil - Serve from mounted volume |
+| source_entity_id                    | The entity id for this CFDP microservice                                                          | Any integer                         | N/A - Must be given             |
+| tlm_info                            | A target_name, packet_name, and item_name to receive PDUs. Multiple tlm_info options can be given | COSMOS packet information           | N/A - Must be given             |
+| eof_sent_indication                 | Issue EOF-Sent.indication                                                                         | true or false                       | true                            |
+| eof_recv_indication                 | Issue EOF-Recv.indication                                                                         | true or false                       | true                            |
+| file_segment_recv_indication        | Issue File-Segment-Recv.indication                                                                | true or false                       | true                            |
+| transaction_finished_indication     | Issue Transaction-Finished.indication                                                             | true or false                       | true                            |
+| suspended_indication                | Issue Suspended.indication                                                                        | true or false                       | true                            |
+| resume_indication                   | Issue Resume.indication                                                                           | true or false                       | true                            |
+| transaction_retain_seconds          | Time to keep completed transactions in seconds.                                                   | Floating point value greater than 0 | 86400                           |
+| plugin_test_mode                    | Puts the plugin into test mode by creating two dummy entities that can send/receive transactions  | true or false                       | false                           |
+| prevent_received_file_overwrite     | Appends a timestamp to the file name for received files if the file already exists                | true or false                       | true                            |
+| allow_duplicate_transaction_ids     | Allows receiving transactions with an ID that was previously used by deleting the old transaction | true or false                       | false                           |
+| transaction_cleanup_frequency_hours | How often to purge old (completed) transactions from RAM and Redis                                | Any integer                         | 24                              |
 
 ### Remote Entity Configuration
 

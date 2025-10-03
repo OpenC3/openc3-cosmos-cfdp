@@ -15,8 +15,8 @@ gem 'tzinfo-data'
 
 group :development, :test do
   gem 'rspec-rails', '~> 7.0'
-  gem 'simplecov', '~> 0.20'
-  gem 'simplecov-cobertura', '~> 2.1'
+  gem 'simplecov', '~> 0.22'
+  gem 'simplecov-cobertura', '~> 3.1'
 end
 group :test do
   gem 'mock_redis', '~> 0.47'
@@ -27,9 +27,9 @@ if ENV['OPENC3_DEVEL']
 elsif ENV['OPENC3_PATH']
   gem 'openc3', :path => ENV['OPENC3_PATH']
 else
-  gem 'openc3', '>= 5.4.2.pre'
+  gem 'openc3', '>= 5.4.2'
 end
 
 if ENV['OPENC3_ENTERPRISE_TAG']
-  gem 'openc3-enterprise', '>= 5.4.2.pre'
+  gem 'openc3-enterprise', '>= 5.4.2'
 end

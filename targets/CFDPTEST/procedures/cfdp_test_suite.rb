@@ -100,7 +100,7 @@ class CfdpTestGroup < OpenC3::Group
 
     # small.bin
     file = Tempfile.new('cfdp', binmode: true)
-    1000.times do
+    500.times do
       file.write(data)
     end
     file.rewind
@@ -109,7 +109,7 @@ class CfdpTestGroup < OpenC3::Group
 
     # medium.bin
     file = Tempfile.new('cfdp', binmode: true)
-    10000.times do
+    5000.times do
       file.write(data)
     end
     file.rewind

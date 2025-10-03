@@ -28,7 +28,7 @@ class CfdpTopic < OpenC3::Topic
       msg_hash[key] = value
     end
 
-    data_hash = {"data" => JSON.generate(msg_hash.as_json(allow_nan: true), allow_nan: true)}
+    data_hash = {"data" => JSON.generate(msg_hash.as_json, allow_nan: true)}
     OpenC3::Topic.write_topic("#{ENV['OPENC3_MICROSERVICE_NAME']}__CFDP", data_hash, '*', 1000)
   end
 
@@ -42,7 +42,7 @@ class CfdpTopic < OpenC3::Topic
     xread.each do |topic, data|
       data.each do |id, msg_hash|
         continuation = id
-        msg_hash = JSON.parse(msg_hash["data"], :allow_nan => true, :create_additions => true)
+        msg_hash = JSON.parse(msg_hash["data"], allow_nan: true, create_additions: true)
         if !transaction_id or (transaction_id and msg_hash['transaction_id'] == transaction_id)
           indications << msg_hash
         end

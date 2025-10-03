@@ -1,6 +1,6 @@
 # encoding: ascii-8bit
 
-# Copyright 2023 OpenC3, Inc.
+# Copyright 2025 OpenC3, Inc.
 # All Rights Reserved.
 #
 # Licensed for Evaluation and Educational Use
@@ -120,8 +120,10 @@ def cfdp_cancel(
   continuation = api.subscribe(scope: scope) if timeout
   transaction_id = api.cancel(transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: scope)
   indication = nil
-  indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Transaction-Finished', continuation: continuation, timeout: timeout, scope: scope) if timeout
-  indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Proxy-Put-Response', continuation: continuation, timeout: timeout, scope: scope) if remote_entity_id and timeout
+  if transaction_id
+    indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Transaction-Finished', continuation: continuation, timeout: timeout, scope: scope) if timeout
+    indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Proxy-Put-Response', continuation: continuation, timeout: timeout, scope: scope) if remote_entity_id and timeout
+  end
   return indication
 end
 
@@ -141,8 +143,10 @@ def cfdp_suspend(
   continuation = api.subscribe(scope: scope) if timeout
   transaction_id = api.suspend(transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: scope)
   indication = nil
-  indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Suspended', continuation: continuation, timeout: timeout, scope: scope) if not remote_entity_id and timeout
-  indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Remote-Suspend-Response', continuation: continuation, timeout: timeout, scope: scope) if remote_entity_id and timeout
+  if transaction_id
+    indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Suspended', continuation: continuation, timeout: timeout, scope: scope) if not remote_entity_id and timeout
+    indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Remote-Suspend-Response', continuation: continuation, timeout: timeout, scope: scope) if remote_entity_id and timeout
+  end
   return indication
 end
 
@@ -162,8 +166,10 @@ def cfdp_resume(
   continuation = api.subscribe(scope: scope) if timeout
   transaction_id = api.resume(transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: scope)
   indication = nil
-  indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Resumed', continuation: continuation, timeout: timeout, scope: scope) if not remote_entity_id and timeout
-  indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Remote-Resume-Response', continuation: continuation, timeout: timeout, scope: scope) if remote_entity_id and timeout
+  if transaction_id
+    indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Resumed', continuation: continuation, timeout: timeout, scope: scope) if not remote_entity_id and timeout
+    indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Remote-Resume-Response', continuation: continuation, timeout: timeout, scope: scope) if remote_entity_id and timeout
+  end
   return indication
 end
 
@@ -184,8 +190,10 @@ def cfdp_report(
   continuation = api.subscribe(scope: scope) if timeout
   transaction_id = api.report(transaction_id: transaction_id, remote_entity_id: remote_entity_id, report_file_name: report_file_name, scope: scope)
   indication = nil
-  indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Report', continuation: continuation, timeout: timeout, scope: scope) if not remote_entity_id and timeout
-  indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Remote-Report-Response', continuation: continuation, timeout: timeout, scope: scope) if remote_entity_id and timeout
+  if transaction_id
+    indication = cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Report', continuation: continuation, timeout: timeout, scope: scope) if not remote_entity_id and timeout
+    indication ||= cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Remote-Report-Response', continuation: continuation, timeout: timeout, scope: scope) if remote_entity_id and timeout
+  end
   return indication
 end
 
@@ -240,8 +248,10 @@ def cfdp_directory_listing(
   continuation = api.subscribe(scope: scope) if timeout
   transaction_id = api.directory_listing(remote_entity_id: remote_entity_id, directory_name: directory_name, directory_file_name: directory_file_name, scope: scope)
   indications = []
-  indications << cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Transaction-Finished', continuation: continuation, timeout: timeout, scope: scope) if timeout
-  indications << cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Directory-Listing-Response', continuation: continuation, timeout: timeout, scope: scope) if timeout
+  if transaction_id
+    indications << cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Transaction-Finished', continuation: continuation, timeout: timeout, scope: scope) if timeout
+    indications << cfdp_wait_for_indication(api: api, transaction_id: transaction_id, indication_type: 'Directory-Listing-Response', continuation: continuation, timeout: timeout, scope: scope) if timeout
+  end
   return indications.compact
 end
 

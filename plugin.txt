@@ -28,11 +28,15 @@ VARIABLE root_path /DEFAULT/targets_modified/CFDP/tmp
 # If the mount point is a volume this should be left blank
 VARIABLE bucket config
 
-# Set to true to enable a test configuration
-VARIABLE plugin_test_mode "false"
-
 # Prevent files from being overwritten on receive by appending a timestamp to the new file if there's a name conflict
 VARIABLE prevent_received_file_overwrite "true"
+# Allow remote to re-use transaction IDs by replacing previously received transactions
+VARIABLE allow_duplicate_transaction_ids "false"
+# How often to purge old (completed) transactions from RAM and Redis
+VARIABLE transaction_cleanup_frequency_hours 24
+
+# Set to true to enable a test configuration
+VARIABLE plugin_test_mode "false"
 
 MICROSERVICE CFDP <%= cfdp_microservice_name %>
   WORK_DIR .
@@ -49,6 +53,8 @@ MICROSERVICE CFDP <%= cfdp_microservice_name %>
   OPTION cmd_info <%= cfdp_cmd_target_name %> <%= cfdp_cmd_packet_name %> <%= cfdp_cmd_item_name %>
   OPTION root_path <%= root_path %>
   OPTION prevent_received_file_overwrite <%= prevent_received_file_overwrite %>
+  OPTION allow_duplicate_transaction_ids <%= allow_duplicate_transaction_ids %>
+  OPTION transaction_cleanup_frequency_hours <%= transaction_cleanup_frequency_hours %>
   <% if bucket.to_s.strip != '' %>
     OPTION bucket <%= bucket %>
   <% end %>

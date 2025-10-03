@@ -16,9 +16,18 @@
 # See https://github.com/OpenC3/openc3-cosmos-cfdp/pull/12 for details
 
 require 'rails_helper'
+require 'json'
+require 'openc3/io/json_rpc'
+begin
+  require 'json/add/string'
+rescue LoadError
+  # Earlier json didn't have this file
+end
 
 RSpec.describe CfdpTransaction do
   before(:each) do
+    mock_redis()
+
     # Mock CfdpTopic
     allow(CfdpTopic).to receive(:write_indication)
 
@@ -46,6 +55,9 @@ RSpec.describe CfdpTransaction do
 
     # Mock Api module
     allow_any_instance_of(CfdpTransaction).to receive(:cmd)
+
+    @redis_prefix = 'CFDP_MICROSERVICE_NAME'
+    allow(CfdpTransaction).to receive(:redis_key_prefix).and_return(@redis_prefix)
 
     ENV['OPENC3_SCOPE'] = 'DEFAULT'
   end
@@ -178,13 +190,13 @@ RSpec.describe CfdpTransaction do
     describe "freeze and unfreeze" do
       it "freezes the transaction" do
         transaction.freeze
-        expect(transaction.instance_variable_get(:@freeze)).to be true
+        expect(transaction.instance_variable_get(:@frozen)).to be true
       end
 
       it "unfreezes the transaction" do
-        transaction.instance_variable_set(:@freeze, true)
+        transaction.instance_variable_set(:@frozen, true)
         transaction.unfreeze
-        expect(transaction.instance_variable_get(:@freeze)).to be false
+        expect(transaction.instance_variable_get(:@frozen)).to be false
       end
     end
 
@@ -196,7 +208,7 @@ RSpec.describe CfdpTransaction do
         expect(report).to be_a(String)
 
         # Parse and verify JSON structure
-        json = JSON.parse(report)
+        json = JSON.parse(report, allow_nan: true, create_additions: true)
         expect(json["id"]).to eq("1__123")
         expect(json["state"]).to eq("ACTIVE")
         expect(json["transaction_status"]).to eq("ACTIVE")
@@ -318,6 +330,271 @@ RSpec.describe CfdpTransaction do
         expect(transaction).to receive(:cmd).with('TARGET', 'PACKET', {'PARAM' => 'value'}, scope: 'DEFAULT')
 
         transaction.cfdp_cmd(entity, 'TARGET', 'PACKET', {'PARAM' => 'value'}, scope: 'DEFAULT')
+      end
+    end
+
+    describe "save_state" do
+      it "saves transaction state to OpenC3::Store as serialized data" do
+        transaction.instance_variable_set(:@id, "1__123")
+        transaction.instance_variable_set(:@source_file_name, "source.txt")
+        transaction.instance_variable_set(:@destination_file_name, "dest.txt")
+        transaction.instance_variable_set(:@transaction_seq_num, 123)
+
+        transaction.save_state
+
+        # Verify serialized data is stored
+        serialized_data = OpenC3::Store.get("#{@redis_prefix}cfdp_transaction_state:1__123")
+        expect(serialized_data).not_to be_nil
+
+        # Deserialize and verify structure
+        state_data = JSON.parse(serialized_data, allow_nan: true, create_additions: true)
+        expect(state_data["id"]).to eq("1__123")
+        expect(state_data["state"]).to eq("ACTIVE")
+        expect(state_data["source_file_name"]).to eq("source.txt")
+        expect(state_data["destination_file_name"]).to eq("dest.txt")
+        expect(state_data["transaction_seq_num"]).to eq(123)
+      end
+
+      it "handles nil values by not including them in serialized data" do
+        mock_redis
+        transaction.instance_variable_set(:@id, "1__123")
+        transaction.save_state
+
+        # Verify serialized data is stored
+        serialized_data = OpenC3::Store.get("#{@redis_prefix}cfdp_transaction_state:1__123")
+        expect(serialized_data).not_to be_nil
+
+        # Deserialize and verify nil values are not included
+        state_data = JSON.parse(serialized_data, allow_nan: true, create_additions: true)
+        expect(state_data).not_to have_key("delivery_code")
+        expect(state_data).not_to have_key("file_status")
+        expect(state_data).not_to have_key("complete_time")
+      end
+    end
+
+    describe "load_state" do
+      it "loads transaction state from OpenC3::Store" do
+        mock_redis
+
+        state_data = {
+          "id" => "1__123",
+          "frozen" => false,
+          "state" => "SUSPENDED",
+          "transaction_status" => "ACTIVE",
+          "progress" => 50,
+          "transaction_seq_num" => 123,
+          "condition_code" => "SUSPEND_REQUEST_RECEIVED",
+          "source_file_name" => "source.txt",
+          "destination_file_name" => "dest.txt",
+          "create_time" => "2023-01-01T10:00:00.000000Z",
+          "proxy_response_needed" => true,
+          "metadata_pdu_count" => 5,
+          "fault_handler_overrides" => {"FILE_SIZE_ERROR" => "ABANDON_TRANSACTION"}
+        }
+
+        state_key = "#{@redis_prefix}cfdp_transaction_state:1__123"
+        serialized_data = JSON.generate(state_data.as_json, allow_nan: true)
+        OpenC3::Store.set(state_key, serialized_data)
+
+        result = transaction.load_state("1__123")
+
+        expect(result).to be_truthy
+        expect(transaction.id).to eq("1__123")
+        expect(transaction.frozen).to be false
+        expect(transaction.state).to eq("SUSPENDED")
+        expect(transaction.transaction_status).to eq("ACTIVE")
+        expect(transaction.progress).to eq(50)
+        expect(transaction.transaction_seq_num).to eq(123)
+        expect(transaction.condition_code).to eq("SUSPEND_REQUEST_RECEIVED")
+        expect(transaction.instance_variable_get(:@source_file_name)).to eq("source.txt")
+        expect(transaction.instance_variable_get(:@destination_file_name)).to eq("dest.txt")
+        expect(transaction.create_time).to be_a(Time)
+        expect(transaction.proxy_response_needed).to be true
+        expect(transaction.metadata_pdu_count).to eq(5)
+        expect(transaction.instance_variable_get(:@fault_handler_overrides)).to eq({"FILE_SIZE_ERROR" => "ABANDON_TRANSACTION"})
+        expect(OpenC3::Logger).to have_received(:info).with("CFDP Transaction 1__123 state loaded", scope: 'DEFAULT')
+      end
+
+      it "returns false when no state data exists" do
+        mock_redis
+        result = transaction.load_state("nonexistent__123")
+        expect(result).to be false
+      end
+
+      it "handles missing fields with defaults" do
+        mock_redis
+
+        state_data = {"id" => "1__123"}
+        state_key = "#{@redis_prefix}cfdp_transaction_state:1__123"
+        serialized_data = JSON.generate(state_data.as_json, allow_nan: true)
+        OpenC3::Store.set(state_key, serialized_data)
+
+        result = transaction.load_state("1__123")
+
+        expect(result).to be_truthy
+        expect(transaction.state).to eq("ACTIVE")
+        expect(transaction.transaction_status).to eq("ACTIVE")
+        expect(transaction.progress).to eq(0)
+        expect(transaction.condition_code).to eq("NO_ERROR")
+        expect(transaction.metadata_pdu_count).to eq(0)
+        expect(transaction.instance_variable_get(:@fault_handler_overrides)).to eq({})
+      end
+    end
+
+    describe "save and load state cycle" do
+      it "preserves all transaction data through save/load cycle" do
+        mock_redis
+
+        original_time = Time.now.utc
+        transaction.instance_variable_set(:@id, "1__456")
+        transaction.instance_variable_set(:@frozen, true)
+        transaction.instance_variable_set(:@state, "SUSPENDED")
+        transaction.instance_variable_set(:@transaction_status, "ACTIVE")
+        transaction.instance_variable_set(:@progress, 75)
+        transaction.instance_variable_set(:@transaction_seq_num, 456)
+        transaction.instance_variable_set(:@condition_code, "SUSPEND_REQUEST_RECEIVED")
+        transaction.instance_variable_set(:@delivery_code, "DATA_COMPLETE")
+        transaction.instance_variable_set(:@file_status, "FILESTORE_SUCCESS")
+        transaction.instance_variable_set(:@metadata_pdu_hash, "abc123")
+        transaction.instance_variable_set(:@metadata_pdu_count, 3)
+        transaction.instance_variable_set(:@create_time, original_time)
+        transaction.instance_variable_set(:@proxy_response_info, "proxy_info")
+        transaction.instance_variable_set(:@proxy_response_needed, true)
+        transaction.instance_variable_set(:@canceling_entity_id, 2)
+        transaction.instance_variable_set(:@fault_handler_overrides, {"FILE_SIZE_ERROR" => "ABANDON_TRANSACTION"})
+        transaction.instance_variable_set(:@source_file_name, "original.txt")
+        transaction.instance_variable_set(:@destination_file_name, "copy.txt")
+
+        transaction.save_state
+
+        new_transaction = CfdpTransaction.new
+        result = new_transaction.load_state("1__456")
+
+        expect(result).to be_truthy
+        expect(new_transaction.id).to eq("1__456")
+        expect(new_transaction.frozen).to be true
+        expect(new_transaction.state).to eq("SUSPENDED")
+        expect(new_transaction.transaction_status).to eq("ACTIVE")
+        expect(new_transaction.progress).to eq(75)
+        expect(new_transaction.transaction_seq_num).to eq(456)
+        expect(new_transaction.condition_code).to eq("SUSPEND_REQUEST_RECEIVED")
+        expect(new_transaction.delivery_code).to eq("DATA_COMPLETE")
+        expect(new_transaction.file_status).to eq("FILESTORE_SUCCESS")
+        expect(new_transaction.metadata_pdu_hash).to eq("abc123")
+        expect(new_transaction.metadata_pdu_count).to eq(3)
+        expect(new_transaction.create_time.to_i).to eq(original_time.to_i)
+        expect(new_transaction.complete_time).to be_nil # complete_time is not persisted
+        expect(new_transaction.proxy_response_info).to eq("proxy_info")
+        expect(new_transaction.proxy_response_needed).to be true
+        expect(new_transaction.instance_variable_get(:@canceling_entity_id)).to eq(2)
+        expect(new_transaction.instance_variable_get(:@fault_handler_overrides)).to eq({"FILE_SIZE_ERROR" => "ABANDON_TRANSACTION"})
+        expect(new_transaction.instance_variable_get(:@source_file_name)).to eq("original.txt")
+        expect(new_transaction.instance_variable_get(:@destination_file_name)).to eq("copy.txt")
+      end
+    end
+
+    describe "saved transaction ID tracking" do
+      it "tracks transaction IDs in Redis set when saving state" do
+        mock_redis
+        transaction.instance_variable_set(:@id, "1__789")
+
+        # Initially no saved transaction IDs
+        expect(CfdpTransaction.get_saved_transaction_ids).to be_empty
+        expect(CfdpTransaction.has_saved_state?("1__789")).to be false
+
+        # Save state should add to set
+        transaction.save_state
+
+        saved_ids = CfdpTransaction.get_saved_transaction_ids
+        expect(saved_ids).to include("1__789")
+        expect(saved_ids.length).to eq(1)
+        expect(CfdpTransaction.has_saved_state?("1__789")).to be true
+      end
+
+      it "does not duplicate transaction IDs in the set" do
+        mock_redis
+        transaction.instance_variable_set(:@id, "1__789")
+
+        # Save state multiple times
+        transaction.save_state
+        transaction.save_state
+        transaction.save_state
+
+        saved_ids = CfdpTransaction.get_saved_transaction_ids
+        expect(saved_ids.count("1__789")).to eq(1)
+        expect(saved_ids.length).to eq(1)
+      end
+
+      it "tracks multiple different transaction IDs" do
+        mock_redis
+
+        transaction1 = CfdpTransaction.new
+        transaction1.instance_variable_set(:@id, "1__100")
+        transaction2 = CfdpTransaction.new
+        transaction2.instance_variable_set(:@id, "2__200")
+
+        transaction1.save_state
+        transaction2.save_state
+
+        saved_ids = CfdpTransaction.get_saved_transaction_ids
+        expect(saved_ids).to include("1__100")
+        expect(saved_ids).to include("2__200")
+        expect(saved_ids.length).to eq(2)
+        expect(CfdpTransaction.has_saved_state?("1__100")).to be true
+        expect(CfdpTransaction.has_saved_state?("2__200")).to be true
+      end
+
+      it "removes transaction ID and state when requested" do
+        mock_redis
+        transaction.instance_variable_set(:@id, "1__999")
+
+        # Save state
+        transaction.save_state
+        expect(CfdpTransaction.get_saved_transaction_ids).to include("1__999")
+        expect(CfdpTransaction.has_saved_state?("1__999")).to be true
+        expect(OpenC3::Store.get("#{@redis_prefix}cfdp_transaction_state:1__999")).not_to be_nil
+
+        # Remove saved state
+        transaction.remove_saved_state
+
+        expect(CfdpTransaction.get_saved_transaction_ids).not_to include("1__999")
+        expect(CfdpTransaction.has_saved_state?("1__999")).to be false
+        expect(OpenC3::Store.get("#{@redis_prefix}cfdp_transaction_state:1__999")).to be_nil
+      end
+
+      it "clears all saved transaction IDs" do
+        mock_redis
+
+        transaction1 = CfdpTransaction.new
+        transaction1.instance_variable_set(:@id, "1__111")
+        transaction2 = CfdpTransaction.new
+        transaction2.instance_variable_set(:@id, "2__222")
+        transaction1.save_state
+        transaction2.save_state
+
+        expect(CfdpTransaction.get_saved_transaction_ids.length).to eq(2)
+        expect(CfdpTransaction.has_saved_state?("1__111")).to be true
+        expect(CfdpTransaction.has_saved_state?("2__222")).to be true
+
+        CfdpTransaction.clear_saved_transaction_ids
+
+        expect(CfdpTransaction.get_saved_transaction_ids).to be_empty
+        expect(CfdpTransaction.has_saved_state?("1__111")).to be false
+        expect(CfdpTransaction.has_saved_state?("2__222")).to be false
+      end
+
+      it "keeps saved state when transaction completes" do
+        mock_redis
+        transaction.instance_variable_set(:@id, "1__completed")
+
+        allow(OpenC3::Logger).to receive(:info)
+
+        transaction.save_state
+        expect(CfdpTransaction.has_saved_state?("1__completed")).to be true
+
+        transaction.cancel
+        expect(CfdpTransaction.has_saved_state?("1__completed")).to be true
+        expect(CfdpTransaction.get_saved_transaction_ids).to include("1__completed")
       end
     end
 

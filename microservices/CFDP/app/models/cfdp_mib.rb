@@ -42,9 +42,17 @@ require 'openc3/models/microservice_model'
 require 'openc3/utilities/bucket'
 require 'openc3/utilities/logger'
 require 'openc3/config/config_parser'
+require_relative 'cfdp_transaction'
+require_relative 'cfdp_source_transaction'
+require_relative 'cfdp_receive_transaction'
 require 'tempfile'
 require 'fileutils'
 require 'json'
+begin
+  require 'json/add/string'
+rescue LoadError
+  # Earlier json didn't have this file
+end
 
 class Tempfile
   def persist(filename)
@@ -118,6 +126,8 @@ class CfdpMib
   @@bucket = nil
   @@root_path = "/"
   @@prevent_received_file_overwrite = true
+  @@allow_duplicate_transaction_ids = false
+  @@transaction_cleanup_frequency_hours = 24
   @@transactions = {}
 
   def self.transactions
@@ -162,6 +172,22 @@ class CfdpMib
 
   def self.prevent_received_file_overwrite
     @@prevent_received_file_overwrite
+  end
+
+  def self.allow_duplicate_transaction_ids=(allow_duplicate_transaction_ids)
+    @@allow_duplicate_transaction_ids = allow_duplicate_transaction_ids
+  end
+
+  def self.allow_duplicate_transaction_ids
+    @@allow_duplicate_transaction_ids
+  end
+
+  def self.transaction_cleanup_frequency_hours=(transaction_cleanup_frequency_hours)
+    @@transaction_cleanup_frequency_hours = transaction_cleanup_frequency_hours
+  end
+
+  def self.transaction_cleanup_frequency_hours
+    @@transaction_cleanup_frequency_hours
   end
 
   def self.define_entity(entity_id)
@@ -290,7 +316,7 @@ class CfdpMib
   end
 
   def self.complete_source_file(file)
-    file.close
+    file.close if file
   end
 
   def self.put_destination_file(destination_filename, tmp_file, timestamp_format = "_%Y%m%d_%H%M%S")
@@ -550,6 +576,10 @@ class CfdpMib
         CfdpMib.root_path = value
       when 'prevent_received_file_overwrite'
         CfdpMib.prevent_received_file_overwrite = value.downcase != "false"
+      when 'allow_duplicate_transaction_ids'
+        CfdpMib.allow_duplicate_transaction_ids = value.downcase != "false"
+      when 'transaction_cleanup_frequency_hours'
+        CfdpMib.transaction_cleanup_frequency_hours = Integer(value)
       else
         if current_entity_id
           case field_name
@@ -633,6 +663,46 @@ class CfdpMib
     raise "OPTION source_entity_id is required" unless source_entity_defined
     raise "OPTION destination_entity_id is required" unless destination_entity_defined
     raise "OPTION root_path is required" unless root_path_defined
+
+    load_saved_transactions
+  end
+
+  def self.load_saved_transactions
+    saved_transaction_ids = CfdpTransaction.get_saved_transaction_ids
+    loaded_count = 0
+
+    saved_transaction_ids.each do |transaction_id|
+      begin
+        source_entity_id, transaction_seq_num = transaction_id.split('__').map(&:to_i)
+        if source_entity_id == @@source_entity_id
+          # This is a source transaction (we initiated it)
+          transaction = CfdpSourceTransaction.new(source_entity: @@entities[source_entity_id], transaction_seq_num: transaction_seq_num)
+        else
+          # This is a receive transaction (initiated by remote entity)
+          # We need to create a dummy PDU hash for initialization
+          dummy_pdu = {
+            "DIRECTIVE_CODE" => "METADATA",
+            "SOURCE_ENTITY_ID" => source_entity_id,
+            "SEQUENCE_NUMBER" => transaction_seq_num,
+            "TRANSMISSION_MODE" => "UNACKNOWLEDGED" # Default, will be overridden by loaded state
+          }
+          transaction = CfdpReceiveTransaction.new(dummy_pdu, no_persist: true) # Also calls handle_pdu inside
+        end
+
+        if transaction.load_state(transaction_id)
+          loaded_count += 1
+        else
+          OpenC3::Logger.warn("CFDP failed to load saved transaction: #{transaction_id}", scope: ENV['OPENC3_SCOPE'])
+        end
+
+      rescue => error
+        OpenC3::Logger.error("CFDP error loading saved transaction #{transaction_id}: #{error.message}", scope: ENV['OPENC3_SCOPE'])
+        # Remove invalid saved state
+        OpenC3::Store.del("#{CfdpTransaction.redis_key_prefix}cfdp_transaction_state:#{transaction_id}")
+        OpenC3::Store.srem("#{CfdpTransaction.redis_key_prefix}cfdp_saved_transaction_ids", transaction_id)
+      end
+    end
+    OpenC3::Logger.info("CFDP loaded #{loaded_count} saved transactions", scope: ENV['OPENC3_SCOPE'])
   end
 
   def self.directory_listing(directory_name, directory_file_name)
@@ -679,19 +749,19 @@ class CfdpMib
     @@bucket = nil
     @@root_path = "/"
     @@transactions = {}
+    CfdpTransaction.clear_saved_transaction_ids
   end
 
   def self.cleanup_old_transactions
-    to_remove = []
     current_time = Time.now.utc
     transaction_retain_seconds = @@entities[@@source_entity_id]['transaction_retain_seconds']
+    cleaned_up_count = 0
     @@transactions.each do |id, transaction|
       if transaction.complete_time and (current_time - transaction.complete_time) > transaction_retain_seconds
-        to_remove << id
+        transaction.delete
+        cleaned_up_count += 1
       end
     end
-    to_remove.each do |id|
-      @@transactions.delete(id)
-    end
+    OpenC3::Logger.info("CFDP cleaned up #{cleaned_up_count} completed transactions", scope: ENV['OPENC3_SCOPE'])
   end
 end

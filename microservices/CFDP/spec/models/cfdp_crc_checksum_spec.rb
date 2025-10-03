@@ -17,19 +17,12 @@
 
 require 'rails_helper'
 require 'tempfile'
+require 'openc3/utilities/crc'
 
 RSpec.describe CfdpCrcChecksum do
-  before(:each) do
-    # Mock OpenC3::Crc32
-    @mock_crc32 = double("OpenC3::Crc32")
-    allow(@mock_crc32).to receive(:calc).and_return(0x12345678)
-    allow(OpenC3::Crc32).to receive(:new).and_return(@mock_crc32)
-  end
-
   describe "initialize" do
     it "initializes with default values" do
       checksum = CfdpCrcChecksum.new
-      expect(checksum.crc).to eq(@mock_crc32)
       expect(checksum.instance_variable_get(:@checksum)).to eq(0)
     end
 
@@ -63,14 +56,11 @@ RSpec.describe CfdpCrcChecksum do
       file.write("test data")
       file.rewind
 
-      # Expect the calc method to be called with the file data
-      expect(@mock_crc32).to receive(:calc).with("test data").and_return(0xABCDEF12)
-
       checksum = CfdpCrcChecksum.new
       result = checksum.checksum(file, false)
 
       # The result should be masked to 32 bits
-      expect(result).to eq(0xABCDEF12)
+      expect(result).to eq(0xd308aeb2)
 
       file.close
       file.unlink
@@ -129,6 +119,19 @@ RSpec.describe CfdpCrcChecksum do
 
       file.close
       file.unlink
+    end
+  end
+
+  describe "json" do
+    it "round trips the json" do
+      checksum = CfdpCrcChecksum.new(0xDEADBEEF, 0x12345678, false, false)
+      json = JSON.generate(checksum.as_json)
+      newcheck = JSON.parse(json, create_additions: true)
+      expect(newcheck).to be_a(CfdpCrcChecksum)
+      expect(newcheck.crc.poly).to eq(0xDEADBEEF)
+      expect(newcheck.crc.seed).to eq(0x12345678)
+      expect(newcheck.crc.xor).to be false
+      expect(newcheck.crc.reflect).to be false
     end
   end
 end
