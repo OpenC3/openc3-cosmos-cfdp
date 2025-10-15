@@ -8,7 +8,7 @@ gem 'rails', '~> 7.1' # Left at 7.1 to support earlier cosmos versions
 gem 'bootsnap', '>= 1.9.3', require: false
 
 # Use Rack CORS for handling Cross-Origin Resource Sharing (CORS), making cross-origin AJAX possible
-gem 'rack-cors', '~> 2.0'
+gem 'rack-cors', '~> 3.0'
 
 # Windows does not include zoneinfo files, so bundle the tzinfo-data gem
 gem 'tzinfo-data'
