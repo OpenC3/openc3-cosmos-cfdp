@@ -1,16 +1,15 @@
 /*
-# Copyright 2025 OpenC3, Inc.
+# Copyright 2026 OpenC3, Inc.
 # All Rights Reserved.
 #
-# This program is free software; you can modify and/or redistribute it
-# under the terms of the GNU Affero General Public License
-# as published by the Free Software Foundation; version 3 with
-# attribution addendums as found in the LICENSE.txt
+# Licensed for Evaluation and Educational Use
+#
+# This file may only be used commercially under the terms of a commercial license
+# purchased from OpenC3, Inc.
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Affero General Public License for more details.
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 */
 
 // @ts-check
@@ -31,7 +30,9 @@ const pluginGem = 'openc3-cosmos-cfdp-1.1.0.gem'
 test('installs the CFDP plugin', async ({ page, utils }) => {
   await page.goto('/tools/admin/plugins')
 
-  const pluginListItem = page.locator('[data-test=plugin-list-item]', { hasText: pluginGem })
+  const pluginListItem = page.locator('[data-test=plugin-list-item]', {
+    hasText: pluginGem,
+  })
   if (await pluginListItem.isVisible()) {
     return // Plugin already installed (probably either local or a retry in GH actions)
   }
@@ -50,7 +51,7 @@ test('installs the CFDP plugin', async ({ page, utils }) => {
   await page.getByLabel('plugin_test_mode', { exact: true }).fill('true')
   await page.locator('data-test=edit-submit').click()
   await expect(page.locator('[data-test=plugin-alert]')).toContainText(
-    'Started installing'
+    'Started installing',
   )
   // Check for Complete
   let regexp = new RegExp(`Processing plugin_install: ${pluginGem} - Complete`)
@@ -59,7 +60,7 @@ test('installs the CFDP plugin', async ({ page, utils }) => {
   })
 
   await expect(
-    page.locator(`[data-test=plugin-list] div:has-text("${plugin}")`).first()
+    page.locator(`[data-test=plugin-list] div:has-text("${plugin}")`).first(),
   ).toContainText('CFDP')
 
   await utils.sleep(10000) // Allow the plugin microservices to start
@@ -70,7 +71,7 @@ test('runs the CFDP test suite', async ({ page, utils }) => {
   await page.locator('text=Open File').click()
   await utils.sleep(500) // Allow background data to fetch
   await expect(
-    page.locator('.v-dialog').getByText('CFDP', { exact: true })
+    page.locator('.v-dialog').getByText('CFDP', { exact: true }),
   ).toBeVisible()
   await page.locator('[data-test=file-open-save-search] input').fill('cfdp_')
   await utils.sleep(100)
@@ -111,7 +112,7 @@ test('continues transaction after microservice restart', async ({
   await page.locator('text=Open File').click()
   await utils.sleep(500) // Allow background data to fetch
   await expect(
-    page.locator('.v-dialog').getByText('CFDP', { exact: true })
+    page.locator('.v-dialog').getByText('CFDP', { exact: true }),
   ).toBeVisible()
   await page.locator('[data-test=file-open-save-search] input').fill('cfdp_')
   await utils.sleep(100)
@@ -145,7 +146,7 @@ test('continues transaction after microservice restart', async ({
   await page.locator('text=Open File').click()
   await utils.sleep(500) // Allow background data to fetch
   await expect(
-    page.locator('.v-dialog').getByText('CFDP', { exact: true })
+    page.locator('.v-dialog').getByText('CFDP', { exact: true }),
   ).toBeVisible()
   await page
     .locator('[data-test=file-open-save-search] input')
@@ -199,7 +200,7 @@ test('continues transaction after microservice restart', async ({
     'Script completed: CFDP/procedures/interrupt_test.rb',
     {
       timeout: 600000, // 10min }
-    }
+    },
   )
 
   // Clean up by running suite teardown
@@ -207,7 +208,7 @@ test('continues transaction after microservice restart', async ({
   await page.locator('text=Open File').click()
   await utils.sleep(500) // Allow background data to fetch
   await expect(
-    page.locator('.v-dialog').getByText('CFDP', { exact: true })
+    page.locator('.v-dialog').getByText('CFDP', { exact: true }),
   ).toBeVisible()
   await page.locator('[data-test=file-open-save-search] input').fill('cfdp_')
   await utils.sleep(100)

@@ -1,6 +1,6 @@
 # encoding: ascii-8bit
 
-# Copyright 2023 OpenC3, Inc.
+# Copyright 2026 OpenC3, Inc.
 # All Rights Reserved.
 #
 # Licensed for Evaluation and Educational Use
@@ -17,13 +17,11 @@
 # Create the overall gemspec
 spec = Gem::Specification.new do |s|
   s.name = 'openc3-cosmos-cfdp'
-  s.summary = 'OpenC3 COSMOS CFDP'
-  s.description = <<-EOF
-    This plugin provides COSMOS Support for CFDP
-  EOF
+  s.summary = 'CFDP'
+  s.description = "This plugin provides COSMOS Support for CCSDS File Delivery Protocol (CFDP). It includes a COSMOS API for sending CFDP commands and an example COSMOS Target that can be used to receive files sent via CFDP."
   s.authors = ['Ryan Melton', 'Jason Thomas']
-  s.email = ['ryan@openc3.com', 'jason@openc3.com']
-  s.homepage = 'https://github.com/OpenC3/openc3'
+  s.email = ['support@openc3.com']
+  s.homepage = 'https://github.com/OpenC3/openc3-cosmos-cfdp'
 
   s.platform = Gem::Platform::RUBY
   s.required_ruby_version = '>= 3.0'
@@ -34,8 +32,13 @@ spec = Gem::Specification.new do |s|
     time = Time.now.strftime("%Y%m%d%H%M%S")
     s.version = '0.0.0' + ".#{time}"
   end
-  s.licenses = ['Nonstandard']
+  s.license = 'Commercial'
+
+  s.metadata = {
+    "openc3_store_keywords" => "cfdp, ccsds, file, protocol",
+    "openc3_cosmos_minimum_version" => "7.0.0"
+  }
 
   s.require_paths = ['lib', 'microservices/CFDP/app/models']
-  s.files = Dir.glob("{targets,lib,tools,microservices}/**/*") + %w(Rakefile LICENSE.txt README.md plugin.txt)
+  s.files = Dir.glob("{targets,lib,public,tools,microservices}/**/*") + %w(Rakefile LICENSE.md README.md plugin.txt)
 end
