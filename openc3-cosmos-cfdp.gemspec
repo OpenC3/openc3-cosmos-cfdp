@@ -36,7 +36,7 @@ spec = Gem::Specification.new do |s|
 
   s.metadata = {
     "openc3_store_keywords" => "cfdp, ccsds, file, protocol",
-    "openc3_cosmos_minimum_version" => "6.10.2"
+    "openc3_cosmos_minimum_version" => "6.10.4"
   }
 
   s.require_paths = ['lib', 'microservices/CFDP/app/models']
