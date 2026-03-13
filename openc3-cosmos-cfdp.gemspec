@@ -32,13 +32,13 @@ spec = Gem::Specification.new do |s|
     time = Time.now.strftime("%Y%m%d%H%M%S")
     s.version = '0.0.0' + ".#{time}"
   end
-  s.license = 'Commercial'
+  s.license = 'OpenC3 Evaluation and Educational License'
 
   s.metadata = {
-    "openc3_store_keywords" => "cfdp, ccsds, file, protocol",
-    "openc3_cosmos_minimum_version" => "6.10.4"
+    "openc3_store_keywords" => "cfdp,ccsds,file,protocol",
+    "openc3_cosmos_minimum_version" => "6.10.4",
+    "openc3_store_access_type" => "enterprise",
   }
-
   s.require_paths = ['lib', 'microservices/CFDP/app/models']
   s.files = Dir.glob("{targets,lib,public,tools,microservices}/**/*") + %w(Rakefile LICENSE.md README.md plugin.txt)
 end
