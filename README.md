@@ -198,11 +198,7 @@ Contributing is easy.
 3. Make your changes
 4. Submit a pull request
 
-YOU MUST AGREE TO OUR CONTRIBUTOR LICENSE AGREEMENT TO SUBMIT CODE TO THIS PROJECT: See [CONTRIBUTING.txt](CONTRIBUTING.txt)
-
-Most importantly:
-
-FOR ALL CONTRIBUTIONS TO THE OPENC3 COSMOS PROJECT AND ASSOCIATED PLUGINS, OPENC3, INC. MAINTAINS ALL RIGHTS TO ALL CODE CONTRIBUTED INCLUDING THE RIGHT TO LICENSE IT UNDER OTHER TERMS.
+By contributing to this project, you agree to the following terms in our OpenC3 Builder License: [LICENSE.md](https://github.com/OpenC3/cosmos/blob/main/LICENSE.md)
 
 ## License
 
