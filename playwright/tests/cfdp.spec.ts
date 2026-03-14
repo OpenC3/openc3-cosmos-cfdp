@@ -27,9 +27,34 @@ test.setTimeout(1800000) // 30min
 const plugin = 'openc3-cosmos-cfdp'
 const pluginGem = 'openc3-cosmos-cfdp-0.0.0.gem'
 
+async function openFile(page, utils, filename) {
+  await page.locator('[data-test=script-runner-file]').click()
+  await page.locator('text=Open File').click()
+  await utils.sleep(500) // Allow background data to fetch
+  await expect(
+    page.locator('.v-dialog').getByText('CFDP', { exact: true }),
+  ).toBeVisible()
+  await page.locator('[data-test=file-open-save-search] input').fill(filename)
+  await utils.sleep(100)
+  await expect(page.locator(`text=${filename}`).first()).toBeVisible()
+  await page.locator(`text=${filename}`).first().click()
+  await page.locator('[data-test="file-open-save-submit-btn"]').click()
+  await expect(page.locator('.v-dialog')).not.toBeVisible()
+
+  // Check for potential "<User> is editing this script"
+  // This can happen if we had to do a retry on this test
+  const someone = page.getByText('is editing this script')
+  if (await someone.isVisible()) {
+    await page.locator('[data-test="unlock-button"]').click()
+    await page.locator('[data-test="confirm-dialog-force unlock"]').click()
+  }
+}
+
 test('installs the CFDP plugin', async ({ page, utils }) => {
   await page.goto('/tools/admin/plugins')
 
+  // Wait for the plugin list to load before checking if already installed
+  await expect(page.locator('[data-test=plugin-list]')).toBeVisible()
   const pluginListItem = page.locator('[data-test=plugin-list-item]', {
     hasText: pluginGem,
   })
@@ -67,29 +92,7 @@ test('installs the CFDP plugin', async ({ page, utils }) => {
 })
 
 test('runs the CFDP test suite', async ({ page, utils }) => {
-  await page.locator('[data-test=script-runner-file]').click()
-  await page.locator('text=Open File').click()
-  await utils.sleep(500) // Allow background data to fetch
-  await expect(
-    page.locator('.v-dialog').getByText('CFDP', { exact: true }),
-  ).toBeVisible()
-  await page
-    .locator('[data-test=file-open-save-search] input')
-    .fill('cfdp_test_suite.rb')
-  await utils.sleep(100)
-  await page.locator('text=procedures').first().click()
-  await expect(page.locator('text=cfdp_test_suite.rb')).toBeVisible()
-  await page.locator('text=cfdp_test_suite.rb').click()
-  await page.locator('[data-test="file-open-save-submit-btn"]').click()
-  await expect(page.locator('.v-dialog')).not.toBeVisible()
-
-  // Check for potential "<User> is editing this script"
-  // This can happen if we had to do a retry on this test
-  const someone = page.getByText('is editing this script')
-  if (await someone.isVisible()) {
-    await page.locator('[data-test="unlock-button"]').click()
-    await page.locator('[data-test="confirm-dialog-force unlock"]').click()
-  }
+  await openFile(page, utils, 'cfdp_test_suite.rb')
 
   await page.locator('[data-test="start-suite"]').click()
   // Wait for the results ... allow for additional time
@@ -105,32 +108,7 @@ test('continues transaction after microservice restart', async ({
   utils,
   context,
 }) => {
-  await page.goto('/tools/scriptrunner')
-
-  // Open the suite (we're just gonna run the group setup, though)
-  await page.locator('[data-test=script-runner-file]').click()
-  await page.locator('text=Open File').click()
-  await utils.sleep(500) // Allow background data to fetch
-  await expect(
-    page.locator('.v-dialog').getByText('CFDP', { exact: true }),
-  ).toBeVisible()
-  await page.locator('[data-test=file-open-save-search] input').fill('cfdp_')
-  await utils.sleep(100)
-  await page.locator('[data-test=file-open-save-search] input').fill('test_')
-  await utils.sleep(100)
-  await page.locator('[data-test=file-open-save-search] input').fill('suite')
-  await utils.sleep(100)
-  await page.getByText('cfdp_test_suite.rb').first().click()
-  await page.locator('[data-test="file-open-save-submit-btn"]').click()
-  await expect(page.locator('.v-dialog')).not.toBeVisible()
-
-  // Check for potential "<User> is editing this script"
-  // This can happen if we had to do a retry on this test
-  let someone = page.getByText('is editing this script')
-  if (await someone.isVisible()) {
-    await page.locator('[data-test="unlock-button"]').click()
-    await page.locator('[data-test="confirm-dialog-force unlock"]').click()
-  }
+  await openFile(page, utils, 'cfdp_test_suite.rb')
 
   // Run group setup so medium.bin exists
   await page.locator('[data-test="setup-group"]').click()
@@ -141,30 +119,7 @@ test('continues transaction after microservice restart', async ({
   expect(textarea).toMatch('Pass: 1')
   await page.keyboard.press('Escape')
 
-  // Open the actual test script
-  await page.locator('[data-test=script-runner-file]').click()
-  await page.locator('text=Open File').click()
-  await utils.sleep(500) // Allow background data to fetch
-  await expect(
-    page.locator('.v-dialog').getByText('CFDP', { exact: true }),
-  ).toBeVisible()
-  await page
-    .locator('[data-test=file-open-save-search] input')
-    .fill('interrupt_')
-  await utils.sleep(100)
-  await page.locator('[data-test=file-open-save-search] input').fill('test')
-  await utils.sleep(100)
-  await page.getByText('interrupt_test.rb').first().click()
-  await page.locator('[data-test="file-open-save-submit-btn"]').click()
-  await expect(page.locator('.v-dialog')).not.toBeVisible()
-
-  // Check for potential "<User> is editing this script"
-  // This can happen if we had to do a retry on this test
-  someone = page.getByText('is editing this script')
-  if (await someone.isVisible()) {
-    await page.locator('[data-test="unlock-button"]').click()
-    await page.locator('[data-test="confirm-dialog-force unlock"]').click()
-  }
+  await openFile(page, utils, 'interrupt_test.rb')
 
   // Start the script
   await page.locator('[data-test="clear-log"]').click()
@@ -204,29 +159,7 @@ test('continues transaction after microservice restart', async ({
   )
 
   // Clean up by running suite teardown
-  await page.locator('[data-test=script-runner-file]').click()
-  await page.locator('text=Open File').click()
-  await utils.sleep(500) // Allow background data to fetch
-  await expect(
-    page.locator('.v-dialog').getByText('CFDP', { exact: true }),
-  ).toBeVisible()
-  await page.locator('[data-test=file-open-save-search] input').fill('cfdp_')
-  await utils.sleep(100)
-  await page.locator('[data-test=file-open-save-search] input').fill('test_')
-  await utils.sleep(100)
-  await page.locator('[data-test=file-open-save-search] input').fill('suite')
-  await utils.sleep(100)
-  await page.getByText('cfdp_test_suite.rb').first().click()
-  await page.locator('[data-test="file-open-save-submit-btn"]').click()
-  await expect(page.locator('.v-dialog')).not.toBeVisible()
-
-  // Check for potential "<User> is editing this script"
-  // This can happen if we had to do a retry on this test
-  someone = page.getByText('is editing this script')
-  if (await someone.isVisible()) {
-    await page.locator('[data-test="unlock-button"]').click()
-    await page.locator('[data-test="confirm-dialog-force unlock"]').click()
-  }
+  await openFile(page, utils, 'cfdp_test_suite.rb')
 
   // Run group teardown to delete test files
   await page.locator('[data-test="teardown-group"]').click()
