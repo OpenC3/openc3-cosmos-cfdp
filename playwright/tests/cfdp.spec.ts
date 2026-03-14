@@ -73,13 +73,12 @@ test('runs the CFDP test suite', async ({ page, utils }) => {
   await expect(
     page.locator('.v-dialog').getByText('CFDP', { exact: true }),
   ).toBeVisible()
-  await page.locator('[data-test=file-open-save-search] input').fill('cfdp_')
+  await page
+    .locator('[data-test=file-open-save-search] input')
+    .fill('cfdp_test_suite.rb')
   await utils.sleep(100)
-  await page.locator('[data-test=file-open-save-search] input').fill('test_')
-  await utils.sleep(100)
-  await page.locator('[data-test=file-open-save-search] input').fill('suite')
-  await utils.sleep(100)
-  await page.getByText('cfdp_test_suite.rb').first().click()
+  await expect(page.locator('text=cfdp_test_suite.rb')).toBeVisible()
+  await page.locator('text=cfdp_test_suite.rb').click()
   await page.locator('[data-test="file-open-save-submit-btn"]').click()
   await expect(page.locator('.v-dialog')).not.toBeVisible()
 
