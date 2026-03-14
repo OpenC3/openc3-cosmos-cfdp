@@ -77,6 +77,7 @@ test('runs the CFDP test suite', async ({ page, utils }) => {
     .locator('[data-test=file-open-save-search] input')
     .fill('cfdp_test_suite.rb')
   await utils.sleep(100)
+  await page.locator('text=procedures').first().click()
   await expect(page.locator('text=cfdp_test_suite.rb')).toBeVisible()
   await page.locator('text=cfdp_test_suite.rb').click()
   await page.locator('[data-test="file-open-save-submit-btn"]').click()
