@@ -36,6 +36,7 @@ async function openFile(page, utils, filename) {
   ).toBeVisible()
   await page.locator('[data-test=file-open-save-search] input').fill(filename)
   await utils.sleep(100)
+  await page.locator(`text=procedures`).first().click()
   await expect(page.locator(`text=${filename}`).first()).toBeVisible()
   await page.locator(`text=${filename}`).first().click()
   await page.locator('[data-test="file-open-save-submit-btn"]').click()
