@@ -34,9 +34,9 @@ async function openFile(page, utils, filename) {
   await expect(
     page.locator('.v-dialog').getByText('CFDP', { exact: true }),
   ).toBeVisible()
+  await utils.sleep(500)
   await page.locator('[data-test=file-open-save-search] input').fill(filename)
-  await utils.sleep(100)
-  await page.locator(`text=procedures`).first().click()
+  await utils.sleep(500)
   await expect(page.locator(`text=${filename}`).first()).toBeVisible()
   await page.locator(`text=${filename}`).first().click()
   await page.locator('[data-test="file-open-save-submit-btn"]').click()
