@@ -35,8 +35,12 @@ async function openFile(page, utils, filename) {
     page.locator('.v-dialog').getByText('CFDP', { exact: true }),
   ).toBeVisible()
   await utils.sleep(500)
-  await page.locator('[data-test=file-open-save-search] input').fill(filename)
+  let parts = filename.split('.')
+  await page.locator('[data-test=file-open-save-search] input').fill(parts[0])
   await utils.sleep(500)
+  await page
+    .locator('[data-test=file-open-save-search] input')
+    .fill(`.${parts[1]}`)
   await expect(page.locator(`text=${filename}`).first()).toBeVisible()
   await page.locator(`text=${filename}`).first().click()
   await page.locator('[data-test="file-open-save-submit-btn"]').click()
@@ -57,7 +61,7 @@ test('installs the CFDP plugin', async ({ page, utils }) => {
   // Wait for the plugin list to load before checking if already installed
   await expect(page.locator('[data-test=plugin-list]')).toBeVisible()
   const pluginListItem = page.locator('[data-test=plugin-list-item]', {
-    hasText: pluginGem,
+    hasText: plugin,
   })
   if (await pluginListItem.isVisible()) {
     return // Plugin already installed (probably either local or a retry in GH actions)
