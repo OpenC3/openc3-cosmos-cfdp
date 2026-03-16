@@ -1,0 +1,30 @@
+# Example workflow for non-tool (no pnpm) plugins
+# Copy this file to .github/workflows/ in the plugin repo and:
+# 1. Update the workflow name if necessary (if you're in cosmos-enterprise-plugins and have multiple release workflows)
+# 2. Update plugin_directory argument. This should be "." for single repos, and e.g. "openc3-cosmos-orbitview" for cosmos-enterprise-plugins.
+# 3. Add the OpenC3 admin accont API token to the repo secrets as OPENC3_API_TOKEN
+
+name: Release COSMOS Plugin
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number'
+        required: true
+        type: string
+      deploy_to_store:
+        description: 'Deploy to OpenC3 App Store'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  release:
+    uses: OpenC3/.github/.github/workflows/release-cosmos-plugin-reusable.yml@main
+    with:
+      version: ${{ inputs.version }}
+      deploy_to_store: ${{ inputs.deploy_to_store }}
+      plugin_directory: .  # Update this
+    secrets:
+      OPENC3_API_TOKEN: ${{ secrets.OPENC3_API_TOKEN }}
