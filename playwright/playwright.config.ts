@@ -71,6 +71,7 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         storageState: STORAGE_STATE,
+        viewport: { width: 1600, height: 1200 },
       },
     },
     // {

@@ -1,42 +1,70 @@
+# Copyright 2026 OpenC3, Inc.
+# All Rights Reserved.
+#
+# Licensed for Evaluation and Educational Use
+#
+# This file may only be used commercially under the terms of a commercial license
+# purchased from OpenC3, Inc.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
 # Defaults for a single CFDP entity
 # If you need to install more than 1 CFDP engine
 # you must change these to make them unique
 VARIABLE cfdp_microservice_name CFDP
+  VARIABLE_DESCRIPTION "Name for the CFDP microservice"
 VARIABLE cfdp_route_prefix /cfdp
+  VARIABLE_DESCRIPTION "Route prefix for the CFDP microservice"
 VARIABLE cfdp_port 2905
+  VARIABLE_DESCRIPTION "Port for the CFDP microservice"
 
 # Target which includes the CFDP command
 # Change these to point to your own packet which contains
 # a variable sized BLOCK field (these are simply an example)
 VARIABLE cfdp_cmd_target_name CFDP2
+  VARIABLE_DESCRIPTION "Name of the target containing the CFDP command"
 VARIABLE cfdp_cmd_packet_name CFDP_PDU
+  VARIABLE_DESCRIPTION "Name of the packet containing the CFDP command"
 VARIABLE cfdp_cmd_item_name PDU
+  VARIABLE_DESCRIPTION "Name of the item containing the CFDP command"
 
 # Target which includes the CFDP telemetry
 # Change these to point to your own packet which contains
 # a variable sized BLOCK field (these are simply an example)
 VARIABLE cfdp_tlm_target_name CFDP2
+  VARIABLE_DESCRIPTION "Name of the target containing the CFDP telemetry"
 VARIABLE cfdp_tlm_packet_name CFDP_PDU
+  VARIABLE_DESCRIPTION "Name of the packet containing the CFDP telemetry"
 VARIABLE cfdp_tlm_item_name PDU
+  VARIABLE_DESCRIPTION "Name of the item containing the CFDP telemetry"
 
-# CFDP Source and destination IDs
 VARIABLE source_entity_id 1
+  VARIABLE_DESCRIPTION "Source entity ID"
 VARIABLE destination_entity_id 2
-# The mounted folder that CFDP is managing (bucket or volume)
+  VARIABLE_DESCRIPTION "Destination entity ID"
+
 VARIABLE root_path /DEFAULT/targets_modified/CFDP/tmp
-# Only needed if the destination is a bucket (here named config)
-# If the mount point is a volume this should be left blank
+  VARIABLE_DESCRIPTION "Root path for CFDP file storage (must be an absolute path, can be a mounted volume or a path within the container. If using a bucket for storage, this can be set to any value but must still be an absolute path)"
 VARIABLE bucket config
+  VARIABLE_DESCRIPTION "Name of bucket for CFDP file storage (leave blank if using a mounted volume instead of a bucket)"
 
-# Prevent files from being overwritten on receive by appending a timestamp to the new file if there's a name conflict
-VARIABLE prevent_received_file_overwrite "true"
-# Allow remote to re-use transaction IDs by replacing previously received transactions
-VARIABLE allow_duplicate_transaction_ids "false"
-# How often to purge old (completed) transactions from RAM and Redis
+VARIABLE prevent_received_file_overwrite true
+  VARIABLE_DESCRIPTION "Prevent received files from being overwritten by appending a timestamp to the new file if there's a name conflict"
+  VARIABLE_STATE "TRUE" true
+  VARIABLE_STATE "FALSE" false
+VARIABLE allow_duplicate_transaction_ids false
+  VARIABLE_DESCRIPTION "Allow duplicate transaction IDs from remote by replacing previously received transactions"
+  VARIABLE_STATE "TRUE" true
+  VARIABLE_STATE "FALSE" false
 VARIABLE transaction_cleanup_frequency_hours 24
+  VARIABLE_DESCRIPTION "How often to purge old (completed) transactions from RAM and Redis"
 
-# Set to true to enable a test configuration
-VARIABLE plugin_test_mode "false"
+VARIABLE plugin_test_mode false
+  VARIABLE_DESCRIPTION "Install 2 targets: CFDP and CFDP2 along with the CFDP2 microservice configured to talk to CFDP2 target for testing purposes."
+  VARIABLE_STATE "TRUE" true
+  VARIABLE_STATE "FALSE" false
 
 MICROSERVICE CFDP <%= cfdp_microservice_name %>
   WORK_DIR .

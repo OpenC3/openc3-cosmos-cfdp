@@ -19,8 +19,8 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           repository: OpenC3/cosmos-project.git
           path: cosmos
@@ -28,13 +28,17 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: "yarn"
-          cache-dependency-path: "**/yarn.lock"
-      - name: Install playwright dependencies
-        run: yarn; yarn playwright install --with-deps; yarn playwright --version
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          version: 10
+      - name: Install Playwright dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: playwright
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
         working-directory: playwright
       - name: Check for test.only
-        run: yarn playwright test --list --forbid-only
+        run: pnpm playwright test --list --forbid-only
         working-directory: playwright
       - name: openc3.sh run
         # This `shell` line is required to get around a known issue: https://github.com/actions/runner/issues/241#issuecomment-745902718
@@ -52,15 +56,15 @@ jobs:
           docker ps
           docker logs cosmos-openc3-cosmos-init-1
           docker logs cosmos-openc3-operator-1
-        # Build a test plugin for playwright and a copy so we can 'upgrade'
+        # Build a test plugin for playwright
       - name: Build plugin
         shell: 'script -q -e -c "bash {0}"'
         run: |
-          rake build VERSION=1.1.0
+          rake build VERSION=0.0.0
       - name: Run Playwright tests
         # Run separately to allow for parallelism
         run: |
-          yarn playwright test
+          pnpm playwright test
         working-directory: playwright
         # Check container status
       - name: Check container status

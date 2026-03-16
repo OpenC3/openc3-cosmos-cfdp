@@ -1,3 +1,17 @@
+/*
+# Copyright 2026 OpenC3, Inc.
+# All Rights Reserved.
+#
+# Licensed for Evaluation and Educational Use
+#
+# This file may only be used commercially under the terms of a commercial license
+# purchased from OpenC3, Inc.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+*/
+
 import { Page, expect } from '@playwright/test'
 import * as fs from 'fs'
 export class Utilities {
@@ -14,13 +28,13 @@ export class Utilities {
     await this.page.locator('[data-test=select-target] i').click()
     await this.page.getByRole('option', { name: target, exact: true }).click()
     expect(
-      await this.page.inputValue('[data-test=select-target] input')
+      await this.page.inputValue('[data-test=select-target] input'),
     ).toMatch(target)
     if (packet) {
       await this.page.locator('[data-test=select-packet] i').click()
       await this.page.getByRole('option', { name: packet, exact: true }).click()
       expect(
-        await this.page.inputValue('[data-test=select-packet] input')
+        await this.page.inputValue('[data-test=select-packet] input'),
       ).toMatch(packet)
       if (item) {
         await this.page.locator('[data-test=select-item] i').click()
@@ -28,7 +42,7 @@ export class Utilities {
         await this.page.getByLabel('Select Item').fill(item)
         await this.page.getByRole('option', { name: item, exact: true }).click()
         expect(
-          await this.page.inputValue('[data-test=select-item] input')
+          await this.page.inputValue('[data-test=select-item] input'),
         ).toMatch(item)
       } else {
         // If we're only selecting a packet wait for items to populate
@@ -49,7 +63,7 @@ export class Utilities {
     page: any,
     locator: any,
     validator?: { (contents: any) },
-    encoding: string = 'utf-8'
+    encoding: string = 'utf-8',
   ) {
     const [download] = await Promise.all([
       // Start waiting for the download

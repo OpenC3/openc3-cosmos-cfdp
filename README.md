@@ -204,4 +204,4 @@ By contributing to this project, you agree to the following terms in our OpenC3 
 
 OpenC3 Evaluation and Educational License
 
-See [LICENSE.txt](LICENSE.txt)
+See [LICENSE.md](LICENSE.md)
