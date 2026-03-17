@@ -311,7 +311,7 @@ class CfdpMib
       end
     end
   rescue StandardError => error
-    OpenC3::Logger.error("#{error.message}\n#{error.backtrace.join("\n")}", scope: ENV['OPENC3_SCOPE'])
+    OpenC3::Logger.error(error.message, scope: ENV['OPENC3_SCOPE'])
   end
 
   def self.complete_source_file(file)
