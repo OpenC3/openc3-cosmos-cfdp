@@ -145,7 +145,7 @@ test('continues transaction after microservice restart', async ({
     .filter({ hasText: 'DEFAULT__USER__CFDP' })
     .first()
     .getByRole('button', { name: 'Restart Microservice' })
-    .click()
+    .click({ force: true })
   await pageTwo.locator('[data-test="confirm-dialog-restart"]').click()
   await utils.sleep(1000)
   await pageTwo
@@ -153,7 +153,7 @@ test('continues transaction after microservice restart', async ({
     .filter({ hasText: 'DEFAULT__USER__CFDP2' })
     .first()
     .getByRole('button', { name: 'Restart Microservice' })
-    .click()
+    .click({ force: true })
   await pageTwo.locator('[data-test="confirm-dialog-restart"]').click()
 
   await expect(page.locator('[data-test=output-messages]')).toContainText(

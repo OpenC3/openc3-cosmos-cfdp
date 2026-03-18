@@ -292,13 +292,12 @@ class CfdpMib
     directory_path = File.join(@@root_path, directory_name)
     if self.bucket
       client = OpenC3::Bucket.getClient()
-      prefix = directory_path
-      prefix += '/' unless prefix.end_with?('/')
+      prefix = directory_path.delete_prefix('/') # list_objects doesn't work if you prepend a /
+      prefix += '/' unless prefix.end_with?('/') # but it needs a trailing / otherwise you could conflict with other dirs
       objects = client.list_objects(bucket: self.bucket, prefix: prefix)
       objects.each do |object|
         next if object[:key].end_with?('/')
-        filename = object[:key].sub(/^#{Regexp.escape(@@root_path)}/, '')
-        filename = filename.sub(/^\//, '')
+        filename = object[:key].sub(/^#{Regexp.escape(@@root_path.delete_prefix('/'))}/, '')
         yield filename
       end
     else
