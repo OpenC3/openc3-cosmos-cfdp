@@ -1,0 +1,67 @@
+[project]
+name = "openc3-cosmos-cfdp"
+version = "2.2.0"
+description = "OpenC3 CFDP - Python Implementation"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = false  # COSMOS plugins don't build Python wheels - source in openc3/ packaged in Ruby gem
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+[tool.mypy]
+
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_calls = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_optional = true
+strict_equality = true
+show_error_codes = true
+show_column_numbers = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = "openc3.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "openc3.utilities.logger"
+ignore_errors = true
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.0",
+    "pytest>=9.0.1",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.14.8",
+    "openc3",  # Only needed for development/testing; provided by COSMOS at runtime
+]
