@@ -39,12 +39,7 @@ jobs:
         # fails fast instead of hanging the job (install normally takes <2min)
         timeout-minutes: 10
         working-directory: playwright
-        run: |
-          for i in 1 2 3; do
-            pnpm exec playwright install --with-deps chromium && exit 0
-            echo "Retry $i after stall/failure..."
-          done
-          exit 1
+        run: pnpm exec playwright install --with-deps chromium
       - name: Check for test.only
         run: pnpm playwright test --list --forbid-only
         working-directory: playwright
