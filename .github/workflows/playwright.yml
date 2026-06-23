@@ -35,8 +35,16 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: playwright
       - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps chromium
+        # Retry to survive cdn.playwright.dev download stalls; timeout so a stall
+        # fails fast instead of hanging the job (install normally takes <2min)
+        timeout-minutes: 10
         working-directory: playwright
+        run: |
+          for i in 1 2 3; do
+            pnpm exec playwright install --with-deps chromium && exit 0
+            echo "Retry $i after stall/failure..."
+          done
+          exit 1
       - name: Check for test.only
         run: pnpm playwright test --list --forbid-only
         working-directory: playwright
