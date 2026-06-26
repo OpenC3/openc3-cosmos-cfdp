@@ -73,5 +73,53 @@ RSpec.describe CfdpPdu, type: :model do
       # TODO: FILE_DATA doesn't round trip
       # expect(hash['FILE_DATA']).to eql [0xAA, 0x55].pack("C*")
     end
+
+    # The build path always writes SEGMENT_METADATA_FLAG = NOT_PRESENT ("not
+    # implemented"), but a remote entity can send segment metadata, so the
+    # decom path must handle it. Build the PDU object, flip the flag PRESENT,
+    # and round-trip through build/decom of the file data contents.
+    it "round trips segment metadata when the flag is PRESENT" do
+      pdu = CfdpPdu.build_initial_pdu(
+        type: "FILE_DATA",
+        destination_entity: CfdpMib.entity(@destination_entity_id),
+        file_size: 0,
+        segmentation_control: "NOT_PRESERVED",
+        transmission_mode: nil)
+      pdu.write("SEGMENT_METADATA_FLAG", "PRESENT")
+
+      contents = pdu.build_file_data_pdu_contents(
+        offset: 0x1234,
+        file_data: [0xAA, 0x55].pack("C*"),
+        record_continuation_state: 'START_AND_END',
+        segment_metadata: "META")
+
+      hash = {}
+      CfdpPdu.decom_file_data_pdu_contents(pdu, hash, contents)
+      expect(hash['RECORD_CONTINUATION_STATE']).to eql 'START_AND_END'
+      expect(hash['SEGMENT_METADATA_LENGTH']).to eql 4
+      expect(hash['SEGMENT_METADATA']).to eql "META"
+      expect(hash['OFFSET']).to eql 0x1234
+    end
+
+    it "uses a 64-bit offset for large files" do
+      # file_size above the 32-bit boundary forces LARGE_FILE_FLAG != SMALL_FILE
+      buffer = CfdpPdu.build_file_data_pdu(
+        source_entity: CfdpMib.entity(@source_entity_id),
+        transaction_seq_num: 1,
+        destination_entity: CfdpMib.entity(@destination_entity_id),
+        file_size: 0x1_0000_0000,
+        segmentation_control: "NOT_PRESERVED",
+        transmission_mode: nil,
+        offset: 0xDEADBEEF,
+        file_data: [0xAA, 0x55].pack("C*"),
+        record_continuation_state: nil,
+        segment_metadata: nil)
+
+      # Large files use a 64-bit (8 byte) offset field instead of 32-bit.
+      # Header is 7 bytes by default, so the offset occupies bytes 7..14.
+      expect(buffer[7..14].unpack('Q>')[0]).to eql 0xDEADBEEF
+      expect(buffer[15].unpack('C')[0]).to eql 0xAA
+      expect(buffer[16].unpack('C')[0]).to eql 0x55
+    end
   end
 end

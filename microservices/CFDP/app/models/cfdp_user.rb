@@ -391,7 +391,7 @@ class CfdpUser
         params[:messages_to_user] << message_to_user["MESSAGE_TO_USER"]
 
       when "PROXY_FILESTORE_REQUEST"
-        params[:filestore_requests] << message_to_user["ACTION_CODE", message_to_user["FIRST_FILE_NAME"]]
+        params[:filestore_requests] << [message_to_user["ACTION_CODE"], message_to_user["FIRST_FILE_NAME"]]
         params[:filestore_requests][-1] << message_to_user["SECOND_FILE_NAME"] if message_to_user["SECOND_FILE_NAME"]
 
       when "PROXY_FAULT_HANDLER_OVERRIDE"

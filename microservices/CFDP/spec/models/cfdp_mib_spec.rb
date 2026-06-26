@@ -710,6 +710,118 @@ RSpec.describe CfdpMib do
 
       expect { CfdpMib.setup }.to raise_error(RuntimeError, /OPTION source_entity_id is required/)
     end
+
+    # Run setup with the provided options array. Mutates @options in place so the
+    # stub (which captured the array reference in before(:each)) sees the change.
+    def run_setup(opts)
+      @options.replace(opts)
+      mock_redis
+      CfdpMib.setup
+    end
+
+    # Minimal valid options (all three required) plus whatever per-entity fields
+    # are passed; per-entity fields apply to entity 2 (the last declared entity).
+    def base_options(*entity_fields)
+      [
+        ['source_entity_id', '1'],
+        ['destination_entity_id', '2'],
+        ['root_path', '/tmp'],
+        *entity_fields
+      ]
+    end
+
+    it 'sets the bucket' do
+      run_setup(base_options + [['bucket', 'my-bucket']])
+      expect(CfdpMib.bucket).to eq('my-bucket')
+    end
+
+    it 'sets prevent_received_file_overwrite' do
+      run_setup(base_options(['prevent_received_file_overwrite', 'true']))
+      expect(CfdpMib.prevent_received_file_overwrite).to be true
+      run_setup(base_options(['prevent_received_file_overwrite', 'false']))
+      expect(CfdpMib.prevent_received_file_overwrite).to be false
+    end
+
+    it 'sets allow_duplicate_transaction_ids' do
+      run_setup(base_options(['allow_duplicate_transaction_ids', 'true']))
+      expect(CfdpMib.allow_duplicate_transaction_ids).to be true
+      run_setup(base_options(['allow_duplicate_transaction_ids', 'false']))
+      expect(CfdpMib.allow_duplicate_transaction_ids).to be false
+    end
+
+    it 'sets transaction_cleanup_frequency_hours' do
+      run_setup(base_options(['transaction_cleanup_frequency_hours', '12']))
+      expect(CfdpMib.transaction_cleanup_frequency_hours).to eq(12)
+    end
+
+    it 'sets float fields and rejects negatives' do
+      run_setup(base_options(['cmd_delay', '1.5'], ['transaction_retain_seconds', '60']))
+      expect(CfdpMib.entity(2)['cmd_delay']).to eq(1.5)
+      expect(CfdpMib.entity(2)['transaction_retain_seconds']).to eq(60.0)
+      expect { run_setup(base_options(['cmd_delay', '-1'])) }.to raise_error(/must be greater than or equal to zero/)
+    end
+
+    it 'rejects invalid boolean values' do
+      expect { run_setup(base_options(['immediate_nak_mode', 'notabool'])) }.to raise_error(/must be true or false/)
+    end
+
+    it 'sets default_transmission_mode and rejects invalid values' do
+      run_setup(base_options(['default_transmission_mode', 'acknowledged']))
+      expect(CfdpMib.entity(2)['default_transmission_mode']).to eq('ACKNOWLEDGED')
+      expect { run_setup(base_options(['default_transmission_mode', 'bogus'])) }.to raise_error(/must be ACKNOWLEDGED or UNACKNOWLEDGED/)
+    end
+
+    it 'sets entity_id_length and rejects out of range values' do
+      run_setup(base_options(['entity_id_length', '4'], ['sequence_number_length', '2']))
+      expect(CfdpMib.entity(2)['entity_id_length']).to eq(4)
+      expect(CfdpMib.entity(2)['sequence_number_length']).to eq(2)
+      expect { run_setup(base_options(['entity_id_length', '8'])) }.to raise_error(/must be between 0 and 7/)
+    end
+
+    it 'sets default_checksum_type and rejects out of range values' do
+      run_setup(base_options(['default_checksum_type', '3']))
+      expect(CfdpMib.entity(2)['default_checksum_type']).to eq(3)
+      expect { run_setup(base_options(['default_checksum_type', '16'])) }.to raise_error(/must be between 0 and 15/)
+    end
+
+    it 'sets transaction_closure_requested and rejects invalid values' do
+      run_setup(base_options(['transaction_closure_requested', 'closure_requested']))
+      expect(CfdpMib.entity(2)['transaction_closure_requested']).to eq('CLOSURE_REQUESTED')
+      expect { run_setup(base_options(['transaction_closure_requested', 'bogus'])) }.to raise_error(/must be CLOSURE_REQUESTED or CLOSURE_NOT_REQUESTED/)
+    end
+
+    it 'sets incomplete_file_disposition and rejects invalid values' do
+      run_setup(base_options(['incomplete_file_disposition', 'discard']))
+      expect(CfdpMib.entity(2)['incomplete_file_disposition']).to eq('DISCARD')
+      expect { run_setup(base_options(['incomplete_file_disposition', 'bogus'])) }.to raise_error(/must be DISCARD or RETAIN/)
+    end
+
+    it 'sets a fault_handler' do
+      run_setup(base_options(['fault_handler', 'FILE_CHECKSUM_FAILURE', 'ABANDON_TRANSACTION']))
+      expect(CfdpMib.entity(2)['fault_handler']['FILE_CHECKSUM_FAILURE']).to eq('ABANDON_TRANSACTION')
+    end
+
+    it 'rejects an unknown fault_handler fault_type' do
+      expect { run_setup(base_options(['fault_handler', 'BOGUS_TYPE', 'IGNORE_ERROR'])) }.to raise_error(/fault_type must be/)
+    end
+
+    it 'rejects an unknown fault_handler fault_response' do
+      expect { run_setup(base_options(['fault_handler', 'FILE_CHECKSUM_FAILURE', 'BOGUS_RESPONSE'])) }.to raise_error(/fault_response must be/)
+    end
+
+    it 'raises for invalid tlm_info length' do
+      expect { run_setup(base_options(['tlm_info', 'TARGET', 'PACKET'])) }.to raise_error(/three part array/)
+    end
+
+    it 'raises for an unknown MIB setting' do
+      expect { run_setup(base_options(['bogus_field', 'value'])) }.to raise_error(/Unknown MIB setting bogus_field/)
+    end
+
+    it 'raises when an entity field appears before any entity declaration' do
+      expect {
+        run_setup([['protocol_version_number', '1'], ['source_entity_id', '1'], ['destination_entity_id', '2'], ['root_path', '/tmp']])
+      }.to raise_error(/Must declare source_entity_id or destination_entity_id before other options/)
+    end
   end
 
   describe 'cleanup_old_transactions' do

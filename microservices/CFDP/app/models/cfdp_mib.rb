@@ -646,7 +646,7 @@ class CfdpMib
             fault_response = value[1].to_s.upcase
 
             raise "Value for MIB setting #{field_name} fault_type must be #{KNOWN_FAULT_TYPES.join(", ")}" unless KNOWN_FAULT_TYPES.include?(fault_type)
-            raise "Value for MIB setting #{field_name} fault_response must be #{KNOWN_FAULT_RESPONSES.join(", ")}" unless KNOWN_FAULT_RESPONSES.include?(fault_type)
+            raise "Value for MIB setting #{field_name} fault_response must be #{KNOWN_FAULT_RESPONSES.join(", ")}" unless KNOWN_FAULT_RESPONSES.include?(fault_response)
             entity = CfdpMib.entity(current_entity_id)
             entity['fault_handler'][fault_type] = fault_response
 
@@ -747,6 +747,9 @@ class CfdpMib
     @@entities = {}
     @@bucket = nil
     @@root_path = "/"
+    @@prevent_received_file_overwrite = true
+    @@allow_duplicate_transaction_ids = false
+    @@transaction_cleanup_frequency_hours = 24
     @@transactions = {}
     CfdpTransaction.clear_saved_transaction_ids
   end
