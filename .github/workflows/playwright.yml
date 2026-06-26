@@ -38,16 +38,34 @@ jobs:
       - name: Install Playwright dependencies
         run: pnpm install --frozen-lockfile
         working-directory: playwright
+      # Install the apt OS dependencies separately from the browser binary.
+      # This part uses apt (not the CDN) and completes reliably.
+      - name: Install Playwright OS dependencies
+        run: pnpm exec playwright install-deps chromium
+        working-directory: playwright
+        timeout-minutes: 10
       # The Chromium download from cdn.playwright.dev intermittently stalls
-      # mid-stream, and `playwright install` has no download timeout, so a
-      # stall hangs forever. Retry with a per-attempt timeout so a stalled
-      # download is killed and retried instead of hanging the whole job.
-      - name: Install Playwright browsers
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 10
-          max_attempts: 3
-          command: cd playwright && pnpm exec playwright install --with-deps chromium
+      # mid-stream, and `playwright install` has no download timeout of its
+      # own, so a stall hangs forever (burning the whole job). Wrap each
+      # attempt in `timeout` so a stalled download is force-killed (SIGKILL
+      # via --kill-after) and retried, instead of hanging.
+      - name: Install Playwright browser (chromium)
+        working-directory: playwright
+        timeout-minutes: 40
+        run: |
+          for attempt in 1 2 3 4 5; do
+            echo "::group::Chromium download attempt ${attempt}"
+            if timeout --kill-after=30s 6m pnpm exec playwright install chromium; then
+              echo "Chromium installed successfully on attempt ${attempt}"
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "Attempt ${attempt} stalled or failed; retrying..."
+            echo "::endgroup::"
+            sleep 10
+          done
+          echo "Failed to install Chromium after 5 attempts"
+          exit 1
       - name: Check for test.only
         run: pnpm playwright test --list --forbid-only
         working-directory: playwright
