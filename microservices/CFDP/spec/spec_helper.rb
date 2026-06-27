@@ -81,8 +81,12 @@ def mock_redis
   require 'mock_redis'
   redis = MockRedis.new
   allow(Redis).to receive(:new).and_return(redis)
+  # openc3 6.x memoized the singleton in @instance; 7.x uses @instances (one per
+  # db_shard). Clear both so each example gets a fresh mocked connection pool.
   OpenC3::Store.instance_variable_set(:@instance, nil)
+  OpenC3::Store.instance_variable_set(:@instances, nil)
   OpenC3::EphemeralStore.instance_variable_set(:@instance, nil)
+  OpenC3::EphemeralStore.instance_variable_set(:@instances, nil)
   redis
 end
 
