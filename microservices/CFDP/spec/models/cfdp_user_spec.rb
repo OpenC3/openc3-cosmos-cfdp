@@ -148,6 +148,54 @@ RSpec.describe CfdpUser, type: :model do
       expect(@user.instance_variable_get(:@source_transactions)).to include(transaction)
       expect(@user.instance_variable_get(:@source_threads)).to include(thread)
     end
+
+    it "builds all optional proxy put messages" do
+      # Setup mock thread that runs the block immediately
+      thread = double("thread")
+      allow(Thread).to receive(:new).and_yield.and_return(thread)
+      allow(thread).to receive(:alive?).and_return(false)
+
+      # Setup transaction
+      transaction = double("transaction")
+      allow(transaction).to receive(:id).and_return("transaction_1")
+      allow(CfdpSourceTransaction).to receive(:new).and_return(transaction)
+      allow(transaction).to receive(:proxy_response_info=)
+      allow(transaction).to receive(:save_state)
+
+      # Mock logger
+      allow(OpenC3::Logger).to receive(:info)
+
+      # Capture the messages_to_user that get built and passed to put
+      captured = nil
+      allow(transaction).to receive(:put) do |**kwargs|
+        captured = kwargs
+      end
+
+      # Params exercising every optional proxy put message branch
+      params = {
+        remote_entity_id: 3,
+        destination_entity_id: @destination_entity_id,
+        source_file_name: "source.txt",
+        destination_file_name: "dest.txt",
+        messages_to_user: ["custom message"],
+        filestore_requests: [["CREATE_FILE", "f.txt", "g.txt"]],
+        fault_handler_overrides: [["NO_ERROR", "IGNORE_ERROR"]],
+        transmission_mode: "UNACKNOWLEDGED",
+        flow_label: "mylabel",
+        segmentation_control: "NOT_PRESERVED",
+        closure_requested: "CLOSURE_REQUESTED"
+      }
+
+      result = @user.start_source_transaction(params)
+
+      # Verify the proxy put was performed with a populated messages_to_user list
+      expect(result).to eq(transaction)
+      expect(captured[:destination_entity_id]).to eq(3)
+      expect(captured[:messages_to_user]).to be_a(Array)
+      # Proxy put request + custom message + filestore + fault handler +
+      # transmission mode + flow label + segmentation control + closure request
+      expect(captured[:messages_to_user].length).to eq(8)
+    end
   end
 
   describe "proxy_request_setup" do
@@ -538,6 +586,254 @@ RSpec.describe CfdpUser, type: :model do
 
       # Verify logger was called
       expect(OpenC3::Logger).to have_received(:warn)
+    end
+
+    it "accumulates all optional proxy put parameters" do
+      # Capture the params passed to start_source_transaction
+      captured = nil
+      expect(@user).to receive(:start_source_transaction) do |params, proxy_response_info: nil|
+        captured = params
+        "transaction"
+      end
+
+      metadata_pdu_hash = {
+        "SOURCE_ENTITY_ID" => @source_entity_id,
+        "SEQUENCE_NUMBER" => 123
+      }
+      messages_to_user = [
+        {
+          "MSG_TYPE" => "PROXY_PUT_REQUEST",
+          "DESTINATION_ENTITY_ID" => @destination_entity_id,
+          "SOURCE_FILE_NAME" => "source.txt",
+          "DESTINATION_FILE_NAME" => "dest.txt"
+        },
+        { "MSG_TYPE" => "PROXY_MESSAGE_TO_USER", "MESSAGE_TO_USER" => "custom" },
+        { "MSG_TYPE" => "PROXY_FILESTORE_REQUEST", "ACTION_CODE" => "CREATE_FILE",
+          "FIRST_FILE_NAME" => "f.txt", "SECOND_FILE_NAME" => "g.txt" },
+        { "MSG_TYPE" => "PROXY_FAULT_HANDLER_OVERRIDE", "CONDITION_CODE" => "NO_ERROR",
+          "HANDLER_CODE" => "IGNORE_ERROR" },
+        { "MSG_TYPE" => "PROXY_TRANSMISSION_MODE", "TRANSMISSION_MODE" => "UNACKNOWLEDGED" },
+        { "MSG_TYPE" => "PROXY_FLOW_LABEL", "FLOW_LABEL" => "mylabel" },
+        { "MSG_TYPE" => "PROXY_SEGMENTATION_CONTROL", "SEGMENTATION_CONTROL" => "NOT_PRESERVED" },
+        { "MSG_TYPE" => "PROXY_CLOSURE_REQUEST", "CLOSURE_REQUESTED" => "CLOSURE_REQUESTED" }
+      ]
+
+      @user.handle_messages_to_user(metadata_pdu_hash, messages_to_user)
+
+      expect(captured[:destination_entity_id]).to eq(@destination_entity_id)
+      expect(captured[:source_file_name]).to eq("source.txt")
+      expect(captured[:destination_file_name]).to eq("dest.txt")
+      expect(captured[:messages_to_user]).to include("custom")
+      expect(captured[:filestore_requests]).to eq([["CREATE_FILE", "f.txt", "g.txt"]])
+      expect(captured[:fault_handler_overrides]).to eq([["NO_ERROR", "IGNORE_ERROR"]])
+      expect(captured[:transmission_mode]).to eq("UNACKNOWLEDGED")
+      expect(captured[:flow_label]).to eq("mylabel")
+      expect(captured[:segmentation_control]).to eq("NOT_PRESERVED")
+      expect(captured[:closure_requested]).to eq("CLOSURE_REQUESTED")
+    end
+
+    it "builds a filestore request without a second file name" do
+      captured = nil
+      expect(@user).to receive(:start_source_transaction) do |params, proxy_response_info: nil|
+        captured = params
+        "transaction"
+      end
+
+      metadata_pdu_hash = { "SOURCE_ENTITY_ID" => @source_entity_id, "SEQUENCE_NUMBER" => 1 }
+      messages_to_user = [
+        {
+          "MSG_TYPE" => "PROXY_PUT_REQUEST",
+          "DESTINATION_ENTITY_ID" => @destination_entity_id,
+          "SOURCE_FILE_NAME" => "source.txt",
+          "DESTINATION_FILE_NAME" => "dest.txt"
+        },
+        { "MSG_TYPE" => "PROXY_FILESTORE_REQUEST", "ACTION_CODE" => "DELETE_FILE",
+          "FIRST_FILE_NAME" => "f.txt" }
+      ]
+
+      @user.handle_messages_to_user(metadata_pdu_hash, messages_to_user)
+
+      expect(captured[:filestore_requests]).to eq([["DELETE_FILE", "f.txt"]])
+    end
+
+    it "handles a proxy put cancel" do
+      # Setup a matching transaction in the MIB
+      transaction = double("transaction")
+      allow(transaction).to receive(:proxy_response_info).and_return(
+        { "SOURCE_ENTITY_ID" => 5, "SEQUENCE_NUMBER" => 10 })
+      expect(transaction).to receive(:cancel).with(@source_entity_id)
+      CfdpMib.transactions["5__10"] = transaction
+
+      metadata_pdu_hash = { "SOURCE_ENTITY_ID" => @source_entity_id, "SEQUENCE_NUMBER" => 1 }
+      messages_to_user = [
+        { "MSG_TYPE" => "ORIGINATING_TRANSACTION_ID", "SOURCE_ENTITY_ID" => 5, "SEQUENCE_NUMBER" => 10 },
+        { "MSG_TYPE" => "PROXY_PUT_CANCEL" }
+      ]
+
+      @user.handle_messages_to_user(metadata_pdu_hash, messages_to_user)
+    end
+
+    it "handles a proxy put response with filestore responses" do
+      filestore_response = { "ACTION_CODE" => "CREATE_FILE", "STATUS_CODE" => "SUCCESSFUL",
+                             "FIRST_FILE_NAME" => "f.txt" }
+      expect(CfdpTopic).to receive(:write_indication).with('Proxy-Put-Response',
+        transaction_id: "5__10", condition_code: "NO_ERROR",
+        file_status: "FILESTORE_SUCCESS", delivery_code: "DATA_COMPLETE",
+        filestore_responses: [filestore_response])
+
+      metadata_pdu_hash = { "SOURCE_ENTITY_ID" => @source_entity_id, "SEQUENCE_NUMBER" => 1 }
+      messages_to_user = [
+        { "MSG_TYPE" => "ORIGINATING_TRANSACTION_ID", "SOURCE_ENTITY_ID" => 5, "SEQUENCE_NUMBER" => 10 },
+        filestore_response.merge("MSG_TYPE" => "PROXY_FILESTORE_RESPONSE"),
+        { "MSG_TYPE" => "PROXY_PUT_RESPONSE", "CONDITION_CODE" => "NO_ERROR",
+          "DELIVERY_CODE" => "DATA_COMPLETE", "FILE_STATUS" => "FILESTORE_SUCCESS" }
+      ]
+
+      @user.handle_messages_to_user(metadata_pdu_hash, messages_to_user)
+    end
+
+    it "handles an unsuccessful directory listing" do
+      allow(CfdpMib).to receive(:directory_listing).and_return(nil)
+      expect(@user).to receive(:start_source_transaction).and_return("transaction")
+
+      metadata_pdu_hash = { "SOURCE_ENTITY_ID" => @destination_entity_id, "SEQUENCE_NUMBER" => 1 }
+      messages_to_user = [
+        { "MSG_TYPE" => "DIRECTORY_LISTING_REQUEST", "DIRECTORY_NAME" => "/tmp",
+          "DIRECTORY_FILE_NAME" => "listing.txt" }
+      ]
+
+      @user.handle_messages_to_user(metadata_pdu_hash, messages_to_user)
+    end
+
+    it "handles a directory listing response" do
+      expect(CfdpTopic).to receive(:write_indication).with('Directory-Listing-Response',
+        transaction_id: "5__10", response_code: "SUCCESSFUL",
+        directory_name: "/tmp", directory_file_name: "listing.txt")
+
+      metadata_pdu_hash = { "SOURCE_ENTITY_ID" => @destination_entity_id, "SEQUENCE_NUMBER" => 1 }
+      messages_to_user = [
+        { "MSG_TYPE" => "ORIGINATING_TRANSACTION_ID", "SOURCE_ENTITY_ID" => 5, "SEQUENCE_NUMBER" => 10 },
+        { "MSG_TYPE" => "DIRECTORY_LISTING_RESPONSE", "DIRECTORY_NAME" => "/tmp",
+          "DIRECTORY_FILE_NAME" => "listing.txt", "RESPONSE_CODE" => "SUCCESSFUL" }
+      ]
+
+      @user.handle_messages_to_user(metadata_pdu_hash, messages_to_user)
+    end
+
+    it "handles a remote status report request for an existing transaction" do
+      transaction = double("transaction")
+      allow(transaction).to receive(:build_report).and_return("report contents")
+      allow(transaction).to receive(:transaction_status).and_return("ACTIVE")
+      CfdpMib.transactions["7__20"] = transaction
+      expect(@user).to receive(:start_source_transaction).and_return("transaction")
+
+      metadata_pdu_hash = { "SOURCE_ENTITY_ID" => @destination_entity_id, "SEQUENCE_NUMBER" => 1 }
+      messages_to_user = [
+        { "MSG_TYPE" => "REMOTE_STATUS_REPORT_REQUEST", "SOURCE_ENTITY_ID" => 7,
+          "SEQUENCE_NUMBER" => 20, "REPORT_FILE_NAME" => "report.txt" }
+      ]
+
+      @user.handle_messages_to_user(metadata_pdu_hash, messages_to_user)
+    end
+
+    it "handles a remote status report request for a missing transaction" do
+      expect(@user).to receive(:start_source_transaction).and_return("transaction")
+
+      metadata_pdu_hash = { "SOURCE_ENTITY_ID" => @destination_entity_id, "SEQUENCE_NUMBER" => 1 }
+      messages_to_user = [
+        { "MSG_TYPE" => "REMOTE_STATUS_REPORT_REQUEST", "SOURCE_ENTITY_ID" => 7,
+          "SEQUENCE_NUMBER" => 999, "REPORT_FILE_NAME" => "report.txt" }
+      ]
+
+      @user.handle_messages_to_user(metadata_pdu_hash, messages_to_user)
+    end
+
+    it "handles a remote status report response" do
+      expect(CfdpTopic).to receive(:write_indication).with('Remote-Report-Response',
+        transaction_id: "5__10", source_entity_id: 7, sequence_number: 20,
+        transaction_status: "ACTIVE", response_code: "SUCCESSFUL")
+
+      metadata_pdu_hash = { "SOURCE_ENTITY_ID" => @destination_entity_id, "SEQUENCE_NUMBER" => 1 }
+      messages_to_user = [
+        { "MSG_TYPE" => "ORIGINATING_TRANSACTION_ID", "SOURCE_ENTITY_ID" => 5, "SEQUENCE_NUMBER" => 10 },
+        { "MSG_TYPE" => "REMOTE_STATUS_REPORT_RESPONSE", "SOURCE_ENTITY_ID" => 7,
+          "SEQUENCE_NUMBER" => 20, "TRANSACTION_STATUS" => "ACTIVE", "RESPONSE_CODE" => "SUCCESSFUL" }
+      ]
+
+      @user.handle_messages_to_user(metadata_pdu_hash, messages_to_user)
+    end
+
+    it "handles a remote suspend request for an existing transaction" do
+      transaction = double("transaction")
+      expect(transaction).to receive(:suspend)
+      allow(transaction).to receive(:transaction_status).and_return("ACTIVE")
+      allow(transaction).to receive(:state).and_return("SUSPENDED")
+      CfdpMib.transactions["7__20"] = transaction
+      expect(@user).to receive(:start_source_transaction).and_return("transaction")
+
+      metadata_pdu_hash = { "SOURCE_ENTITY_ID" => @destination_entity_id, "SEQUENCE_NUMBER" => 1 }
+      messages_to_user = [
+        { "MSG_TYPE" => "REMOTE_SUSPEND_REQUEST", "SOURCE_ENTITY_ID" => 7, "SEQUENCE_NUMBER" => 20 }
+      ]
+
+      @user.handle_messages_to_user(metadata_pdu_hash, messages_to_user)
+    end
+
+    it "handles a remote suspend request for a missing transaction" do
+      expect(@user).to receive(:start_source_transaction).and_return("transaction")
+
+      metadata_pdu_hash = { "SOURCE_ENTITY_ID" => @destination_entity_id, "SEQUENCE_NUMBER" => 1 }
+      messages_to_user = [
+        { "MSG_TYPE" => "REMOTE_SUSPEND_REQUEST", "SOURCE_ENTITY_ID" => 7, "SEQUENCE_NUMBER" => 999 }
+      ]
+
+      @user.handle_messages_to_user(metadata_pdu_hash, messages_to_user)
+    end
+
+    it "handles a remote resume request for an existing transaction" do
+      transaction = double("transaction")
+      expect(transaction).to receive(:resume)
+      allow(transaction).to receive(:transaction_status).and_return("ACTIVE")
+      allow(transaction).to receive(:state).and_return("ACTIVE")
+      CfdpMib.transactions["7__20"] = transaction
+      expect(@user).to receive(:start_source_transaction).and_return("transaction")
+
+      metadata_pdu_hash = { "SOURCE_ENTITY_ID" => @destination_entity_id, "SEQUENCE_NUMBER" => 1 }
+      messages_to_user = [
+        { "MSG_TYPE" => "REMOTE_RESUME_REQUEST", "SOURCE_ENTITY_ID" => 7, "SEQUENCE_NUMBER" => 20 }
+      ]
+
+      @user.handle_messages_to_user(metadata_pdu_hash, messages_to_user)
+    end
+
+    it "handles a remote suspend response" do
+      expect(CfdpTopic).to receive(:write_indication).with('Remote-Suspend-Response',
+        transaction_id: "5__10", source_entity_id: 7, sequence_number: 20,
+        transaction_status: "ACTIVE", suspension_indicator: "SUSPENDED")
+
+      metadata_pdu_hash = { "SOURCE_ENTITY_ID" => @destination_entity_id, "SEQUENCE_NUMBER" => 1 }
+      messages_to_user = [
+        { "MSG_TYPE" => "ORIGINATING_TRANSACTION_ID", "SOURCE_ENTITY_ID" => 5, "SEQUENCE_NUMBER" => 10 },
+        { "MSG_TYPE" => "REMOTE_SUSPEND_RESPONSE", "SOURCE_ENTITY_ID" => 7, "SEQUENCE_NUMBER" => 20,
+          "SUSPENSION_INDICATOR" => "SUSPENDED", "TRANSACTION_STATUS" => "ACTIVE" }
+      ]
+
+      @user.handle_messages_to_user(metadata_pdu_hash, messages_to_user)
+    end
+
+    it "handles a remote resume response" do
+      expect(CfdpTopic).to receive(:write_indication).with('Remote-Resume-Response',
+        transaction_id: "5__10", source_entity_id: 7, sequence_number: 20,
+        transaction_status: "ACTIVE", suspension_indicator: "NOT_SUSPENDED")
+
+      metadata_pdu_hash = { "SOURCE_ENTITY_ID" => @destination_entity_id, "SEQUENCE_NUMBER" => 1 }
+      messages_to_user = [
+        { "MSG_TYPE" => "ORIGINATING_TRANSACTION_ID", "SOURCE_ENTITY_ID" => 5, "SEQUENCE_NUMBER" => 10 },
+        { "MSG_TYPE" => "REMOTE_RESUME_RESPONSE", "SOURCE_ENTITY_ID" => 7, "SEQUENCE_NUMBER" => 20,
+          "SUSPENSION_INDICATOR" => "NOT_SUSPENDED", "TRANSACTION_STATUS" => "ACTIVE" }
+      ]
+
+      @user.handle_messages_to_user(metadata_pdu_hash, messages_to_user)
     end
   end
 

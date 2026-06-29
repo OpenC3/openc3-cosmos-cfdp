@@ -522,4 +522,77 @@ RSpec.describe CfdpController, type: :controller do
       expect(controller.send(:check_authorization)).to be true
     end
   end
+
+  describe "error handling for suspend/resume/report/directory_listing" do
+    it "handles errors from suspend" do
+      allow(@mock_user).to receive(:suspend).and_raise("Test error")
+      post :suspend, params: { transaction_id: "1__123" }
+      expect(response).to have_http_status(:internal_server_error)
+      expect(JSON.parse(response.body)["message"]).to include("Test error")
+    end
+
+    it "handles errors from resume" do
+      allow(@mock_user).to receive(:resume).and_raise("Test error")
+      post :resume, params: { transaction_id: "1__123" }
+      expect(response).to have_http_status(:internal_server_error)
+      expect(JSON.parse(response.body)["message"]).to include("Test error")
+    end
+
+    it "handles errors from report" do
+      allow(@mock_user).to receive(:report).and_raise("Test error")
+      post :report, params: { transaction_id: "1__123" }
+      expect(response).to have_http_status(:internal_server_error)
+      expect(JSON.parse(response.body)["message"]).to include("Test error")
+    end
+
+    it "handles errors from directory_listing" do
+      allow(@mock_user).to receive(:start_directory_listing).and_raise("Test error")
+      post :directory_listing, params: { remote_entity_id: "2", directory_name: "d", directory_file_name: "f.txt" }
+      expect(response).to have_http_status(:internal_server_error)
+      expect(JSON.parse(response.body)["message"]).to include("Test error")
+    end
+  end
+
+  # Exercise the real check_authorization through the directory_listing action
+  # (which uses remote_entity_id) to cover its validation/error branches.
+  describe "check_authorization branches" do
+    before(:each) do
+      allow(controller).to receive(:check_authorization).and_call_original
+      allow(controller).to receive(:authorization).and_return(true)
+    end
+
+    it "rejects a non-numeric remote_entity_id" do
+      post :directory_listing, params: { remote_entity_id: "abc", directory_name: "d", directory_file_name: "f.txt" }
+      expect(response).to have_http_status(:bad_request)
+      expect(JSON.parse(response.body)["message"]).to include("remote_entity_id must be numeric")
+    end
+
+    it "authorizes a numeric remote_entity_id with configured cmd_info" do
+      allow(CfdpMib).to receive(:entity).with(2).and_return({ "cmd_info" => %w[TGT PKT ITEM] })
+      expect(@mock_user).to receive(:start_directory_listing).and_return(@mock_transaction)
+      post :directory_listing, params: { remote_entity_id: "2", directory_name: "d", directory_file_name: "f.txt" }
+      expect(response).to have_http_status(:success)
+    end
+
+    it "falls back to tlm_info when cmd_info is not configured" do
+      allow(CfdpMib).to receive(:entity).with(2).and_return({ "cmd_info" => [], "tlm_info" => [%w[TGT PKT ITEM]] })
+      expect(@mock_user).to receive(:start_directory_listing).and_return(@mock_transaction)
+      post :directory_listing, params: { remote_entity_id: "2", directory_name: "d", directory_file_name: "f.txt" }
+      expect(response).to have_http_status(:success)
+    end
+
+    it "rejects when neither cmd_info nor tlm_info is configured" do
+      allow(CfdpMib).to receive(:entity).with(2).and_return({ "cmd_info" => [], "tlm_info" => [] })
+      post :directory_listing, params: { remote_entity_id: "2", directory_name: "d", directory_file_name: "f.txt" }
+      expect(response).to have_http_status(:bad_request)
+      expect(JSON.parse(response.body)["message"]).to include("info not configured")
+    end
+
+    it "rejects an unknown entity" do
+      allow(CfdpMib).to receive(:entity).with(2).and_return(nil)
+      post :directory_listing, params: { remote_entity_id: "2", directory_name: "d", directory_file_name: "f.txt" }
+      expect(response).to have_http_status(:bad_request)
+      expect(JSON.parse(response.body)["message"]).to include("Unknown entity")
+    end
+  end
 end

@@ -16,6 +16,10 @@ jobs:
   openc3-build-test:
     if: ${{ github.actor != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
+    # Without this the default job timeout is 6 hours. A stalled Playwright
+    # browser download (see the retry step below) would otherwise burn the
+    # full 6 hours before failing.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
     steps:

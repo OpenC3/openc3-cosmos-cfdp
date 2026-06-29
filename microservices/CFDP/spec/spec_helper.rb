@@ -75,6 +75,29 @@ ENV['OPENC3_CLOUD'] = 'local'
 
 $openc3_scope = ENV['OPENC3_SCOPE']
 $openc3_token = ENV['OPENC3_API_PASSWORD']
+$openc3_mock_token = 'mock_token'
+$openc3_mock_otp = 'mock_otp'
+
+# Mock the HTTP request for OpenC3Authentication so that requiring
+# 'openc3/script' doesn't make a real network call to the cmd-tlm-api.
+# Newer openc3 versions authenticate eagerly in OpenC3Authentication#initialize,
+# which fires when 'openc3/script' is included.
+OpenC3.disable_warnings do
+  require 'openc3/utilities/authentication'
+  OpenC3::OpenC3Authentication.class_eval do
+    def _make_auth_request(password)
+      mock_response = Object.new
+      mock_response.define_singleton_method(:body) { $openc3_mock_token }
+      mock_response
+    end
+
+    def _make_otp_request(scope)
+      mock_response = Object.new
+      mock_response.define_singleton_method(:body) { $openc3_mock_otp }
+      mock_response
+    end
+  end
+end
 
 def mock_redis
   require 'redis'
@@ -83,10 +106,14 @@ def mock_redis
   allow(Redis).to receive(:new).and_return(redis)
   # openc3 6.x memoized the singleton in @instance; 7.x uses @instances (one per
   # db_shard). Clear both so each example gets a fresh mocked connection pool.
-  OpenC3::Store.instance_variable_set(:@instance, nil)
-  OpenC3::Store.instance_variable_set(:@instances, nil)
-  OpenC3::EphemeralStore.instance_variable_set(:@instance, nil)
-  OpenC3::EphemeralStore.instance_variable_set(:@instances, nil)
+  OpenC3::Store.instance_variable_set(:@instance, [])
+  OpenC3::Store.instance_variable_set(:@instances, [])
+  OpenC3::StoreQueued.instance_variable_set(:@instance, [])
+  OpenC3::StoreQueued.instance_variable_set(:@instances, [])
+  OpenC3::EphemeralStore.instance_variable_set(:@instance, [])
+  OpenC3::EphemeralStore.instance_variable_set(:@instances, [])
+  OpenC3::EphemeralStoreQueued.instance_variable_set(:@instance, [])
+  OpenC3::EphemeralStoreQueued.instance_variable_set(:@instances, [])
   redis
 end
 

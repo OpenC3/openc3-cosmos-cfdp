@@ -39,6 +39,8 @@ module OpenC3
         FileUtils.rm File.join(SPEC_DIR, 'deny.txt') if File.exist?(File.join(SPEC_DIR, 'deny.txt'))
         FileUtils.rm File.join(SPEC_DIR, 'first.txt') if File.exist?(File.join(SPEC_DIR, 'first.txt'))
         FileUtils.rm File.join(SPEC_DIR, 'second.txt') if File.exist?(File.join(SPEC_DIR, 'second.txt'))
+        FileUtils.rm File.join(SPEC_DIR, 'orig.txt') if File.exist?(File.join(SPEC_DIR, 'orig.txt'))
+        FileUtils.rm File.join(SPEC_DIR, 'replace.txt') if File.exist?(File.join(SPEC_DIR, 'replace.txt'))
         FileUtils.rm_rf(File.join(SPEC_DIR, 'new_dir')) if File.exist?(File.join(SPEC_DIR, 'new_dir'))
         FileUtils.rm_rf(File.join(SPEC_DIR, 'deny_dir')) if File.exist?(File.join(SPEC_DIR, 'deny_dir'))
         FileUtils.rm_rf(File.join(SPEC_DIR, 'another_dir')) if File.exist?(File.join(SPEC_DIR, 'another_dir'))
