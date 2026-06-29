@@ -15,7 +15,6 @@
 # The development of this software was funded in-whole or in-part by MethaneSAT LLC.
 
 require 'rails_helper'
-require 'openc3/script'
 require 'openc3/api/api'
 require 'openc3/models/microservice_model'
 require 'openc3/utilities/store_autoload'

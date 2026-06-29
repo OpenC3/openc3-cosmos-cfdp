@@ -40,5 +40,5 @@ spec = Gem::Specification.new do |s|
     "openc3_store_access_type" => "enterprise",
   }
   s.require_paths = ['lib', 'microservices/CFDP/app/models']
-  s.files = Dir.glob("{targets,lib,public,tools,microservices}/**/*") + %w(Rakefile LICENSE.md README.md plugin.txt)
+  s.files = Dir.glob("{targets,lib,public,tools,microservices}/**/*") + %w(Rakefile LICENSE.md README.md plugin.txt pyproject.toml)
 end

@@ -96,8 +96,20 @@ test('installs the CFDP plugin', async ({ page, utils }) => {
   await utils.sleep(10000) // Allow the plugin microservices to start
 })
 
-test('runs the CFDP test suite', async ({ page, utils }) => {
+test('runs the CFDP ruby test suite', async ({ page, utils }) => {
   await openFile(page, utils, 'cfdp_test_suite.rb')
+
+  await page.locator('[data-test="start-suite"]').click()
+  // Wait for the results ... allow for additional time
+  await expect(page.locator('.v-dialog')).toContainText('Script Results', {
+    timeout: 1200000, // 20min
+  })
+  let textarea = await page.inputValue('.v-dialog >> textarea')
+  expect(textarea).toMatch('Pass: 4')
+})
+
+test('runs the CFDP python test suite', async ({ page, utils }) => {
+  await openFile(page, utils, 'cfdp_test_suite.py')
 
   await page.locator('[data-test="start-suite"]').click()
   // Wait for the results ... allow for additional time

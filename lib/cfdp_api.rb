@@ -129,19 +129,19 @@ class CfdpApi < OpenC3::JsonApi
   end
 
   def cancel(transaction_id:, remote_entity_id: nil, scope: $openc3_scope)
-    transaction_id_post(method_name: "cancel", transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: $openc3_scope)
+    transaction_id_post(method_name: "cancel", transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: scope)
   end
 
   def suspend(transaction_id:, remote_entity_id: nil, scope: $openc3_scope)
-    transaction_id_post(method_name: "suspend", transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: $openc3_scope)
+    transaction_id_post(method_name: "suspend", transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: scope)
   end
 
   def resume(transaction_id:, remote_entity_id: nil, scope: $openc3_scope)
-    transaction_id_post(method_name: "resume", transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: $openc3_scope)
+    transaction_id_post(method_name: "resume", transaction_id: transaction_id, remote_entity_id: remote_entity_id, scope: scope)
   end
 
   def report(transaction_id:, remote_entity_id: nil, report_file_name: nil, scope: $openc3_scope)
-    transaction_id_post(method_name: "report", transaction_id: transaction_id, remote_entity_id: remote_entity_id, report_file_name: report_file_name, scope: $openc3_scope)
+    transaction_id_post(method_name: "report", transaction_id: transaction_id, remote_entity_id: remote_entity_id, report_file_name: report_file_name, scope: scope)
   end
 
   def subscribe(scope: $openc3_scope)
