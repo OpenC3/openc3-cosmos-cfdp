@@ -39,7 +39,7 @@ RSpec.describe CfdpPdu, type: :model do
 
   # Validate Table 5-10: NAK PDU Contents
   describe "build_nak_pdu" do
-    it "builds a NAK PDU with no segement requests" do
+    it "builds a NAK PDU with no segment requests" do
       buffer = CfdpPdu.build_nak_pdu(
         source_entity: CfdpMib.entity(@source_entity_id),
         transaction_seq_num: 1,
@@ -74,7 +74,7 @@ RSpec.describe CfdpPdu, type: :model do
     end
 
     # Validate Table 5-11: Segment Request Form
-    it "builds a NAK PDU with segement requests" do
+    it "builds a NAK PDU with segment requests" do
       buffer = CfdpPdu.build_nak_pdu(
         source_entity: CfdpMib.entity(@source_entity_id),
         transaction_seq_num: 1,

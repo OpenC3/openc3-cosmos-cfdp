@@ -560,8 +560,8 @@ module OpenC3
 
       # Section 4.6 COPY FILE PROCEDURES
 
-      # 4.6.1.1.1 Sending Entity Unacknowleged
-      # 4.6.1.2.1 Receving Entity Unacknowleged
+      # 4.6.1.1.1 Sending Entity Unacknowledged
+      # 4.6.1.2.1 Receiving Entity Unacknowledged
       it "performs unacknowldged transfers" do
         data = ('a'..'z').to_a.shuffle[0,8].join
         File.write(File.join(SPEC_DIR, 'test1.txt'), data)
@@ -596,7 +596,7 @@ module OpenC3
           expect(indications[3]['file_size']).to eql 8
           expect(indications[3]['source_entity_id']).to eql 1
           expect(indications[3]['fault_handler_overrides']).to eql({"ACK_LIMIT_REACHED"=>"ISSUE_NOTICE_OF_CANCELLATION", "FILE_CHECKSUM_FAILURE"=>"IGNORE_ERROR"})
-          # 4.6.1.2.6 Metadata-Recv includes messags to user
+          # 4.6.1.2.6 Metadata-Recv includes messages to user
           expect(indications[3]['messages_to_user']).to eql ["This is a test", "Another message"]
           expect(indications[3]['filestore_requests']).to eql [{"ACTION_CODE"=>"CREATE_FILE", "FIRST_FILE_NAME"=>"temp.txt"}, {"ACTION_CODE"=>"DELETE_FILE", "FIRST_FILE_NAME"=>"temp.txt"}]
           expect(indications[3]['flow_label']).to eql "FLOW"
@@ -670,8 +670,8 @@ module OpenC3
         # 4.6.1.1.10 Flow label is implementation specific ... not implemented
       end
 
-      # 4.6.1.1.1 Sending Entity Acknowleged
-      # 4.6.1.2.1 Receving Entity Acknowleged
+      # 4.6.1.1.1 Sending Entity Acknowledged
+      # 4.6.1.2.1 Receiving Entity Acknowledged
       it "sends data acknowledged" do
         data = ('a'..'z').to_a.shuffle[0,8].join
         File.write(File.join(SPEC_DIR, 'test1.txt'), data)
@@ -893,7 +893,7 @@ module OpenC3
         expect(@rx_pdus[0]).to be nil
       end
 
-      # 4.6.1.2.7 b. Segementation control flag ... not implemented
+      # 4.6.1.2.7 b. Segmentation control flag ... not implemented
 
       # 4.6.1.2.7 c. Sum of offset and segment exceeds file size
       it "reports file size error if sum of offset and segment exceeds file size" do
@@ -1472,7 +1472,7 @@ module OpenC3
       %w(local bucket).each do |type|
         context "with #{type} filestore requests" do
           if type == 'bucket'
-            # Enable if there's an actual MINIO service avaiable to talk to
+            # Enable if there's an actual MINIO service available to talk to
             # To enable access to MINIO for testing change the compose.yaml file and add
             # the following to services: open3-minio:
             #   ports:
