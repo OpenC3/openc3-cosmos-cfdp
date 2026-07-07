@@ -21,7 +21,7 @@ class ApplicationController < ActionController::API
 
   private
 
-  # Authorize and rescue the possible execeptions
+  # Authorize and rescue the possible exceptions
   # @return [Boolean] true if authorize successful
   def authorization(permission, target_name: nil, packet_name: nil, interface_name: nil, router_name: nil)
     begin

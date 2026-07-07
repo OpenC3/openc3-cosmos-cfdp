@@ -1,7 +1,7 @@
 require 'cfdp'
 
 # This script starts a medium size transaction that lasts long enough for the CfdpUser microservice to be restarted
-# by Playwright. After the microservice restarts, this script should continue until the transaciton finishes.
+# by Playwright. After the microservice restarts, this script should continue until the transaction finishes.
 # If the transaction fails to resume after the microservice restarts, it should send an 'Abandoned' indication
 # (or no indication, at which point Playwright will just time out).
 
