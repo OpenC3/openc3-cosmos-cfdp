@@ -7,8 +7,11 @@ requires-python = ">=3.12"
 dependencies = []
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = []
 
 [tool.uv]
 package = false  # COSMOS plugins don't build Python wheels - source in openc3/ packaged in Ruby gem
