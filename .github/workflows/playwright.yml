@@ -5,7 +5,7 @@
 
 name: Playwright Tests
 
-# Only run on a push to master to avoid running for all the dependabot PRs
+# Only run on a push to main to avoid running for all the dependabot PRs
 on:
   push:
     branches: [main]
