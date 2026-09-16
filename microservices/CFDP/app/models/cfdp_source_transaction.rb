@@ -28,6 +28,8 @@ end
 
 class CfdpSourceTransaction < CfdpTransaction
   FILE_PDU_SAVE_STATE_INTERVAL = 100
+  # Backstop for handle_suspend. A resume normally wakes it immediately via broadcast.
+  SUSPEND_WAIT_TIMEOUT_S = 1.0
 
   attr_reader :filestore_responses # not persisted because it's only used at completion for writing 'Transaction-Finished'
   attr_reader :copy_state
@@ -47,6 +49,29 @@ class CfdpSourceTransaction < CfdpTransaction
     @filestore_responses = []
     @metadata_pdu_hash = {} # non-nil to avoid cfdp_user thinking it needs to be set
     @copy_state = nil
+    @source_file = nil
+  end
+
+  # CfdpMib.get_source_file downloads the whole file from the bucket, so opening it once per
+  # file data PDU made a transfer cost O(n^2) in file size: a 10MB file sent in 1KB segments
+  # downloaded 10MB about 10,000 times. Open it once and reuse it for every segment.
+  #
+  # A StringIO source (a directory listing or a transaction report) is already in memory and is
+  # used directly. Closing it between segments used to truncate the transfer to a single
+  # segment, because the next call saw a closed file and skipped to EOF.
+  def open_source_file
+    return @source_file if @source_file and not @source_file.closed?
+    if StringIO === @source_file_name
+      @source_file = @source_file_name
+    else
+      @source_file = CfdpMib.get_source_file(@source_file_name)
+    end
+    return @source_file
+  end
+
+  def close_source_file
+    CfdpMib.complete_source_file(@source_file) if @source_file and not @source_file.closed?
+    @source_file = nil
   end
 
   def put(
@@ -101,9 +126,16 @@ class CfdpSourceTransaction < CfdpTransaction
     CfdpTopic.write_indication("Transaction", transaction_id: @id)
   end
 
+  # Block while the transaction is suspended or frozen. suspend/resume/freeze/unfreeze all
+  # broadcast, so this normally wakes the instant the transfer is resumed rather than at the end
+  # of a poll interval. The timeout is a backstop: @state and @frozen are written outside
+  # @state_mutex, so a change that lands between the check and the wait would otherwise strand
+  # the transfer here forever.
   def handle_suspend
-    while @state == "SUSPENDED" or @frozen
-      sleep(1)
+    @state_mutex.synchronize do
+      while @state == "SUSPENDED" or @frozen
+        @state_changed.wait(@state_mutex, SUSPEND_WAIT_TIMEOUT_S)
+      end
     end
   end
 
@@ -155,12 +187,8 @@ class CfdpSourceTransaction < CfdpTransaction
 
     if source_file_name and destination_file_name
       # Prepare file
-      if StringIO === source_file_name
-        source_file = source_file_name
-        source_file_name = destination_file_name
-      else
-        source_file = CfdpMib.get_source_file(source_file_name)
-      end
+      source_file_name = destination_file_name if StringIO === source_file_name
+      source_file = open_source_file()
       unless source_file
         abandon()
         raise "Source file: #{source_file_name} does not exist"
@@ -247,11 +275,7 @@ class CfdpSourceTransaction < CfdpTransaction
     filestore_requests:)
 
     if source_file_name and destination_file_name
-      if StringIO === source_file_name
-        source_file = source_file_name
-      else
-        source_file = CfdpMib.get_source_file(source_file_name)
-      end
+      source_file = open_source_file()
     else
       @copy_state = "send_eof_pdu"
       save_state()
@@ -290,7 +314,6 @@ class CfdpSourceTransaction < CfdpTransaction
       if file_data.nil? or file_data.length <= 0
         @copy_state = "send_eof_pdu"
         save_state()
-        CfdpMib.complete_source_file(source_file)
         return true
       end
 
@@ -311,7 +334,6 @@ class CfdpSourceTransaction < CfdpTransaction
       @progress = @file_offset
       @file_pdus_sent += 1
       save_state() if @file_pdus_sent % FILE_PDU_SAVE_STATE_INTERVAL == 0 # Only save periodically to not hurt performance too much
-      CfdpMib.complete_source_file(source_file)
     else
       @copy_state = "send_eof_pdu"
       save_state()
@@ -337,13 +359,8 @@ class CfdpSourceTransaction < CfdpTransaction
 
     # Send EOF PDU
     if source_file_name and destination_file_name
-      if StringIO === source_file_name
-        source_file = source_file_name
-      else
-        source_file = CfdpMib.get_source_file(source_file_name)
-      end
-      file_checksum = @file_checksum ? @file_checksum.checksum(source_file, false) : 0
-      CfdpMib.complete_source_file(source_file)
+      # checksum is accumulated as segments are sent, so this never re-reads the file
+      file_checksum = @file_checksum ? @file_checksum.checksum(open_source_file(), false) : 0
     else
       source_file = nil
       file_checksum = 0
@@ -443,6 +460,32 @@ class CfdpSourceTransaction < CfdpTransaction
     @copy_state = "setup" if @copy_state.nil?
     save_state()
 
+    begin
+      copy_file_state_machine(
+        destination_entity_id: destination_entity_id,
+        fault_handler_overrides: fault_handler_overrides,
+        flow_label: flow_label,
+        transmission_mode: transmission_mode,
+        closure_requested: closure_requested,
+        messages_to_user: messages_to_user,
+        filestore_requests: filestore_requests
+      )
+    ensure
+      # The source file stays open for the whole transfer, so this is the one place it is closed
+      close_source_file()
+    end
+    save_state()
+  end
+
+  def copy_file_state_machine(
+    destination_entity_id:,
+    fault_handler_overrides:,
+    flow_label:,
+    transmission_mode:,
+    closure_requested:,
+    messages_to_user:,
+    filestore_requests:)
+
     while true
       break if @state == "ABANDONED"
 
@@ -509,7 +552,6 @@ class CfdpSourceTransaction < CfdpTransaction
         break
       end
     end
-    save_state()
   end
 
   def notice_of_completion
