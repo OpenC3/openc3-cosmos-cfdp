@@ -26,12 +26,18 @@ require_relative 'cfdp_mib'
 require_relative 'cfdp_receive_transaction'
 
 class CfdpUser
+  # How long Store.read_topics blocks waiting for a PDU. Used to pace the receive loop when
+  # there are no topics to read from.
+  READ_TOPICS_TIMEOUT_S = 1.0
+
   def initialize
     @thread = nil
     @cancel_thread = false
     @item_name_lookup = {}
+    # Array of [transaction, thread] pairs for every source transaction this process started.
+    # Appended to by Rails request threads as well as the receive thread, so it is mutex protected.
     @source_transactions = []
-    @source_threads = []
+    @source_mutex = Mutex.new
     @last_cleanup_time = Time.now.utc
 
     at_exit do
@@ -51,86 +57,25 @@ class CfdpUser
           topics << topic
           @item_name_lookup[topic] = item_name.upcase
         end
-        OpenC3::Topic.update_topic_offsets(topics)
+        if topics.empty?
+          # Store.read_topics returns immediately when given no topics, so without this the loop
+          # below would spin at 100% CPU forever. There is nothing to receive without tlm_info,
+          # but the transaction timers still need to run, so fall back to sleeping the same
+          # amount of time read_topics would have blocked for.
+          OpenC3::Logger.error("CFDP tlm_info is not configured. PDUs cannot be received.", scope: ENV['OPENC3_SCOPE'])
+        else
+          OpenC3::Topic.update_topic_offsets(topics)
+        end
         while !@cancel_thread
           # TODO: Handle freezing transactions if interface disconnects (or target goes unhealthy), and unfreezing if comes back to functional
 
-          OpenC3::Topic.read_topics(topics) do |topic, msg_id, msg_hash, redis|
-            break if @cancel_thread
-            begin
-              pdu_hash = receive_packet(topic, msg_id, msg_hash, redis)
-
-              if pdu_hash['DIRECTION'] == "TOWARD_FILE_RECEIVER"
-                if pdu_hash['DESTINATION_ENTITY_ID'] != CfdpMib.source_entity_id
-                  OpenC3::Logger.error("Receiver PDU received for wrong entity: Mine: #{CfdpMib.source_entity_id}, Destination: #{pdu_hash['DESTINATION_ENTITY_ID']}", scope: ENV['OPENC3_SCOPE'])
-                  next
-                end
-              else
-                if pdu_hash['SOURCE_ENTITY_ID'] != CfdpMib.source_entity_id
-                  OpenC3::Logger.error("Sender PDU received for wrong entity: Mine: #{CfdpMib.source_entity_id}, Source: #{pdu_hash['SOURCE_ENTITY_ID']}", scope: ENV['OPENC3_SCOPE'])
-                  next
-                end
-              end
-
-              transaction_id = CfdpTransaction.build_transaction_id(pdu_hash["SOURCE_ENTITY_ID"], pdu_hash["SEQUENCE_NUMBER"])
-              transaction = CfdpMib.transactions[transaction_id]
-
-              if pdu_hash["DIRECTIVE_CODE"] == "METADATA" and transaction and transaction.complete_time
-                # The transaction ID was previously used by a transaction that has already reached a
-                # terminal state (FINISHED, CANCELED, or ABANDONED), so this METADATA starts a new
-                # transaction that is reusing the ID. A METADATA PDU for a transaction that is still
-                # running is not a conflict: it is either a retransmission or metadata that arrived
-                # after the first file data PDU, and handle_pdu below deals with both cases.
-                raise "Transaction ID conflict: #{transaction_id}" unless CfdpMib.allow_duplicate_transaction_ids
-                transaction.delete
-                transaction = nil
-              end
-              if transaction
-                transaction.handle_pdu(pdu_hash)
-              elsif pdu_hash["DIRECTIVE_CODE"] == "METADATA" or pdu_hash["DIRECTIVE_CODE"].nil?
-                transaction = CfdpReceiveTransaction.new(pdu_hash) # Also calls handle_pdu inside
-              else
-                raise "Unknown transaction: #{transaction_id}, #{pdu_hash}"
-              end
-              if pdu_hash["DIRECTIVE_CODE"] == "METADATA" and not transaction.metadata_pdu_count > 1
-                # Handle messages_to_user
-                messages_to_user = []
-                if pdu_hash["TLVS"]
-                  pdu_hash["TLVS"].each do |tlv|
-                    if tlv["TYPE"] == "MESSAGE_TO_USER"
-                      messages_to_user << tlv
-                    end
-                  end
-                end
-                handle_messages_to_user(pdu_hash, messages_to_user) if messages_to_user.length > 0
-              end
-            rescue => err
-              OpenC3::Logger.error(err.formatted, scope: ENV['OPENC3_SCOPE'])
-            end
+          if topics.empty?
+            sleep(READ_TOPICS_TIMEOUT_S)
+          else
+            read_pdus(topics)
           end
-          proxy_responses = []
-          CfdpMib.transactions.dup.each do |transaction_id, transaction|
-            transaction.update
-            if transaction.proxy_response_needed
-              # Send the proxy response
-              params = {}
-              params[:destination_entity_id] = transaction.proxy_response_info["SOURCE_ENTITY_ID"]
-              params[:messages_to_user] = []
-              destination_entity = CfdpMib.entity(Integer(params[:destination_entity_id]))
-              pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
-              params[:messages_to_user] << pdu.build_proxy_put_response_message(condition_code: transaction.condition_code, delivery_code: transaction.delivery_code, file_status: transaction.file_status)
-              params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: transaction.proxy_response_info["SOURCE_ENTITY_ID"], sequence_number: transaction.proxy_response_info["SEQUENCE_NUMBER"])
-              transaction.filestore_responses.each do |filestore_response|
-                params[:messages_to_user] << pdu.build_proxy_filestore_response_message(action_code: filestore_response["ACTION_CODE"], status_code: filestore_response["STATUS_CODE"], first_file_name: filestore_response["FIRST_FILE_NAME"], second_file_name: filestore_response["SECOND_FILE_NAME"], filestore_message: filestore_response["FILESTORE_MESSAGE"])
-              end
-              proxy_responses << params
-              transaction.proxy_response_needed = false
-              transaction.proxy_response_info = nil
-            end
-          end
-          proxy_responses.each do |params|
-            start_source_transaction(params)
-          end
+          update_transactions()
+          reap_source_transactions()
 
           current_time = Time.now.utc
           frequency_seconds = CfdpMib.transaction_cleanup_frequency_hours * 3600
@@ -148,6 +93,105 @@ class CfdpUser
     return @thread
   end
 
+  # Read and process every PDU currently available on the given topics. Blocks for up to
+  # READ_TOPICS_TIMEOUT_S when nothing is available.
+  def read_pdus(topics)
+    OpenC3::Topic.read_topics(topics) do |topic, msg_id, msg_hash, redis|
+      break if @cancel_thread
+      begin
+        pdu_hash = receive_packet(topic, msg_id, msg_hash, redis)
+
+        if pdu_hash['DIRECTION'] == "TOWARD_FILE_RECEIVER"
+          if pdu_hash['DESTINATION_ENTITY_ID'] != CfdpMib.source_entity_id
+            OpenC3::Logger.error("Receiver PDU received for wrong entity: Mine: #{CfdpMib.source_entity_id}, Destination: #{pdu_hash['DESTINATION_ENTITY_ID']}", scope: ENV['OPENC3_SCOPE'])
+            next
+          end
+        else
+          if pdu_hash['SOURCE_ENTITY_ID'] != CfdpMib.source_entity_id
+            OpenC3::Logger.error("Sender PDU received for wrong entity: Mine: #{CfdpMib.source_entity_id}, Source: #{pdu_hash['SOURCE_ENTITY_ID']}", scope: ENV['OPENC3_SCOPE'])
+            next
+          end
+        end
+
+        transaction_id = CfdpTransaction.build_transaction_id(pdu_hash["SOURCE_ENTITY_ID"], pdu_hash["SEQUENCE_NUMBER"])
+        transaction = CfdpMib.transactions[transaction_id]
+
+        if pdu_hash["DIRECTIVE_CODE"] == "METADATA" and transaction and transaction.complete_time
+          # The transaction ID was previously used by a transaction that has already reached a
+          # terminal state (FINISHED, CANCELED, or ABANDONED), so this METADATA starts a new
+          # transaction that is reusing the ID. A METADATA PDU for a transaction that is still
+          # running is not a conflict: it is either a retransmission or metadata that arrived
+          # after the first file data PDU, and handle_pdu below deals with both cases.
+          raise "Transaction ID conflict: #{transaction_id}" unless CfdpMib.allow_duplicate_transaction_ids
+          transaction.delete
+          transaction = nil
+        end
+        if transaction
+          transaction.handle_pdu(pdu_hash)
+        elsif pdu_hash["DIRECTIVE_CODE"] == "METADATA" or pdu_hash["DIRECTIVE_CODE"].nil?
+          transaction = CfdpReceiveTransaction.new(pdu_hash) # Also calls handle_pdu inside
+        else
+          raise "Unknown transaction: #{transaction_id}, #{pdu_hash}"
+        end
+        if pdu_hash["DIRECTIVE_CODE"] == "METADATA" and not transaction.metadata_pdu_count > 1
+          # Handle messages_to_user
+          messages_to_user = []
+          if pdu_hash["TLVS"]
+            pdu_hash["TLVS"].each do |tlv|
+              if tlv["TYPE"] == "MESSAGE_TO_USER"
+                messages_to_user << tlv
+              end
+            end
+          end
+          handle_messages_to_user(pdu_hash, messages_to_user) if messages_to_user.length > 0
+        end
+      rescue => err
+        OpenC3::Logger.error(err.formatted, scope: ENV['OPENC3_SCOPE'])
+      end
+    end
+  end
+
+  # Run the timers for every known transaction and send any proxy responses they generated.
+  def update_transactions
+    proxy_responses = []
+    CfdpMib.transactions.dup.each do |transaction_id, transaction|
+      begin
+        transaction.update
+        if transaction.proxy_response_needed
+          # Send the proxy response
+          params = {}
+          params[:destination_entity_id] = transaction.proxy_response_info["SOURCE_ENTITY_ID"]
+          params[:messages_to_user] = []
+          destination_entity = CfdpMib.entity(Integer(params[:destination_entity_id]))
+          pdu = CfdpPdu.build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, file_size: 0, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
+          params[:messages_to_user] << pdu.build_proxy_put_response_message(condition_code: transaction.condition_code, delivery_code: transaction.delivery_code, file_status: transaction.file_status)
+          params[:messages_to_user] << pdu.build_originating_transaction_id_message(source_entity_id: transaction.proxy_response_info["SOURCE_ENTITY_ID"], sequence_number: transaction.proxy_response_info["SEQUENCE_NUMBER"])
+          transaction.filestore_responses.each do |filestore_response|
+            params[:messages_to_user] << pdu.build_proxy_filestore_response_message(action_code: filestore_response["ACTION_CODE"], status_code: filestore_response["STATUS_CODE"], first_file_name: filestore_response["FIRST_FILE_NAME"], second_file_name: filestore_response["SECOND_FILE_NAME"], filestore_message: filestore_response["FILESTORE_MESSAGE"])
+          end
+          proxy_responses << params
+          transaction.proxy_response_needed = false
+          transaction.proxy_response_info = nil
+        end
+      rescue => err
+        # A single bad transaction must not take down the receive thread, which would leave the
+        # microservice running but no longer processing any PDUs
+        OpenC3::Logger.error("CFDP Transaction #{transaction_id} update failed\n#{err.formatted}", scope: ENV['OPENC3_SCOPE'])
+      end
+    end
+    proxy_responses.each do |params|
+      start_source_transaction(params)
+    end
+  end
+
+  # Drop source transactions whose thread has finished. Without this they accumulate for the
+  # life of the process.
+  def reap_source_transactions
+    @source_mutex.synchronize do
+      @source_transactions.delete_if { |_transaction, thread| !thread.alive? }
+    end
+  end
+
   def receive_packet(topic, msg_id, msg_hash, redis)
     topic_split = topic.gsub(/{|}/, '').split("__") # Remove the redis hashtag curly braces
     target_name = topic_split[2]
@@ -160,32 +204,38 @@ class CfdpUser
 
   def stop
     @cancel_thread = true
-    @source_transactions.each do |t|
-      t.save_state()
+    source_transactions = @source_mutex.synchronize { @source_transactions.dup }
+    source_transactions.each do |transaction, _thread|
+      transaction.save_state()
     end
     @thread.join if @thread
     @thread = nil
     sleep(0.6) # Give threads time to die
-    @source_threads.each do |st|
-      st.kill if st.alive?
+    source_transactions.each do |_transaction, thread|
+      thread.kill if thread.alive?
     end
 
     @item_name_lookup = {}
-    @source_transactions = []
-    @source_threads = []
+    @source_mutex.synchronize { @source_transactions = [] }
+  end
+
+  # Track a source transaction and the thread running it so it can be saved and killed on
+  # shutdown. Called from Rails request threads as well as the receive thread.
+  def register_source_transaction(transaction, thread)
+    @source_mutex.synchronize { @source_transactions << [transaction, thread] }
   end
 
   def resume_incomplete_source_transactions()
     CfdpMib.transactions.each do |transaction_id, transaction|
       if transaction_id.split('__')[0].to_i == CfdpMib.source_entity_id && transaction.copy_state != "complete" # && transaction.copy_state != nil?
-        @source_transactions << transaction
-        @source_threads << Thread.new do
+        thread = Thread.new do
           begin
             transaction.copy_file()
           rescue => err
             OpenC3::Logger.error(err.formatted, scope: ENV['OPENC3_SCOPE'])
           end
         end
+        register_source_transaction(transaction, thread)
       end
     end
   end
@@ -193,8 +243,7 @@ class CfdpUser
   def start_source_transaction(params, proxy_response_info: nil)
     transaction = CfdpSourceTransaction.new
     transaction.proxy_response_info = proxy_response_info
-    @source_transactions << transaction
-    @source_threads << Thread.new do
+    thread = Thread.new do
       begin
         if params[:remote_entity_id] and Integer(params[:remote_entity_id]) != CfdpMib.source_entity_id
           # Proxy Put
@@ -259,6 +308,7 @@ class CfdpUser
         OpenC3::Logger.error(err.formatted, scope: ENV['OPENC3_SCOPE'])
       end
     end
+    register_source_transaction(transaction, thread)
     return transaction
   end
 

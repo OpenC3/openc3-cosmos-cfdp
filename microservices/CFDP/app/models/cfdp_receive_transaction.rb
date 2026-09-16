@@ -222,6 +222,10 @@ class CfdpReceiveTransaction < CfdpTransaction
           end
         end
       end
+      # Every segment must advance the offset. A segment that does not (which a zero length or
+      # corrupt File Data PDU would produce) makes this walk loop forever at 100% CPU, hanging
+      # the receive thread for the life of the process since @segments is persisted.
+      break if next_offset and next_offset <= offset
       offset = next_offset
     end
     return false
@@ -570,9 +574,16 @@ class CfdpReceiveTransaction < CfdpTransaction
       end
 
     else # File Data
-      @tmp_file ||= Tempfile.new('cfdp', binmode: true)
       offset = pdu_hash['OFFSET']
       file_data = pdu_hash['FILE_DATA']
+      # A zero length segment carries no data and would be recorded in @segments as a segment
+      # that does not advance the offset, which makes complete_file_received? loop forever
+      if file_data.nil? or file_data.length == 0
+        OpenC3::Logger.warn("CFDP Receive Transaction #{@id} ignoring zero length file data PDU at offset #{offset}", scope: ENV['OPENC3_SCOPE'])
+        return
+      end
+
+      @tmp_file ||= Tempfile.new('cfdp', binmode: true)
       progress = offset + file_data.length
 
       need_send_naks = false

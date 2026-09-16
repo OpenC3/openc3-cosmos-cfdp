@@ -17,6 +17,7 @@
 
 require 'rails_helper'
 require 'tempfile'
+require 'timeout'
 
 RSpec.describe CfdpReceiveTransaction do
   before(:each) do
@@ -222,6 +223,21 @@ RSpec.describe CfdpReceiveTransaction do
       expect(receive_transaction.instance_variable_get(:@segments)[0]).to eq(50)
     end
 
+    it "ignores a zero length file data PDU" do
+      receive_transaction = CfdpReceiveTransaction.new(@metadata_pdu_hash)
+      allow(OpenC3::Logger).to receive(:warn)
+      empty_pdu_hash = @file_data_pdu_hash.dup
+      empty_pdu_hash["FILE_DATA"] = ""
+
+      receive_transaction.handle_pdu(empty_pdu_hash)
+
+      # Recording this would create a segment that does not advance the offset, which hangs
+      # complete_file_received?
+      expect(receive_transaction.instance_variable_get(:@segments)).to eq({})
+      expect(receive_transaction.instance_variable_get(:@progress)).to eq(0)
+      expect(OpenC3::Logger).to have_received(:warn).with(/zero length file data/, anything)
+    end
+
     it "handles EOF PDU" do
       allow(CfdpMib).to receive(:put_destination_file).and_return(true)
 
@@ -392,6 +408,25 @@ RSpec.describe CfdpReceiveTransaction do
       # Now add a segment that covers 0-5
       receive_transaction.instance_variable_set(:@segments, {0 => 5, 5 => 100})
       expect(receive_transaction.complete_file_received?).to be true
+    end
+
+    it "returns rather than looping forever on a segment that does not advance the offset" do
+      receive_transaction = CfdpReceiveTransaction.new(@metadata_pdu_hash)
+      # A segment that ends where it starts never moves the walk forward. Persisted state written
+      # by an older version can still contain one, so the walk has to defend against it.
+      receive_transaction.instance_variable_set(:@segments, {0 => 0})
+      expect {
+        Timeout.timeout(5) do
+          expect(receive_transaction.complete_file_received?).to be false
+        end
+      }.to_not raise_error
+
+      receive_transaction.instance_variable_set(:@segments, {0 => 50, 50 => 50})
+      expect {
+        Timeout.timeout(5) do
+          expect(receive_transaction.complete_file_received?).to be false
+        end
+      }.to_not raise_error
     end
   end
 
