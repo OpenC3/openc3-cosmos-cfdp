@@ -108,7 +108,7 @@ module OpenC3
                   transmission_mode: 'UNACKNOWLEDGED', closure: 'CLOSURE_NOT_REQUESTED',
                   send_closure: true, cancel: false, skip: false, duplicate_metadata: false,
                   duplicate_filedata: false, bad_seg_size: false, eof_size: nil,
-                  prompt: nil, crcs_required: nil, cycles: 1)
+                  prompt: nil, crcs_required: nil, cycles: 1, reorder_metadata: false)
         setup(source_id: 1, destination_id: 2) unless CfdpMib.entity(@destination_entity_id)
         CfdpMib.set_entity_value(@destination_entity_id, 'maximum_file_segment_length', 8)
         CfdpMib.root_path = @root_path
@@ -157,6 +157,7 @@ module OpenC3
           CfdpMib.set_entity_value(@destination_entity_id, 'crcs_required', true) if crcs_required
 
           i = -1
+          deferred_metadata = nil
           @source_packet_mutex.synchronize do
             @source_packets[source_packet_index..-1].each do |target_name, cmd_name, cmd_params|
               i += 1
@@ -205,10 +206,21 @@ module OpenC3
                 :received_count => 1,
                 :json_data => JSON.generate(cmd_params.as_json, allow_nan: true),
               }
+              # Hold the metadata back so the first file data PDU arrives first
+              if i == 0 and reorder_metadata
+                deferred_metadata = [target_name, cmd_name, msg_hash]
+                next
+              end
+
               safe_write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
               # Duplicate metadata should be ignored
               if i == 0 and duplicate_metadata
                 safe_write_topic("DEFAULT__DECOM__{#{target_name}}__#{cmd_name}", msg_hash, nil)
+              end
+              # The topic preserves write order so the metadata is processed after this PDU
+              if deferred_metadata
+                safe_write_topic("DEFAULT__DECOM__{#{deferred_metadata[0]}}__#{deferred_metadata[1]}", deferred_metadata[2], nil)
+                deferred_metadata = nil
               end
               if i == 1
                 if duplicate_filedata
@@ -668,6 +680,39 @@ module OpenC3
         expect(@tx_pdus[2]['FILE_CHECKSUM']).not_to be nil
         expect(@tx_pdus[2]['FILE_SIZE']).to eql 8
         # 4.6.1.1.10 Flow label is implementation specific ... not implemented
+      end
+
+      # 4.6.1.2.4 Metadata PDU received after the first file data PDU
+      it "receives metadata after file data" do
+        data = ('a'..'z').to_a.shuffle[0,8].join
+        File.write(File.join(SPEC_DIR, 'test1.txt'), data)
+        request(source: 'test1.txt', dest: 'test2.txt', reorder_metadata: true) do |indications|
+          # First the transmit indications
+          expect(indications[0]['indication_type']).to eql 'Transaction'
+          expect(indications[1]['indication_type']).to eql 'EOF-Sent'
+          expect(indications[2]['indication_type']).to eql 'Transaction-Finished'
+          expect(indications[2]['condition_code']).to eql 'NO_ERROR'
+          # Receive indications. The file data PDU arrived first and created the
+          # transaction, so the metadata that follows is not a transaction ID
+          # conflict and the file data must not be discarded as a file size error.
+          expect(indications[3]['indication_type']).to eql 'File-Segment-Recv'
+          expect(indications[3]['offset']).to eql 0
+          expect(indications[3]['length']).to eql 8
+          expect(indications[4]['indication_type']).to eql 'Metadata-Recv'
+          expect(indications[4]['source_file_name']).to eql 'test1.txt'
+          expect(indications[4]['destination_file_name']).to eql 'test2.txt'
+          expect(indications[4]['file_size']).to eql 8
+          expect(indications[4]['source_entity_id']).to eql 1
+          expect(indications[5]['indication_type']).to eql 'EOF-Recv'
+          expect(indications[6]['indication_type']).to eql 'Transaction-Finished'
+          expect(indications[6]['condition_code']).to eql 'NO_ERROR'
+          expect(indications[6]['file_status']).to eql 'FILESTORE_SUCCESS'
+          expect(indications[6]['delivery_code']).to eql 'DATA_COMPLETE'
+          expect(indications[6]['status_report']).to eql 'FINISHED'
+        end
+        expect(File.read(File.join(SPEC_DIR, 'test2.txt'))).to eql data
+        FileUtils.rm File.join(SPEC_DIR, 'test1.txt'), force: true
+        FileUtils.rm File.join(SPEC_DIR, 'test2.txt')
       end
 
       # 4.6.1.1.1 Sending Entity Acknowledged

@@ -45,7 +45,9 @@ class CfdpReceiveTransaction < CfdpTransaction
     @nak_start_of_scope = 0
     @keep_alive_count = 0
     @finished_count = 0
-    @source_entity_id = nil
+    # Every PDU header carries the source entity so this is known even if the METADATA PDU
+    # has not been received yet
+    @source_entity_id = pdu_hash["SOURCE_ENTITY_ID"]
     @inactivity_timeout = nil
     @inactivity_count = 0
     @keep_alive_timeout = nil
@@ -321,7 +323,7 @@ class CfdpReceiveTransaction < CfdpTransaction
   end
 
   def send_keep_alive
-    source_entity = CfdpMib.entity(@metadata_pdu_hash['SOURCE_ENTITY_ID'])
+    source_entity = CfdpMib.entity(@source_entity_id)
     destination_entity = CfdpMib.source_entity
     target_name, packet_name, item_name = source_entity["cmd_info"]
 
@@ -521,7 +523,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       CfdpTopic.write_indication("EOF-Recv", transaction_id: @id) if CfdpMib.source_entity['eof_recv_indication']
 
       destination_entity = CfdpMib.source_entity
-      source_entity = CfdpMib.entity(@metadata_pdu_hash['SOURCE_ENTITY_ID'])
+      source_entity = CfdpMib.entity(@source_entity_id)
       if @transmission_mode == "ACKNOWLEDGED" and source_entity['enable_acks']
         target_name, packet_name, item_name = source_entity["cmd_info"]
         # Ack EOF PDU
@@ -568,8 +570,6 @@ class CfdpReceiveTransaction < CfdpTransaction
       end
 
     else # File Data
-      @source_entity_id = @metadata_pdu_hash['SOURCE_ENTITY_ID']
-
       @tmp_file ||= Tempfile.new('cfdp', binmode: true)
       offset = pdu_hash['OFFSET']
       file_data = pdu_hash['FILE_DATA']
@@ -585,7 +585,9 @@ class CfdpReceiveTransaction < CfdpTransaction
 
       # Ignore repeated segments
       if !@segments[offset] or @segments[offset] != progress
-        if @file_size and progress > @file_size
+        # The file size is only known once the METADATA or EOF PDU has been received. Until then
+        # @file_size is still 0 and must not be used to declare a file size error.
+        if (@metadata_pdu_hash or @eof_pdu_hash) and @file_size and progress > @file_size
           @condition_code = "FILE_SIZE_ERROR"
           handle_fault()
         else
