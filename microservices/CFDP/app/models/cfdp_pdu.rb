@@ -36,6 +36,87 @@ class CfdpPdu < OpenC3::Packet
   DIRECTIVE_CODE_BYTE_SIZE = 1
   CRC_BYTE_SIZE = 2
 
+  # Crc16.new computes a 256 entry lookup table, which costs roughly 80x more than calculating
+  # a CRC over a whole PDU. The table only depends on the polynomial, and calc does not mutate
+  # the instance, so one shared instance serves every thread.
+  CRC16 = OpenC3::Crc16.new
+
+  # Defining the items of a packet costs roughly 40x more than reading or writing them, and a
+  # PDU is built or decommutated for every single file segment. Build one prototype per variant
+  # and clone it instead. Structure#clone copies the buffer but shares the item definitions,
+  # which is safe as long as a clone is only ever read from and written to, never redefined.
+  @@prototypes = {}
+  @@variable_header_prototypes = {}
+  @@file_data_prototypes = {}
+  @@prototype_mutex = Mutex.new
+
+  # Build the prototype for key once and return a clone of it. The key must capture every input
+  # that changes the layout, since everything sharing a key shares the item definitions.
+  def self.prototype(cache, key)
+    prototype = cache[key]
+    unless prototype
+      @@prototype_mutex.synchronize do
+        prototype = cache[key] ||= yield
+      end
+    end
+    return prototype
+  end
+
+  # A PDU with the standard items already defined. Equivalent to new(crcs_required:) but does
+  # not rebuild the item definitions.
+  def self.build(crcs_required:)
+    crcs_required = !!crcs_required
+    return prototype(@@prototypes, crcs_required) { new(crcs_required: crcs_required) }.clone
+  end
+
+  # The variable header layout depends only on the entity id and sequence number lengths and
+  # whether the PDU is a file directive, so it can be cached on those.
+  def self.build_variable_header_packet(id_length, seq_num_length, type)
+    key = [id_length, seq_num_length, type]
+    return prototype(@@variable_header_prototypes, key) do
+      define_variable_header_packet(id_length, seq_num_length, type)
+    end.clone
+  end
+
+  # The file data contents layout depends only on the protocol version, whether segment metadata
+  # is present, and the large file flag. This is on the per file segment path, so it matters most.
+  def self.build_file_data_packets(version, segment_metadata_flag, large_file_flag)
+    key = [version, segment_metadata_flag, large_file_flag]
+    metadata, contents = prototype(@@file_data_prototypes, key) do
+      define_file_data_packets(version, segment_metadata_flag, large_file_flag)
+    end
+    return [metadata&.clone, contents.clone]
+  end
+
+  def self.define_file_data_packets(version, segment_metadata_flag, large_file_flag)
+    s = nil
+    if version != 0 and segment_metadata_flag == "PRESENT"
+      s = OpenC3::Packet.new(nil, nil, :BIG_ENDIAN)
+      item = s.append_item("RECORD_CONTINUATION_STATE", 2, :UINT)
+      item.states = RECORD_CONTINUATION_STATES
+      s.append_item("SEGMENT_METADATA_LENGTH", 6, :UINT)
+      s.append_item("SEGMENT_METADATA", 0, :BLOCK)
+    end
+
+    s2 = OpenC3::Structure.new(:BIG_ENDIAN)
+    s2.append_item("OFFSET", large_file_flag == "SMALL_FILE" ? 32 : 64, :UINT)
+    s2.append_item("FILE_DATA", 0, :BLOCK)
+
+    return [s, s2]
+  end
+
+  def self.define_variable_header_packet(id_length, seq_num_length, type)
+    s = OpenC3::Packet.new(nil, nil, :BIG_ENDIAN)
+    s.append_item("SOURCE_ENTITY_ID", id_length * 8, :UINT)
+    s.append_item("SEQUENCE_NUMBER", seq_num_length * 8, :UINT, nil, :BIG_ENDIAN, :TRUNCATE)
+    s.append_item("DESTINATION_ENTITY_ID", id_length * 8, :UINT)
+    if type == "FILE_DIRECTIVE"
+      item = s.append_item("DIRECTIVE_CODE", 8, :UINT)
+      item.states = DIRECTIVE_CODES
+    end
+    return s
+  end
+
   def initialize(crcs_required:)
     super()
     append_item("VERSION", 3, :UINT)
@@ -68,7 +149,7 @@ class CfdpPdu < OpenC3::Packet
     pdu_hash = {}
     source_entity = CfdpMib.source_entity
     crcs_required = source_entity['crcs_required']
-    pdu = new(crcs_required: crcs_required)
+    pdu = build(crcs_required: crcs_required)
     pdu.buffer = pdu_data
 
     # Handle CRC
@@ -76,12 +157,11 @@ class CfdpPdu < OpenC3::Packet
     if pdu_hash["CRC_FLAG"] == "CRC_PRESENT"
       unless crcs_required
         # Recreate with CRC
-        pdu = new(crcs_required: true)
+        pdu = build(crcs_required: true)
         pdu.buffer = pdu_data
       end
       pdu_hash["CRC"] = pdu.read("CRC")
-      crc16 = OpenC3::Crc16.new
-      calculated = crc16.calc(pdu.buffer(false)[0..-3])
+      calculated = CRC16.calc(pdu.buffer(false)[0..-3])
       if pdu_hash["CRC"] != calculated
         raise "PDU with invalid CRC received: Received: #{sprintf("0x%04X", pdu_hash["CRC"])}, Calculated: #{sprintf("0x%04X", calculated)}"
       end
@@ -161,7 +241,7 @@ class CfdpPdu < OpenC3::Packet
 
   def self.build_initial_pdu(type:, destination_entity:, file_size:, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
     version = destination_entity['protocol_version_number']
-    pdu = self.new(crcs_required: destination_entity['crcs_required'])
+    pdu = self.build(crcs_required: destination_entity['crcs_required'])
     pdu.write("VERSION", version)
     pdu.write("TYPE", type)
     pdu.write("DIRECTION", "TOWARD_FILE_RECEIVER")
@@ -199,15 +279,7 @@ class CfdpPdu < OpenC3::Packet
     id_length = read("ENTITY_ID_LENGTH") + 1
     seq_num_length = read("SEQUENCE_NUMBER_LENGTH") + 1
     type = read("TYPE")
-    s = OpenC3::Packet.new(nil, nil, :BIG_ENDIAN)
-    s.append_item("SOURCE_ENTITY_ID", id_length * 8, :UINT)
-    s.append_item("SEQUENCE_NUMBER", seq_num_length * 8, :UINT, nil, :BIG_ENDIAN, :TRUNCATE)
-    s.append_item("DESTINATION_ENTITY_ID", id_length * 8, :UINT)
-    if type == "FILE_DIRECTIVE"
-      item = s.append_item("DIRECTIVE_CODE", 8, :UINT)
-      item.states = DIRECTIVE_CODES
-    end
-    return s
+    return self.class.build_variable_header_packet(id_length, seq_num_length, type)
   end
 
   def build_variable_header(source_entity_id:, transaction_seq_num:, destination_entity_id:, directive_code: nil)

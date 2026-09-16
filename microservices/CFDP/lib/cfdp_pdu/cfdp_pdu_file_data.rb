@@ -54,36 +54,13 @@ class CfdpPdu < OpenC3::Packet
     pdu.write("VARIABLE_DATA", pdu_header + pdu_contents)
     pdu.write("PDU_DATA_LENGTH", pdu.length - pdu_header_part_1_length - pdu_header_part_2_length)
     if destination_entity['crcs_required']
-      crc16 = OpenC3::Crc16.new
-      pdu.write("CRC", crc16.calc(pdu.buffer(false)[0..-3]))
+      pdu.write("CRC", CRC16.calc(pdu.buffer(false)[0..-3]))
     end
     return pdu.buffer(false)
   end
 
   def define_file_data_pdu_contents
-    version = read("VERSION")
-    smf = read("SEGMENT_METADATA_FLAG")
-
-    s = nil
-    if version != 0 and smf == "PRESENT"
-      s = OpenC3::Packet.new(nil, nil, :BIG_ENDIAN)
-      item = s.append_item("RECORD_CONTINUATION_STATE", 2, :UINT)
-      item.states = RECORD_CONTINUATION_STATES
-      s.append_item("SEGMENT_METADATA_LENGTH", 6, :UINT)
-      s.append_item("SEGMENT_METADATA", 0, :BLOCK)
-    end
-
-    s2 = OpenC3::Structure.new(:BIG_ENDIAN)
-    large_file = read("LARGE_FILE_FLAG")
-    if large_file == "SMALL_FILE"
-      item_size = 32
-    else
-      item_size = 64
-    end
-    s2.append_item("OFFSET", item_size, :UINT)
-    s2.append_item("FILE_DATA", 0, :BLOCK)
-
-    return s, s2
+    return self.class.build_file_data_packets(read("VERSION"), read("SEGMENT_METADATA_FLAG"), read("LARGE_FILE_FLAG"))
   end
 
   def build_file_data_pdu_contents(offset:, file_data:, record_continuation_state: nil, segment_metadata: nil)

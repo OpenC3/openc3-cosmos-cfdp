@@ -47,8 +47,7 @@ class CfdpPdu < OpenC3::Packet
     pdu.write("VARIABLE_DATA", pdu_header + pdu_contents)
     pdu.write("PDU_DATA_LENGTH", pdu.length - pdu_header_part_1_length - pdu_header_part_2_length)
     if destination_entity['crcs_required']
-      crc16 = OpenC3::Crc16.new
-      pdu.write("CRC", crc16.calc(pdu.buffer(false)[0..-3]))
+      pdu.write("CRC", CRC16.calc(pdu.buffer(false)[0..-3]))
     end
     return pdu.buffer(false)
   end

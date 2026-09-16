@@ -31,6 +31,59 @@ RSpec.describe CfdpPdu, type: :model do
       expect(pdu.buffer.length).to eql 4
     end
 
+  end
+
+  # CfdpPdu.build clones a shared prototype instead of redefining the items on every PDU.
+  # Structure#clone shares the item definitions, so these guard the invariant that makes that safe.
+  describe "build" do
+    it "produces a PDU equivalent to new" do
+      [true, false].each do |crcs_required|
+        built = CfdpPdu.build(crcs_required: crcs_required)
+        fresh = CfdpPdu.new(crcs_required: crcs_required)
+        expect(built.items.keys).to eql fresh.items.keys
+        expect(built.buffer).to eql fresh.buffer
+      end
+    end
+
+    it "returns independent PDUs that do not alias each other" do
+      first = CfdpPdu.build(crcs_required: false)
+      second = CfdpPdu.build(crcs_required: false)
+
+      first.write("VERSION", 1)
+      first.write("VARIABLE_DATA", "\x01" * 10)
+      second.write("VERSION", 0)
+      second.write("VARIABLE_DATA", "\x02" * 400)
+
+      expect(first.read("VERSION")).to eql 1
+      expect(first.read("VARIABLE_DATA")).to eql "\x01" * 10
+      expect(second.read("VERSION")).to eql 0
+      expect(second.read("VARIABLE_DATA")).to eql "\x02" * 400
+    end
+
+    it "does not let a write leak into later PDUs" do
+      CfdpPdu.build(crcs_required: false).write("VARIABLE_DATA", "\xFF" * 500)
+      expect(CfdpPdu.build(crcs_required: false).read("VARIABLE_DATA")).to eql ""
+      expect(CfdpPdu.build(crcs_required: false).buffer).to eql CfdpPdu.new(crcs_required: false).buffer
+    end
+
+    it "stays independent when built concurrently from many threads" do
+      mismatches = Queue.new
+      threads = 8.times.map do |t|
+        Thread.new do
+          200.times do |i|
+            pdu = CfdpPdu.build(crcs_required: false)
+            payload = "#{t}-#{i}".b * 3
+            pdu.write("VARIABLE_DATA", payload)
+            mismatches << [t, i] if pdu.read("VARIABLE_DATA") != payload
+          end
+        end
+      end
+      threads.each(&:join)
+      expect(mismatches.size).to eql 0
+    end
+  end
+
+  describe "initialize" do
     it "sets the version field" do
       pdu = CfdpPdu.new(crcs_required: false)
       pdu.enable_method_missing
