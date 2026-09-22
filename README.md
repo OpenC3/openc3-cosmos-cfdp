@@ -141,7 +141,7 @@ These settings are applied to the CFDP microservice via `OPTION <name> <value>` 
 | root_path                           | The path to send/receive files from                                                               | Valid directory   | N/A - Must be given             |
 | bucket                              | The bucket to send/receive files from                                                             | Valid bucket Name | nil - Serve from mounted volume |
 | prevent_received_file_overwrite     | Appends a timestamp to the file name for received files if the file already exists                | true or false     | true                            |
-| allow_duplicate_transaction_ids     | Allows receiving transactions with an ID that was previously used by deleting the old transaction | true or false     | false                           |
+| allow_duplicate_transaction_ids     | Allows receiving transactions with an ID that was previously used by a completed transaction by deleting the old transaction. Does not affect metadata received for a transaction that is still running, which is never treated as a conflict. | true or false     | false                           |
 | transaction_cleanup_frequency_hours | How often to purge old (completed) transactions from RAM and Redis                                | Any integer       | 24                              |
 
 > Note: `plugin_test_mode` is a plugin.txt build `VARIABLE` (not a MIB `OPTION`). When set true it installs two dummy entities/targets that can send/receive transactions to each other for testing. It is consumed when the plugin is built, not by the CFDP microservice.

@@ -75,9 +75,14 @@ class CfdpUser
               transaction_id = CfdpTransaction.build_transaction_id(pdu_hash["SOURCE_ENTITY_ID"], pdu_hash["SEQUENCE_NUMBER"])
               transaction = CfdpMib.transactions[transaction_id]
 
-              if pdu_hash["DIRECTIVE_CODE"] == "METADATA"
-                raise "Transaction ID conflict: #{transaction_id}" unless transaction.nil? or CfdpMib.allow_duplicate_transaction_ids
-                transaction&.delete
+              if pdu_hash["DIRECTIVE_CODE"] == "METADATA" and transaction and transaction.complete_time
+                # The transaction ID was previously used by a transaction that has already reached a
+                # terminal state (FINISHED, CANCELED, or ABANDONED), so this METADATA starts a new
+                # transaction that is reusing the ID. A METADATA PDU for a transaction that is still
+                # running is not a conflict: it is either a retransmission or metadata that arrived
+                # after the first file data PDU, and handle_pdu below deals with both cases.
+                raise "Transaction ID conflict: #{transaction_id}" unless CfdpMib.allow_duplicate_transaction_ids
+                transaction.delete
                 transaction = nil
               end
               if transaction
