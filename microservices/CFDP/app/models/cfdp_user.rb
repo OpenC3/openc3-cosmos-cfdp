@@ -96,7 +96,7 @@ class CfdpUser
   # Read and process every PDU currently available on the given topics. Blocks for up to
   # READ_TOPICS_TIMEOUT_S when nothing is available.
   def read_pdus(topics)
-    OpenC3::Topic.read_topics(topics) do |topic, msg_id, msg_hash, redis|
+    OpenC3::Topic.read_topics(topics, nil, (READ_TOPICS_TIMEOUT_S * 1000).to_i) do |topic, msg_id, msg_hash, redis|
       break if @cancel_thread
       begin
         pdu_hash = receive_packet(topic, msg_id, msg_hash, redis)
