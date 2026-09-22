@@ -130,10 +130,11 @@ class CfdpSourceTransaction < CfdpTransaction
   # broadcast, so this normally wakes the instant the transfer is resumed rather than at the end
   # of a poll interval. The timeout is a backstop: @state and @frozen are written outside
   # @state_mutex, so a change that lands between the check and the wait would otherwise strand
-  # the transfer here forever.
+  # the transfer here forever. A shutdown request also breaks the wait so a suspended transfer
+  # does not hold up the microservice stopping.
   def handle_suspend
     @state_mutex.synchronize do
-      while @state == "SUSPENDED" or @frozen
+      while (@state == "SUSPENDED" or @frozen) and not @shutdown
         @state_changed.wait(@state_mutex, SUSPEND_WAIT_TIMEOUT_S)
       end
     end
@@ -239,7 +240,9 @@ class CfdpSourceTransaction < CfdpTransaction
     end
 
     handle_suspend()
-    return if @state == "ABANDONED"
+    # Returning without advancing @copy_state leaves the transaction in "setup" so the metadata
+    # PDU is sent when the transfer resumes after the microservice restarts
+    return if @state == "ABANDONED" or shutdown?
 
     # Send Metadata PDU
     @metadata_pdu = CfdpPdu.build_metadata_pdu(
@@ -298,7 +301,7 @@ class CfdpSourceTransaction < CfdpTransaction
         return true
       end
       handle_suspend()
-      return false if @state == "ABANDONED"
+      return false if @state == "ABANDONED" or shutdown?
 
       if source_file.closed?
         OpenC3::Logger.info("CFDP Source Transaction #{@id} tried to send file data PDU but source_file was already closed.", scope: ENV['OPENC3_SCOPE'])
@@ -355,7 +358,7 @@ class CfdpSourceTransaction < CfdpTransaction
     filestore_requests:)
 
     handle_suspend()
-    return if @state == "ABANDONED"
+    return if @state == "ABANDONED" or shutdown?
 
     # Send EOF PDU
     if source_file_name and destination_file_name
@@ -419,8 +422,11 @@ class CfdpSourceTransaction < CfdpTransaction
     if @destination_entity['enable_finished'] and (closure_requested == "CLOSURE_REQUESTED" or @transmission_mode == "ACKNOWLEDGED")
       start_time = Time.now
       while (Time.now - start_time) < @source_entity['check_interval']
-        sleep(1)
+        wait_for_state_change(1)
         break if @finished_pdu_hash
+        # Leaving @copy_state as "cleanup" means the wait for the Finished PDU is restarted when
+        # the transfer resumes after the microservice restarts
+        return if shutdown?
       end
       if @finished_pdu_hash
         @file_status = @finished_pdu_hash['FILE_STATUS']
@@ -488,6 +494,11 @@ class CfdpSourceTransaction < CfdpTransaction
 
     while true
       break if @state == "ABANDONED"
+      # Checking here as well as inside the steps means a shutdown request is picked up between
+      # every PDU, so the thread exits on its own instead of having to be killed. "complete" is
+      # excluded because everything has already been sent by then and all that is left is
+      # notice_of_completion, which resuming after a restart would not run.
+      break if shutdown? and @copy_state != "complete"
 
       case @copy_state
       when "setup"

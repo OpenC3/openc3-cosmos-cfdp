@@ -68,7 +68,7 @@ RSpec.describe CfdpUser, type: :model do
       allow(OpenC3::Logger).to receive(:error)
       expect(OpenC3::Topic).to_not receive(:read_topics)
 
-      # stop() sleeps too, so only count the ones the receive loop paces itself with
+      # Only count the sleeps the receive loop paces itself with
       sleeps = 0
       allow(@user).to receive(:sleep) do |seconds|
         next unless seconds == CfdpUser::READ_TOPICS_TIMEOUT_S
@@ -106,10 +106,12 @@ RSpec.describe CfdpUser, type: :model do
       allow(done_thread).to receive(:alive?).and_return(false)
       running_thread = double("running thread")
       allow(running_thread).to receive(:alive?).and_return(true)
-      allow(running_thread).to receive(:kill) # after(:each) stops the user
+      allow(running_thread).to receive(:join).and_return(running_thread) # after(:each) stops the user
       done = double("done transaction")
       running = double("running transaction")
-      allow(running).to receive(:save_state) # after(:each) stops the user
+      # after(:each) stops the user
+      allow(running).to receive(:request_shutdown)
+      allow(running).to receive(:save_state)
       @user.instance_variable_set(:@source_transactions, [[done, done_thread], [running, running_thread]])
 
       @user.reap_source_transactions
@@ -146,6 +148,7 @@ RSpec.describe CfdpUser, type: :model do
       thread = double("thread")
       allow(Thread).to receive(:new).and_yield.and_return(thread)
       allow(thread).to receive(:alive?).and_return(false)
+      allow(thread).to receive(:join).and_return(thread) # after(:each) stops the user
 
       # Setup transaction
       transaction = double("transaction")
@@ -154,6 +157,7 @@ RSpec.describe CfdpUser, type: :model do
       allow(transaction).to receive(:proxy_response_info=)
       allow(transaction).to receive(:put)
       allow(transaction).to receive(:save_state)
+      allow(transaction).to receive(:request_shutdown) # after(:each) stops the user
 
       # Mock logger
       allow(OpenC3::Logger).to receive(:info)
@@ -177,6 +181,7 @@ RSpec.describe CfdpUser, type: :model do
       thread = double("thread")
       allow(Thread).to receive(:new).and_yield.and_return(thread)
       allow(thread).to receive(:alive?).and_return(false)
+      allow(thread).to receive(:join).and_return(thread) # after(:each) stops the user
 
       # Setup transaction
       transaction = double("transaction")
@@ -185,6 +190,7 @@ RSpec.describe CfdpUser, type: :model do
       allow(transaction).to receive(:proxy_response_info=)
       allow(transaction).to receive(:put)
       allow(transaction).to receive(:save_state)
+      allow(transaction).to receive(:request_shutdown) # after(:each) stops the user
 
       # Mock logger
       allow(OpenC3::Logger).to receive(:info)
@@ -209,6 +215,7 @@ RSpec.describe CfdpUser, type: :model do
       thread = double("thread")
       allow(Thread).to receive(:new).and_yield.and_return(thread)
       allow(thread).to receive(:alive?).and_return(false)
+      allow(thread).to receive(:join).and_return(thread) # after(:each) stops the user
 
       # Setup transaction
       transaction = double("transaction")
@@ -216,6 +223,7 @@ RSpec.describe CfdpUser, type: :model do
       allow(CfdpSourceTransaction).to receive(:new).and_return(transaction)
       allow(transaction).to receive(:proxy_response_info=)
       allow(transaction).to receive(:save_state)
+      allow(transaction).to receive(:request_shutdown) # after(:each) stops the user
 
       # Mock logger
       allow(OpenC3::Logger).to receive(:info)
@@ -893,7 +901,7 @@ RSpec.describe CfdpUser, type: :model do
   end
 
   describe "stop" do
-    it "stops the @user thread and kills source threads" do
+    it "stops the @user thread and waits for source threads to shut down" do
       # Setup
       thread = double("thread")
       source_thread1 = double("source_thread1")
@@ -902,58 +910,81 @@ RSpec.describe CfdpUser, type: :model do
       transaction2 = double("transaction2")
 
       allow(thread).to receive(:join)
-      allow(source_thread1).to receive(:alive?).and_return(true)
-      allow(source_thread1).to receive(:kill)
-      allow(source_thread2).to receive(:alive?).and_return(false)
-      allow(source_thread2).to receive(:kill)
-      allow(transaction1).to receive(:save_state)
-      allow(transaction2).to receive(:save_state)
+      allow(source_thread1).to receive(:join).and_return(source_thread1)
+      allow(source_thread2).to receive(:join).and_return(source_thread2)
+      [transaction1, transaction2].each do |transaction|
+        allow(transaction).to receive(:request_shutdown)
+        allow(transaction).to receive(:save_state)
+      end
 
       @user.instance_variable_set(:@thread, thread)
       @user.instance_variable_set(:@source_transactions, [[transaction1, source_thread1], [transaction2, source_thread2]])
-
-      # Allow sleep
-      allow(@user).to receive(:sleep)
 
       # Call and verify
       @user.stop
 
       expect(@user.instance_variable_get(:@cancel_thread)).to be true
+      expect(transaction1).to have_received(:request_shutdown)
+      expect(transaction2).to have_received(:request_shutdown)
       expect(transaction1).to have_received(:save_state)
       expect(transaction2).to have_received(:save_state)
       expect(thread).to have_received(:join)
-      expect(source_thread1).to have_received(:kill)
-      expect(source_thread2).to_not have_received(:kill)
+      expect(source_thread1).to have_received(:join)
+      expect(source_thread2).to have_received(:join)
       expect(@user.instance_variable_get(:@thread)).to be_nil
       expect(@user.instance_variable_get(:@source_transactions)).to eq([])
     end
 
-    it "saves and kills source transactions registered while stopping" do
+    it "logs and keeps going when a source thread does not shut down in time" do
+      # The thread is left alone rather than killed: killing it at an arbitrary point could leave
+      # a half written state in Redis or a PDU partially sent
+      allow(OpenC3::Logger).to receive(:error)
+      thread = double("thread")
+      stuck_thread = double("stuck_thread")
+      stuck = double("stuck transaction")
+
+      allow(thread).to receive(:join)
+      allow(stuck_thread).to receive(:join).and_return(nil) # join timed out
+      allow(stuck).to receive(:id).and_return("1__1")
+      allow(stuck).to receive(:request_shutdown)
+      allow(stuck).to receive(:save_state)
+
+      @user.instance_variable_set(:@thread, thread)
+      @user.instance_variable_set(:@source_transactions, [[stuck, stuck_thread]])
+
+      @user.stop
+
+      expect(stuck).to have_received(:save_state)
+      expect(OpenC3::Logger).to have_received(:error).with(/1__1 did not shut down/, anything)
+      expect(@user.instance_variable_get(:@source_transactions)).to eq([])
+    end
+
+    it "shuts down source transactions registered while stopping" do
       # A Rails request thread can register a source transaction after stop has snapshotted
-      # @source_transactions. Without the stopping state that thread would be neither saved nor
-      # killed and would keep running after shutdown.
+      # @source_transactions. Without the stopping state that thread would be neither shut down
+      # nor saved and would keep running after shutdown.
       thread = double("thread")
       late_transaction = double("late_transaction")
       late_thread = double("late_thread")
 
       allow(thread).to receive(:join)
+      allow(late_transaction).to receive(:request_shutdown)
       allow(late_transaction).to receive(:save_state)
-      allow(late_thread).to receive(:kill)
-      allow(@user).to receive(:sleep)
+      allow(late_thread).to receive(:join).and_return(late_thread)
 
       @user.instance_variable_set(:@thread, thread)
       @user.stop
 
       expect(@user.register_source_transaction(late_transaction, late_thread)).to be false
+      expect(late_transaction).to have_received(:request_shutdown)
       expect(late_transaction).to have_received(:save_state)
-      expect(late_thread).to have_received(:kill)
+      expect(late_thread).to have_received(:join)
       expect(@user.instance_variable_get(:@source_transactions)).to eq([])
     end
 
     it "tracks source transactions again after start" do
       thread = double("thread")
       allow(thread).to receive(:join)
-      allow(@user).to receive(:sleep)
       @user.instance_variable_set(:@thread, thread)
       @user.stop
 
@@ -965,9 +996,10 @@ RSpec.describe CfdpUser, type: :model do
 
       transaction = double("transaction")
       source_thread = double("source_thread")
-      # The after(:each) hook stops the user again, which saves and kills whatever is registered
+      # The after(:each) hook stops the user again, which shuts down and saves whatever is registered
+      allow(transaction).to receive(:request_shutdown)
       allow(transaction).to receive(:save_state)
-      allow(source_thread).to receive(:alive?).and_return(false)
+      allow(source_thread).to receive(:join).and_return(source_thread)
       expect(@user.register_source_transaction(transaction, source_thread)).to be true
       expect(@user.instance_variable_get(:@source_transactions)).to eq([[transaction, source_thread]])
     end

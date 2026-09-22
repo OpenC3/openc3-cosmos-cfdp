@@ -106,14 +106,47 @@ class CfdpTransaction
     @destination_file_name = nil
     @create_time = Time.now.utc
     @complete_time = nil
-    # Broadcast whenever @state or @frozen changes so a suspended transfer wakes as soon as it
-    # is resumed instead of waiting out a poll interval
+    # Set by request_shutdown to ask a transaction running in its own thread to stop at its next
+    # checkpoint. Written and read while holding @state_mutex by the waits below, but also read
+    # without the mutex by shutdown? in the middle of the copy loop.
+    @shutdown = false
+    # Broadcast whenever @state, @frozen or @shutdown changes so a suspended transfer wakes as
+    # soon as it is resumed instead of waiting out a poll interval
     @state_mutex = Mutex.new
     @state_changed = ConditionVariable.new
   end
 
   def signal_state_change
     @state_mutex.synchronize { @state_changed.broadcast }
+  end
+
+  # Ask the thread running this transaction to stop at its next checkpoint. The thread then
+  # unwinds normally, closing its source file and saving its state, so the transfer can be
+  # resumed when the microservice comes back. This replaces killing the thread, which could
+  # leave a half written state in Redis, a leaked file handle, or a PDU partially sent.
+  def request_shutdown
+    @state_mutex.synchronize do
+      @shutdown = true
+      @state_changed.broadcast
+    end
+  end
+
+  def shutdown?
+    @shutdown
+  end
+
+  # Allow a transaction that was shut down to run again, used when a transfer is resumed in the
+  # same process that stopped it.
+  def clear_shutdown
+    @state_mutex.synchronize { @shutdown = false }
+  end
+
+  # Wait up to timeout seconds for a state change. Returns immediately once shutdown has been
+  # requested so nothing blocks the microservice from stopping.
+  def wait_for_state_change(timeout)
+    @state_mutex.synchronize do
+      @state_changed.wait(@state_mutex, timeout) unless @shutdown
+    end
   end
 
   def as_json(*args)
@@ -322,6 +355,18 @@ class CfdpTransaction
 
   def cfdp_cmd(entity, target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
     cmd(target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])
-    sleep(entity['cmd_delay']) if entity['cmd_delay']
+    cmd_delay(entity['cmd_delay']) if entity['cmd_delay']
+  end
+
+  # The inter command delay is a rate limit, so a state change that is not a shutdown must not
+  # shorten it. Waiting for the remaining time rather than sleeping means a shutdown request
+  # does not have to wait out the delay of every remaining PDU.
+  def cmd_delay(delay)
+    deadline = Time.now + delay
+    while true
+      remaining = deadline - Time.now
+      break if remaining <= 0 or shutdown?
+      wait_for_state_change(remaining)
+    end
   end
 end

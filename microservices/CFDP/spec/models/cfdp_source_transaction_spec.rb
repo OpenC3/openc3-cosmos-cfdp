@@ -286,4 +286,72 @@ RSpec.describe CfdpSourceTransaction do
       expect(@transaction.state).to eq("ABANDONED")
     end
   end
+
+  # Shutdown is cooperative so the thread running the transfer can unwind on its own rather than
+  # being killed at an arbitrary point, which could leave a half written state or a partial PDU
+  describe "request_shutdown" do
+    before(:each) do
+      mock_redis()
+      allow(CfdpTopic).to receive(:write_indication)
+      @transaction = CfdpSourceTransaction.new
+      allow(@transaction).to receive(:save_state)
+    end
+
+    it "wakes a suspended transfer" do
+      @transaction.suspend
+      waiter = Thread.new { @transaction.handle_suspend }
+      sleep(0.05) # let the waiter reach the wait
+      @transaction.request_shutdown
+
+      expect(waiter.join(5)).to_not be_nil
+      # Still suspended rather than terminated so it resumes when the microservice comes back
+      expect(@transaction.state).to eq("SUSPENDED")
+    end
+
+    it "stops the copy loop without advancing the copy state" do
+      @transaction.instance_variable_set(:@copy_state, "setup")
+      @transaction.request_shutdown
+      expect(@transaction).to_not receive(:copy_file_setup_and_send_metadata)
+
+      Timeout.timeout(5) do
+        @transaction.copy_file_state_machine(
+          destination_entity_id: 2, fault_handler_overrides: [], flow_label: nil,
+          transmission_mode: "UNACKNOWLEDGED", closure_requested: nil,
+          messages_to_user: [], filestore_requests: [])
+      end
+
+      expect(@transaction.copy_state).to eq("setup")
+    end
+
+    it "stops waiting for the Finished PDU without completing the transaction" do
+      @source_entity['check_interval'] = 600
+      @transaction.instance_variable_set(:@destination_entity, { 'enable_finished' => true })
+      @transaction.instance_variable_set(:@transmission_mode, "ACKNOWLEDGED")
+      @transaction.instance_variable_set(:@copy_state, "cleanup")
+      @transaction.request_shutdown
+
+      Timeout.timeout(5) do
+        @transaction.copy_file_cleanup(
+          transaction_seq_num: 123, transaction_id: @transaction.id, destination_entity_id: 2,
+          source_file_name: nil, destination_file_name: nil, fault_handler_overrides: [],
+          transmission_mode: "ACKNOWLEDGED", closure_requested: "CLOSURE_REQUESTED",
+          messages_to_user: [], filestore_requests: [])
+      end
+
+      # Left in cleanup so the wait for the Finished PDU restarts when the transfer resumes
+      expect(@transaction.copy_state).to eq("cleanup")
+      expect(@transaction.condition_code).to eq("NO_ERROR")
+    end
+
+    it "does not shorten the inter command delay unless shutting down" do
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      @transaction.cmd_delay(0.2)
+      expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).to be >= 0.2
+
+      @transaction.request_shutdown
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      @transaction.cmd_delay(5)
+      expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).to be < 1
+    end
+  end
 end

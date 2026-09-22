@@ -29,6 +29,9 @@ class CfdpUser
   # How long Store.read_topics blocks waiting for a PDU. Used to pace the receive loop when
   # there are no topics to read from.
   READ_TOPICS_TIMEOUT_S = 1.0
+  # How long stop() waits for all source transaction threads to finish unwinding after they have
+  # been asked to shut down.
+  SHUTDOWN_TIMEOUT_S = 5.0
 
   def initialize
     @thread = nil
@@ -209,31 +212,57 @@ class CfdpUser
   def stop
     @cancel_thread = true
     # @stopping closes registration before the snapshot is taken. Anything registered after this
-    # point is saved and killed by register_source_transaction itself, so a source transaction
-    # started by a Rails request thread (or by the receive thread) while stop is running can
-    # neither be missed by the snapshot below nor survive the clear at the end of this method.
+    # point is shut down by register_source_transaction itself, so a source transaction started
+    # by a Rails request thread (or by the receive thread) while stop is running can neither be
+    # missed by the snapshot below nor survive the clear at the end of this method.
     source_transactions = @source_mutex.synchronize do
       @stopping = true
       @source_transactions.dup
     end
+    # Ask every source transaction to stop before joining anything. They are asked first because
+    # a transfer waiting for a Finished PDU is waiting on the receive thread, which is about to
+    # go away.
     source_transactions.each do |transaction, _thread|
-      transaction.save_state()
+      transaction.request_shutdown()
     end
     @thread.join if @thread
     @thread = nil
-    sleep(0.6) # Give threads time to die
-    source_transactions.each do |_transaction, thread|
-      thread.kill if thread.alive?
+    deadline = Time.now + SHUTDOWN_TIMEOUT_S
+    source_transactions.each do |transaction, thread|
+      join_source_transaction_thread(transaction, thread, deadline)
     end
 
     @item_name_lookup = {}
     @source_mutex.synchronize { @source_transactions = [] }
   end
 
-  # Track a source transaction and the thread running it so it can be saved and killed on
+  # Wait for one source transaction thread to unwind, then persist its state so the transfer can
+  # resume when the microservice comes back. Each thread stops at the next checkpoint in its copy
+  # loop, so this normally returns well inside the deadline. A thread that has not stopped by
+  # then is left alone rather than killed: killing it at an arbitrary point could leave a
+  # half written state in Redis or a PDU partially sent, and the process is exiting anyway.
+  def join_source_transaction_thread(transaction, thread, deadline)
+    remaining = deadline - Time.now
+    remaining = 0 if remaining < 0
+    begin
+      unless thread.join(remaining)
+        OpenC3::Logger.error("CFDP Transaction #{transaction.id} did not shut down within #{SHUTDOWN_TIMEOUT_S} seconds", scope: ENV['OPENC3_SCOPE'])
+      end
+    rescue => err
+      # join re-raises whatever killed the thread
+      OpenC3::Logger.error(err.formatted, scope: ENV['OPENC3_SCOPE'])
+    end
+    begin
+      transaction.save_state()
+    rescue => err
+      OpenC3::Logger.error(err.formatted, scope: ENV['OPENC3_SCOPE'])
+    end
+  end
+
+  # Track a source transaction and the thread running it so it can be shut down and saved on
   # shutdown. Called from Rails request threads as well as the receive thread. Returns false if
   # the transaction arrived too late to be tracked because stop() is already running, in which
-  # case it is saved and killed here rather than being left running after shutdown.
+  # case it is shut down here rather than being left running after shutdown.
   def register_source_transaction(transaction, thread)
     stopping = @source_mutex.synchronize do
       @source_transactions << [transaction, thread] unless @stopping
@@ -241,18 +270,17 @@ class CfdpUser
     end
     return true unless stopping
 
-    begin
-      transaction.save_state()
-    rescue => err
-      OpenC3::Logger.error(err.formatted, scope: ENV['OPENC3_SCOPE'])
-    end
-    thread.kill
+    transaction.request_shutdown()
+    join_source_transaction_thread(transaction, thread, Time.now + SHUTDOWN_TIMEOUT_S)
     return false
   end
 
   def resume_incomplete_source_transactions()
     CfdpMib.transactions.each do |transaction_id, transaction|
       if transaction_id.split('__')[0].to_i == CfdpMib.source_entity_id && transaction.copy_state != "complete" # && transaction.copy_state != nil?
+        # A transaction that was shut down by a previous stop() in this same process would
+        # otherwise exit immediately at its first shutdown check
+        transaction.clear_shutdown()
         thread = Thread.new do
           begin
             transaction.copy_file()
