@@ -927,5 +927,49 @@ RSpec.describe CfdpUser, type: :model do
       expect(@user.instance_variable_get(:@thread)).to be_nil
       expect(@user.instance_variable_get(:@source_transactions)).to eq([])
     end
+
+    it "saves and kills source transactions registered while stopping" do
+      # A Rails request thread can register a source transaction after stop has snapshotted
+      # @source_transactions. Without the stopping state that thread would be neither saved nor
+      # killed and would keep running after shutdown.
+      thread = double("thread")
+      late_transaction = double("late_transaction")
+      late_thread = double("late_thread")
+
+      allow(thread).to receive(:join)
+      allow(late_transaction).to receive(:save_state)
+      allow(late_thread).to receive(:kill)
+      allow(@user).to receive(:sleep)
+
+      @user.instance_variable_set(:@thread, thread)
+      @user.stop
+
+      expect(@user.register_source_transaction(late_transaction, late_thread)).to be false
+      expect(late_transaction).to have_received(:save_state)
+      expect(late_thread).to have_received(:kill)
+      expect(@user.instance_variable_get(:@source_transactions)).to eq([])
+    end
+
+    it "tracks source transactions again after start" do
+      thread = double("thread")
+      allow(thread).to receive(:join)
+      allow(@user).to receive(:sleep)
+      @user.instance_variable_set(:@thread, thread)
+      @user.stop
+
+      receive_thread = double("receive_thread")
+      allow(receive_thread).to receive(:join)
+      allow(Thread).to receive(:new).and_return(receive_thread)
+      allow(@user).to receive(:resume_incomplete_source_transactions)
+      @user.start
+
+      transaction = double("transaction")
+      source_thread = double("source_thread")
+      # The after(:each) hook stops the user again, which saves and kills whatever is registered
+      allow(transaction).to receive(:save_state)
+      allow(source_thread).to receive(:alive?).and_return(false)
+      expect(@user.register_source_transaction(transaction, source_thread)).to be true
+      expect(@user.instance_variable_get(:@source_transactions)).to eq([[transaction, source_thread]])
+    end
   end
 end

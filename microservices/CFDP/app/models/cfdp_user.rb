@@ -37,6 +37,9 @@ class CfdpUser
     # Array of [transaction, thread] pairs for every source transaction this process started.
     # Appended to by Rails request threads as well as the receive thread, so it is mutex protected.
     @source_transactions = []
+    # Set while stop() is shutting down so that registrations racing with shutdown are not lost.
+    # Protected by @source_mutex along with @source_transactions.
+    @stopping = false
     @source_mutex = Mutex.new
     @last_cleanup_time = Time.now.utc
 
@@ -46,6 +49,7 @@ class CfdpUser
   end
 
   def start
+    @source_mutex.synchronize { @stopping = false }
     @thread = Thread.new do
       begin
         source_entity = CfdpMib.source_entity
@@ -204,7 +208,14 @@ class CfdpUser
 
   def stop
     @cancel_thread = true
-    source_transactions = @source_mutex.synchronize { @source_transactions.dup }
+    # @stopping closes registration before the snapshot is taken. Anything registered after this
+    # point is saved and killed by register_source_transaction itself, so a source transaction
+    # started by a Rails request thread (or by the receive thread) while stop is running can
+    # neither be missed by the snapshot below nor survive the clear at the end of this method.
+    source_transactions = @source_mutex.synchronize do
+      @stopping = true
+      @source_transactions.dup
+    end
     source_transactions.each do |transaction, _thread|
       transaction.save_state()
     end
@@ -220,9 +231,23 @@ class CfdpUser
   end
 
   # Track a source transaction and the thread running it so it can be saved and killed on
-  # shutdown. Called from Rails request threads as well as the receive thread.
+  # shutdown. Called from Rails request threads as well as the receive thread. Returns false if
+  # the transaction arrived too late to be tracked because stop() is already running, in which
+  # case it is saved and killed here rather than being left running after shutdown.
   def register_source_transaction(transaction, thread)
-    @source_mutex.synchronize { @source_transactions << [transaction, thread] }
+    stopping = @source_mutex.synchronize do
+      @source_transactions << [transaction, thread] unless @stopping
+      @stopping
+    end
+    return true unless stopping
+
+    begin
+      transaction.save_state()
+    rescue => err
+      OpenC3::Logger.error(err.formatted, scope: ENV['OPENC3_SCOPE'])
+    end
+    thread.kill
+    return false
   end
 
   def resume_incomplete_source_transactions()
