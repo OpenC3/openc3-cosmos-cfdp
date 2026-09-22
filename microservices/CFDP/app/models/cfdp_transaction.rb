@@ -106,6 +106,14 @@ class CfdpTransaction
     @destination_file_name = nil
     @create_time = Time.now.utc
     @complete_time = nil
+    # Broadcast whenever @state or @frozen changes so a suspended transfer wakes as soon as it
+    # is resumed instead of waiting out a poll interval
+    @state_mutex = Mutex.new
+    @state_changed = ConditionVariable.new
+  end
+
+  def signal_state_change
+    @state_mutex.synchronize { @state_changed.broadcast }
   end
 
   def as_json(*args)
@@ -131,6 +139,7 @@ class CfdpTransaction
       @state = "SUSPENDED"
       CfdpTopic.write_indication("Suspended", transaction_id: @id, condition_code: @condition_code) if CfdpMib.source_entity['suspended_indication']
     end
+    signal_state_change()
   end
 
   def resume
@@ -141,6 +150,7 @@ class CfdpTransaction
       @inactivity_timeout = Time.now + CfdpMib.source_entity['keep_alive_interval']
       CfdpTopic.write_indication("Resumed", transaction_id: @id, progress: @progress) if CfdpMib.source_entity['resume_indication']
     end
+    signal_state_change()
   end
 
   def cancel(canceling_entity_id = nil)
@@ -157,6 +167,7 @@ class CfdpTransaction
       @complete_time = Time.now.utc
       save_state
     end
+    signal_state_change()
   end
 
   def abandon
@@ -168,6 +179,7 @@ class CfdpTransaction
       @complete_time = Time.now.utc
       save_state
     end
+    signal_state_change()
   end
 
   def report
@@ -177,11 +189,13 @@ class CfdpTransaction
   def freeze
     OpenC3::Logger.info("CFDP Freeze Transaction #{@id}", scope: ENV['OPENC3_SCOPE'])
     @frozen = true
+    signal_state_change()
   end
 
   def unfreeze
     OpenC3::Logger.info("CFDP Unfreeze Transaction #{@id}", scope: ENV['OPENC3_SCOPE'])
     @frozen = false
+    signal_state_change()
   end
 
   def build_report

@@ -14,6 +14,8 @@
 
 require 'rails_helper'
 
+require 'timeout'
+
 RSpec.describe CfdpSourceTransaction do
   before(:each) do
     # Mock CfdpTopic
@@ -173,6 +175,115 @@ RSpec.describe CfdpSourceTransaction do
       # CfdpChecksum round trips as a class
       expect(state["file_checksum"]).to be_a CfdpChecksum
       expect(state["file_checksum"].checksum(false, false)).to eq(100)
+    end
+
+    it "opens the source file once for the whole transfer" do
+      allow(@source_transaction).to receive(:save_state)
+      # CfdpMib.get_source_file downloads the entire object when a bucket is configured, so
+      # opening it per PDU made a transfer cost O(n^2) in file size
+      args = {
+        transaction_seq_num: 123, transaction_id: "1__123", destination_entity_id: 2,
+        source_file_name: "test.txt", destination_file_name: "test.txt",
+        fault_handler_overrides: [], transmission_mode: "UNACKNOWLEDGED",
+        closure_requested: nil, messages_to_user: [], filestore_requests: []
+      }
+      50.times { @source_transaction.copy_file_send_file_data_pdu(**args) }
+
+      expect(CfdpMib).to have_received(:get_source_file).exactly(1).times
+      expect(@source_transaction.instance_variable_get(:@file_offset)).to eq(50 * 100)
+    end
+
+    it "sends every segment of a StringIO source" do
+      # A StringIO source is a directory listing or a transaction report. It used to be closed
+      # after the first segment, so the next call saw a closed file and skipped to EOF, silently
+      # truncating anything longer than maximum_file_segment_length.
+      allow(@source_transaction).to receive(:save_state)
+      # The outer stub makes complete_source_file a no op, which hides the close that caused the
+      # truncation. Close for real so this exercises the actual behavior.
+      allow(CfdpMib).to receive(:complete_source_file) { |file| file.close if file and not file.closed? }
+      payload = "B" * 450 # 5 segments at 100 bytes
+      io = StringIO.new(payload)
+      @source_transaction.instance_variable_set(:@source_file_name, io)
+      @source_transaction.instance_variable_set(:@file_size, payload.length)
+
+      args = {
+        transaction_seq_num: 123, transaction_id: "1__123", destination_entity_id: 2,
+        source_file_name: io, destination_file_name: "listing.txt",
+        fault_handler_overrides: [], transmission_mode: "UNACKNOWLEDGED",
+        closure_requested: nil, messages_to_user: [], filestore_requests: []
+      }
+      10.times do
+        break unless @source_transaction.copy_state == "send_file_data_pdu" || @source_transaction.copy_state.nil?
+        @source_transaction.copy_file_send_file_data_pdu(**args)
+      end
+
+      expect(@source_transaction.instance_variable_get(:@file_offset)).to eq(payload.length)
+      expect(@source_transaction.copy_state).to eq("send_eof_pdu")
+    end
+
+    it "closes the source file only once the transfer is over" do
+      allow(@source_transaction).to receive(:save_state)
+      args = {
+        transaction_seq_num: 123, transaction_id: "1__123", destination_entity_id: 2,
+        source_file_name: "test.txt", destination_file_name: "test.txt",
+        fault_handler_overrides: [], transmission_mode: "UNACKNOWLEDGED",
+        closure_requested: nil, messages_to_user: [], filestore_requests: []
+      }
+      5.times { @source_transaction.copy_file_send_file_data_pdu(**args) }
+      expect(CfdpMib).to_not have_received(:complete_source_file)
+
+      @source_transaction.close_source_file
+      expect(CfdpMib).to have_received(:complete_source_file).exactly(1).times
+      expect(@source_transaction.instance_variable_get(:@source_file)).to be_nil
+    end
+  end
+
+  describe "handle_suspend" do
+    before(:each) do
+      mock_redis()
+      allow(CfdpTopic).to receive(:write_indication)
+      @source_entity['keep_alive_interval'] = 600 # resume rearms the inactivity timer
+      @transaction = CfdpSourceTransaction.new
+      allow(@transaction).to receive(:save_state)
+    end
+
+    it "returns immediately when the transaction is neither suspended nor frozen" do
+      expect { Timeout.timeout(5) { @transaction.handle_suspend } }.to_not raise_error
+    end
+
+    it "wakes as soon as the transaction is resumed rather than polling" do
+      @transaction.suspend
+      expect(@transaction.state).to eq("SUSPENDED")
+
+      woke = nil
+      waiter = Thread.new do
+        started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        @transaction.handle_suspend
+        woke = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+      end
+      sleep(0.05) # let the waiter reach the wait
+      @transaction.resume
+
+      expect(waiter.join(5)).to_not be_nil
+      # The backstop timeout is 1 second, so anything well under that proves it was signalled
+      expect(woke).to be < 0.5
+    end
+
+    it "wakes when the transaction is unfrozen" do
+      @transaction.freeze
+      waiter = Thread.new { @transaction.handle_suspend }
+      sleep(0.05)
+      @transaction.unfreeze
+      expect(waiter.join(5)).to_not be_nil
+    end
+
+    it "wakes when the transaction is abandoned" do
+      @transaction.suspend
+      waiter = Thread.new { @transaction.handle_suspend }
+      sleep(0.05)
+      @transaction.abandon
+      expect(waiter.join(5)).to_not be_nil
+      expect(@transaction.state).to eq("ABANDONED")
     end
   end
 end
