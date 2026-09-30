@@ -231,7 +231,7 @@ RSpec.describe CfdpMib do
         allow(temp).to receive(:open).and_return(temp)
         allow(temp).to receive(:read).and_return('test data')
         allow(@mock_client).to receive(:check_object).with(bucket: 'test-bucket',
-                                                           key: '/tmp/test_dest.txt').and_return(false)
+                                                           key: 'tmp/test_dest.txt').and_return(false)
         allow(@mock_client).to receive(:put_object).and_return(true)
 
         result, actual_filename = CfdpMib.put_destination_file('test_dest.txt', temp)
@@ -245,7 +245,7 @@ RSpec.describe CfdpMib do
         allow(temp).to receive(:open).and_return(temp)
         allow(temp).to receive(:read).and_return('test data')
         allow(@mock_client).to receive(:check_object).with(bucket: 'test-bucket',
-                                                           key: '/tmp/test_dest.txt').and_return(true)
+                                                           key: 'tmp/test_dest.txt').and_return(true)
         allow(@mock_client).to receive(:put_object).and_return(true)
 
         # Mock time to get predictable timestamp
@@ -259,7 +259,7 @@ RSpec.describe CfdpMib do
         # Verify put_object was called with timestamped filename
         expect(@mock_client).to have_received(:put_object).with(
           bucket: 'test-bucket',
-          key: '/tmp/test_dest_20250119_143052.txt',
+          key: 'tmp/test_dest_20250119_143052.txt',
           body: 'test data'
         )
       end
@@ -314,7 +314,7 @@ RSpec.describe CfdpMib do
           allow(temp).to receive(:open).and_return(temp)
           allow(temp).to receive(:read).and_return('new file data')
           allow(@mock_client).to receive(:check_object).with(bucket: 'test-bucket',
-                                                             key: '/tmp/conflicting_file.txt').and_return(true)
+                                                             key: 'tmp/conflicting_file.txt').and_return(true)
           allow(@mock_client).to receive(:put_object).and_return(true)
 
           frozen_time = Time.parse('2025-01-19 15:45:30 UTC')
@@ -326,7 +326,7 @@ RSpec.describe CfdpMib do
 
           expect(@mock_client).to have_received(:put_object).with(
             bucket: 'test-bucket',
-            key: '/tmp/conflicting_file_20250119_154530.txt',
+            key: 'tmp/conflicting_file_20250119_154530.txt',
             body: 'new file data'
           )
         end
@@ -381,7 +381,7 @@ RSpec.describe CfdpMib do
           allow(temp).to receive(:open).and_return(temp)
           allow(temp).to receive(:read).and_return('test data')
           allow(@mock_client).to receive(:check_object).with(bucket: 'test-bucket',
-                                                             key: '/tmp/test_dest.txt').and_return(true)
+                                                             key: 'tmp/test_dest.txt').and_return(true)
           allow(@mock_client).to receive(:put_object).and_return(true)
 
           result, actual_filename = CfdpMib.put_destination_file('test_dest.txt', temp)
@@ -390,7 +390,7 @@ RSpec.describe CfdpMib do
 
           expect(@mock_client).to have_received(:put_object).with(
             bucket: 'test-bucket',
-            key: '/tmp/test_dest.txt',
+            key: 'tmp/test_dest.txt',
             body: 'test data'
           )
         end
@@ -401,7 +401,7 @@ RSpec.describe CfdpMib do
           allow(temp).to receive(:open).and_return(temp)
           allow(temp).to receive(:read).and_return('test data')
           allow(@mock_client).to receive(:check_object).with(bucket: 'test-bucket',
-                                                             key: '/tmp/new_file.txt').and_return(false)
+                                                             key: 'tmp/new_file.txt').and_return(false)
           allow(@mock_client).to receive(:put_object).and_return(true)
 
           result, actual_filename = CfdpMib.put_destination_file('new_file.txt', temp)
@@ -410,7 +410,7 @@ RSpec.describe CfdpMib do
 
           expect(@mock_client).to have_received(:put_object).with(
             bucket: 'test-bucket',
-            key: '/tmp/new_file.txt',
+            key: 'tmp/new_file.txt',
             body: 'test data'
           )
         end
@@ -617,6 +617,39 @@ RSpec.describe CfdpMib do
       status, message = CfdpMib.filestore_request('CREATE_FILE', 'test.txt', nil)
       expect(status).to eq('NOT_ALLOWED')
       expect(message).to include('File system error')
+    end
+
+    context 'with bucket storage' do
+      before(:each) do
+        allow(File).to receive(:absolute_path).and_call_original
+        @mock_client = double('S3Client')
+        CfdpMib.bucket = 'test-bucket'
+        allow(OpenC3::Bucket).to receive(:getClient).and_return(@mock_client)
+      end
+
+      after(:each) do
+        CfdpMib.bucket = nil
+      end
+
+      it 'strips the leading / from the root path in S3 keys' do
+        expect(@mock_client).to receive(:put_object).with(bucket: 'test-bucket', key: 'tmp/test_create.txt', body: '')
+        status, = CfdpMib.filestore_request('CREATE_FILE', 'test_create.txt', nil)
+        expect(status).to eq('SUCCESSFUL')
+      end
+
+      it 'allows a root path without a leading /' do
+        CfdpMib.root_path = 'DEFAULT/targets_modified/CFDP/tmp'
+        expect(@mock_client).to receive(:put_object).with(bucket: 'test-bucket', key: 'DEFAULT/targets_modified/CFDP/tmp/test_create.txt', body: '')
+        status, = CfdpMib.filestore_request('CREATE_FILE', 'test_create.txt', nil)
+        expect(status).to eq('SUCCESSFUL')
+      end
+
+      it 'still rejects paths outside a root path without a leading /' do
+        CfdpMib.root_path = 'DEFAULT/targets_modified/CFDP/tmp'
+        status, message = CfdpMib.filestore_request('CREATE_FILE', '../../dangerous.txt', nil)
+        expect(status).to eq('NOT_ALLOWED')
+        expect(message).to include('Dangerous filename')
+      end
     end
   end
 

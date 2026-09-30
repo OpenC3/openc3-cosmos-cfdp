@@ -1532,20 +1532,21 @@ module OpenC3
               end
             else
               # Simulate the bucket by stubbing out the bucket client
+              # Bucket keys have no leading / so add it back to map them to local files
               before(:each) do
                 @client = double("getClient").as_null_object
                 allow(@client).to receive(:exist?).and_return(true)
                 allow(@client).to receive(:get_object) do |bucket:, key:, path:|
-                  File.write(path, File.read(key))
+                  File.write(path, File.read("/#{key}"))
                 end
                 allow(@client).to receive(:put_object) do |bucket:, key:, body:|
-                  File.write(key, body)
+                  File.write("/#{key}", body)
                 end
                 allow(@client).to receive(:check_object) do |bucket:, key:|
-                  File.exist?(key)
+                  File.exist?("/#{key}")
                 end
                 allow(@client).to receive(:delete_object) do |bucket:, key:|
-                  FileUtils.rm(key)
+                  FileUtils.rm("/#{key}")
                 end
                 allow(OpenC3::Bucket).to receive(:getClient).and_return(@client)
                 @root_path = SPEC_DIR
@@ -1581,7 +1582,7 @@ module OpenC3
               expect(fsr['FIRST_FILE_NAME']).to eql 'another_file.txt'
             end
             if ENV['MINIO'] && type == 'bucket'
-              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: File.join(@root_path, 'create_file.txt'))
+              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'create_file.txt')))
             else
               FileUtils.rm File.join(SPEC_DIR, 'create_file.txt') # cleanup
             end
@@ -1619,7 +1620,7 @@ module OpenC3
               expect(fsr['FIRST_FILE_NAME']).to eql 'another'
             end
             if ENV['MINIO'] && type == 'bucket'
-              expect(OpenC3::Bucket.getClient().check_object(bucket: @bucket, key: File.join(@root_path, 'delete_file.txt'))).to be false
+              expect(OpenC3::Bucket.getClient().check_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'delete_file.txt')))).to be false
             else
               expect(File.exist?(File.join(SPEC_DIR, 'delete_file.txt'))).to be false
             end
@@ -1659,9 +1660,9 @@ module OpenC3
               expect(fsr['FIRST_FILE_NAME']).to eql 'another'
             end
             if ENV['MINIO'] && type == 'bucket'
-              expect(OpenC3::Bucket.getClient().check_object(bucket: @bucket, key: File.join(@root_path, 'rename_file.txt'))).to be false
-              expect(OpenC3::Bucket.getClient().check_object(bucket: @bucket, key: File.join(@root_path, 'new_file.txt'))).to be true
-              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: File.join(@root_path, 'new_file.txt'))
+              expect(OpenC3::Bucket.getClient().check_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'rename_file.txt')))).to be false
+              expect(OpenC3::Bucket.getClient().check_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'new_file.txt')))).to be true
+              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'new_file.txt')))
             else
               expect(File.exist?(File.join(SPEC_DIR, 'rename_file.txt'))).to be false
               expect(File.exist?(File.join(SPEC_DIR, 'new_file.txt'))).to be true
@@ -1691,8 +1692,8 @@ module OpenC3
               expect(fsr['SECOND_FILE_NAME']).to eql 'rename_file.txt'
             end
             if ENV['MINIO'] && type == 'bucket'
-              expect(OpenC3::Bucket.getClient().check_object(bucket: @bucket, key: File.join(@root_path, 'rename_file.txt'))).to be true
-              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: File.join(@root_path, 'rename_file.txt'))
+              expect(OpenC3::Bucket.getClient().check_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'rename_file.txt')))).to be true
+              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'rename_file.txt')))
             else
               expect(File.exist?(File.join(SPEC_DIR, 'rename_file.txt'))).to be true
               FileUtils.rm File.join(SPEC_DIR, 'rename_file.txt')
@@ -1701,8 +1702,8 @@ module OpenC3
 
           it "append file" do
             if ENV['MINIO'] && type == 'bucket'
-              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: File.join(@root_path, 'first.txt'), body: 'FIRST')
-              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: File.join(@root_path, 'second.txt'), body: 'SECOND')
+              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'first.txt')), body: 'FIRST')
+              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'second.txt')), body: 'SECOND')
             else
               File.write(File.join(SPEC_DIR, 'first.txt'), 'FIRST')
               File.write(File.join(SPEC_DIR, 'second.txt'), 'SECOND')
@@ -1736,11 +1737,11 @@ module OpenC3
             end
             if ENV['MINIO'] && type == 'bucket'
               file = Tempfile.new('cfdp', binmode: true)
-              OpenC3::Bucket.getClient().get_object(bucket: @bucket, key: File.join(@root_path, 'first.txt'), path: file.path)
+              OpenC3::Bucket.getClient().get_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'first.txt')), path: file.path)
               expect(file.read).to eql 'FIRSTSECOND'
               file.unlink
-              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: File.join(@root_path, 'first.txt'))
-              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: File.join(@root_path, 'second.txt'))
+              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'first.txt')))
+              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'second.txt')))
             else
               expect(File.read(File.join(SPEC_DIR, 'first.txt'))).to eql 'FIRSTSECOND'
               FileUtils.rm File.join(SPEC_DIR, 'first.txt')
@@ -1750,7 +1751,7 @@ module OpenC3
 
           it "append file error" do
             if ENV['MINIO'] && type == 'bucket'
-              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: File.join(@root_path, 'first.txt'), body: 'FIRST')
+              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'first.txt')), body: 'FIRST')
             else
               File.write(File.join(SPEC_DIR, 'first.txt'), 'FIRST')
             end
@@ -1770,7 +1771,7 @@ module OpenC3
               expect(fsr['SECOND_FILE_NAME']).to eql 'second.txt'
             end
             if ENV['MINIO'] && type == 'bucket'
-              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: File.join(@root_path, 'first.txt'))
+              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'first.txt')))
             else
               FileUtils.rm File.join(SPEC_DIR, 'first.txt')
             end
@@ -1778,8 +1779,8 @@ module OpenC3
 
           it "replace file" do
             if ENV['MINIO'] && type == 'bucket'
-              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: File.join(@root_path, 'orig.txt'), body: 'ORIG')
-              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: File.join(@root_path, 'replace.txt'), body: 'REPLACE')
+              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'orig.txt')), body: 'ORIG')
+              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'replace.txt')), body: 'REPLACE')
             else
               File.write(File.join(SPEC_DIR, 'orig.txt'), 'ORIG')
               File.write(File.join(SPEC_DIR, 'replace.txt'), 'REPLACE')
@@ -1813,14 +1814,14 @@ module OpenC3
             end
             if ENV['MINIO'] && type == 'bucket'
               file = Tempfile.new('cfdp', binmode: true)
-              OpenC3::Bucket.getClient().get_object(bucket: @bucket, key: File.join(@root_path, 'orig.txt'), path: file.path)
+              OpenC3::Bucket.getClient().get_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'orig.txt')), path: file.path)
               expect(file.read).to eql 'REPLACE'
               file.rewind
-              OpenC3::Bucket.getClient().get_object(bucket: @bucket, key: File.join(@root_path, 'replace.txt'), path: file.path)
+              OpenC3::Bucket.getClient().get_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'replace.txt')), path: file.path)
               expect(file.read).to eql 'REPLACE'
               file.unlink
-              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: File.join(@root_path, 'orig.txt'))
-              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: File.join(@root_path, 'replace.txt'))
+              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'orig.txt')))
+              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'replace.txt')))
             else
               expect(File.read(File.join(SPEC_DIR, 'orig.txt'))).to eql 'REPLACE'
               expect(File.read(File.join(SPEC_DIR, 'replace.txt'))).to eql 'REPLACE' # Still exists
@@ -1831,7 +1832,7 @@ module OpenC3
 
           it "replace file error" do
             if ENV['MINIO'] && type == 'bucket'
-              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: File.join(@root_path, 'orig.txt'), body: 'ORIG')
+              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'orig.txt')), body: 'ORIG')
             else
               File.write(File.join(SPEC_DIR, 'orig.txt'), 'ORIG')
             end
@@ -1851,7 +1852,7 @@ module OpenC3
               expect(fsr['SECOND_FILE_NAME']).to eql 'replace.txt'
             end
             if ENV['MINIO'] && type == 'bucket'
-              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: File.join(@root_path, 'orig.txt'))
+              OpenC3::Bucket.getClient().delete_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'orig.txt')))
             else
               FileUtils.rm File.join(SPEC_DIR, 'orig.txt')
             end
@@ -1940,7 +1941,7 @@ module OpenC3
 
           it "deny file" do
             if ENV['MINIO'] && type == 'bucket'
-              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: File.join(@root_path, 'deny.txt'), body: 'DENY')
+              OpenC3::Bucket.getClient().put_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'deny.txt')), body: 'DENY')
             else
               File.write(File.join(SPEC_DIR, 'deny.txt'), 'DENY')
             end
@@ -1964,7 +1965,7 @@ module OpenC3
               expect(fsr['FIRST_FILE_NAME']).to eql 'deny.txt'
             end
             if ENV['MINIO'] && type == 'bucket'
-              expect(OpenC3::Bucket.getClient().check_object(bucket: @bucket, key: File.join(@root_path, 'deny.txt'))).to be false
+              expect(OpenC3::Bucket.getClient().check_object(bucket: @bucket, key: CfdpMib.bucket_key(File.join(@root_path, 'deny.txt')))).to be false
             else
               expect(File.exist?(File.join(SPEC_DIR, 'deny.txt'))).to be false
             end

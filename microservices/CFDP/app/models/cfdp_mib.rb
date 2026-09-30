@@ -159,6 +159,10 @@ class CfdpMib
   end
 
   def self.root_path=(root_path)
+    # Always store an absolute path so filestore path safety checks work.
+    # A leading '/' is stripped from bucket keys (see bucket_key).
+    root_path = root_path.to_s
+    root_path = "/#{root_path}" unless root_path.start_with?('/')
     @@root_path = root_path
   end
 
@@ -272,12 +276,19 @@ class CfdpMib
     end
   end
 
+  # S3 treats '/' as an ordinary key character so a leading '/' would put every
+  # object under a hidden top level folder named '/'. root_path stays absolute
+  # for filesystem use and path safety checks, so strip it only for bucket keys.
+  def self.bucket_key(path)
+    path.sub(/\A\/+/, '')
+  end
+
   def self.get_source_file(source_file_name)
     return nil if source_file_name.nil?
     file_name = File.join(@@root_path, source_file_name)
     if self.bucket
       file = Tempfile.new('cfdp', binmode: true)
-      OpenC3::Bucket.getClient().get_object(bucket: self.bucket, key: file_name, path: file.path)
+      OpenC3::Bucket.getClient().get_object(bucket: self.bucket, key: bucket_key(file_name), path: file.path)
     else
       file = File.open(file_name, 'rb')
     end
@@ -292,12 +303,12 @@ class CfdpMib
     directory_path = File.join(@@root_path, directory_name)
     if self.bucket
       client = OpenC3::Bucket.getClient()
-      prefix = directory_path.delete_prefix('/') # list_objects doesn't work if you prepend a /
+      prefix = bucket_key(directory_path) # list_objects doesn't work if you prepend a /
       prefix += '/' unless prefix.end_with?('/') # but it needs a trailing / otherwise you could conflict with other dirs
       objects = client.list_objects(bucket: self.bucket, prefix: prefix)
       objects.each do |object|
         next if object[:key].end_with?('/')
-        filename = object[:key].sub(/^#{Regexp.escape(@@root_path.delete_prefix('/'))}/, '')
+        filename = object[:key].sub(/^#{Regexp.escape(bucket_key(@@root_path))}/, '')
         yield filename
       end
     else
@@ -324,7 +335,7 @@ class CfdpMib
 
     if self.bucket
       client = OpenC3::Bucket.getClient()
-      if @@prevent_received_file_overwrite && client.check_object(bucket: self.bucket, key: file_name)
+      if @@prevent_received_file_overwrite && client.check_object(bucket: self.bucket, key: bucket_key(file_name))
         # File exists, append timestamp to not overwrite it
         timestamp = Time.now.utc.strftime(timestamp_format)
         file_extension = File.extname(destination_filename)
@@ -332,7 +343,7 @@ class CfdpMib
         actual_filename = "#{base_name}#{timestamp}#{file_extension}"
         file_name = File.join(@@root_path, actual_filename)
       end
-      client.put_object(bucket: self.bucket, key: file_name, body: tmp_file.open.read)
+      client.put_object(bucket: self.bucket, key: bucket_key(file_name), body: tmp_file.open.read)
     else
       if @@prevent_received_file_overwrite && File.exist?(file_name)
         # File exists, append timestamp to not overwrite it
@@ -370,7 +381,7 @@ class CfdpMib
       case action_code
       when "CREATE_FILE"
         if self.bucket
-          OpenC3::Bucket.getClient().put_object(bucket: self.bucket, key: first_file_name, body: '')
+          OpenC3::Bucket.getClient().put_object(bucket: self.bucket, key: bucket_key(first_file_name), body: '')
         else
           FileUtils.touch(first_file_name)
         end
@@ -379,8 +390,8 @@ class CfdpMib
       when "DELETE_FILE"
         if self.bucket
           client = OpenC3::Bucket.getClient()
-          if client.check_object(bucket: self.bucket, key: first_file_name)
-            client.delete_object(bucket: self.bucket, key: first_file_name)
+          if client.check_object(bucket: self.bucket, key: bucket_key(first_file_name))
+            client.delete_object(bucket: self.bucket, key: bucket_key(first_file_name))
             status_code = "SUCCESSFUL"
           else
             status_code = "FILE_DOES_NOT_EXIST"
@@ -397,15 +408,15 @@ class CfdpMib
       when "RENAME_FILE"
         if self.bucket
           client = OpenC3::Bucket.getClient()
-          if client.check_object(bucket: self.bucket, key: second_file_name)
+          if client.check_object(bucket: self.bucket, key: bucket_key(second_file_name))
             status_code = "NEW_FILE_ALREADY_EXISTS"
-          elsif not client.check_object(bucket: self.bucket, key: first_file_name)
+          elsif not client.check_object(bucket: self.bucket, key: bucket_key(first_file_name))
             status_code = "OLD_FILE_DOES_NOT_EXIST"
           else
             temp = Tempfile.new('cfdp', binmode: true)
-            client.get_object(bucket: self.bucket, key: first_file_name, path: temp.path)
-            client.put_object(bucket: self.bucket, key: second_file_name, body: temp.read)
-            client.delete_object(bucket: self.bucket, key: first_file_name)
+            client.get_object(bucket: self.bucket, key: bucket_key(first_file_name), path: temp.path)
+            client.put_object(bucket: self.bucket, key: bucket_key(second_file_name), body: temp.read)
+            client.delete_object(bucket: self.bucket, key: bucket_key(first_file_name))
             temp.unlink
             status_code = "SUCCESSFUL"
           end
@@ -423,16 +434,16 @@ class CfdpMib
       when "APPEND_FILE"
         if self.bucket
           client = OpenC3::Bucket.getClient()
-          if not client.check_object(bucket: self.bucket, key: first_file_name)
+          if not client.check_object(bucket: self.bucket, key: bucket_key(first_file_name))
             status_code = "FILE_1_DOES_NOT_EXIST"
-          elsif not client.check_object(bucket: self.bucket, key: second_file_name)
+          elsif not client.check_object(bucket: self.bucket, key: bucket_key(second_file_name))
             status_code = "FILE_2_DOES_NOT_EXIST"
           else
             temp1 = Tempfile.new('cfdp', binmode: true)
             temp2 = Tempfile.new('cfdp', binmode: true)
-            client.get_object(bucket: self.bucket, key: first_file_name, path: temp1.path)
-            client.get_object(bucket: self.bucket, key: second_file_name, path: temp2.path)
-            client.put_object(bucket: self.bucket, key: first_file_name, body: temp1.read + temp2.read)
+            client.get_object(bucket: self.bucket, key: bucket_key(first_file_name), path: temp1.path)
+            client.get_object(bucket: self.bucket, key: bucket_key(second_file_name), path: temp2.path)
+            client.put_object(bucket: self.bucket, key: bucket_key(first_file_name), body: temp1.read + temp2.read)
             temp1.unlink
             temp2.unlink
             status_code = "SUCCESSFUL"
@@ -453,14 +464,14 @@ class CfdpMib
       when "REPLACE_FILE"
         if self.bucket
           client = OpenC3::Bucket.getClient()
-          if not client.check_object(bucket: self.bucket, key: first_file_name)
+          if not client.check_object(bucket: self.bucket, key: bucket_key(first_file_name))
             status_code = "FILE_1_DOES_NOT_EXIST"
-          elsif not client.check_object(bucket: self.bucket, key: second_file_name)
+          elsif not client.check_object(bucket: self.bucket, key: bucket_key(second_file_name))
             status_code = "FILE_2_DOES_NOT_EXIST"
           else
             temp = Tempfile.new('cfdp', binmode: true)
-            client.get_object(bucket: self.bucket, key: second_file_name, path: temp.path)
-            client.put_object(bucket: self.bucket, key: first_file_name, body: temp.read)
+            client.get_object(bucket: self.bucket, key: bucket_key(second_file_name), path: temp.path)
+            client.put_object(bucket: self.bucket, key: bucket_key(first_file_name), body: temp.read)
             temp.unlink
             status_code = "SUCCESSFUL"
           end
@@ -500,7 +511,7 @@ class CfdpMib
       when "DENY_FILE"
         if self.bucket
           begin
-            OpenC3::Bucket.getClient().delete_object(bucket: self.bucket, key: first_file_name)
+            OpenC3::Bucket.getClient().delete_object(bucket: self.bucket, key: bucket_key(first_file_name))
           rescue
             # Don't care if the file doesn't exist
           end
