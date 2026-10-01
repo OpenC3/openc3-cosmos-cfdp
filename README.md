@@ -132,14 +132,21 @@ Minimum required settings:
 - root_path must be defined
 - bucket should be set if the root_path is in a bucket. Otherwise the root path is assumed to be a mounted volume.
 
+#### Using AWS S3 (or another S3 service) directly
+
+The default `bucket config` works with the bucket store bundled with COSMOS. When COSMOS is configured to use S3 directly, `bucket` must be set to the actual S3 bucket name (e.g. `mycompany-cosmos-config`). `root_path` is still given as an absolute path; the leading `/` is stripped when building S3 object keys, so `/DEFAULT/targets_modified/CFDP/tmp` is stored under `DEFAULT/targets_modified/CFDP/tmp` in the bucket.
+
+    OPTION root_path /DEFAULT/targets_modified/CFDP/tmp
+    OPTION bucket mycompany-cosmos-config
+
 ### Global Configuration
 
 These settings are applied to the CFDP microservice via `OPTION <name> <value>` in the [plugin.txt](plugin.txt) and apply to the entire engine, independent of any entity. They can be specified anywhere in the options list.
 
 | Setting Name                        | Description                                                                                       | Allowed Values    | Default Value                   |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------- | ------------------------------- |
-| root_path                           | The path to send/receive files from                                                               | Valid directory   | N/A - Must be given             |
-| bucket                              | The bucket to send/receive files from                                                             | Valid bucket Name | nil - Serve from mounted volume |
+| root_path                           | The path to send/receive files from (absolute path)                                               | Valid directory   | N/A - Must be given             |
+| bucket                              | The bucket to send/receive files from. Must be the actual S3 bucket name when using AWS S3 directly (see [Using AWS S3](#using-aws-s3-or-another-s3-service-directly)) | Valid bucket Name | nil - Serve from mounted volume |
 | prevent_received_file_overwrite     | Appends a timestamp to the file name for received files if the file already exists                | true or false     | true                            |
 | allow_duplicate_transaction_ids     | Allows receiving transactions with an ID that was previously used by a completed transaction by deleting the old transaction. Does not affect metadata received for a transaction that is still running, which is never treated as a conflict. | true or false     | false                           |
 | transaction_cleanup_frequency_hours | How often to purge old (completed) transactions from RAM and Redis                                | Any integer       | 24                              |

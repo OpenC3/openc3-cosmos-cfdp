@@ -46,9 +46,9 @@ VARIABLE destination_entity_id 2
   VARIABLE_DESCRIPTION "Destination entity ID"
 
 VARIABLE root_path /DEFAULT/targets_modified/CFDP/tmp
-  VARIABLE_DESCRIPTION "Root path for CFDP file storage (must be an absolute path, can be a mounted volume or a path within the container. If using a bucket for storage, this can be set to any value but must still be an absolute path)"
+  VARIABLE_DESCRIPTION "Root path for CFDP file storage (must be an absolute path, can be a mounted volume or a path within the container. If using a bucket for storage, this is the path within the bucket and must still be an absolute path)"
 VARIABLE bucket config
-  VARIABLE_DESCRIPTION "Name of bucket for CFDP file storage (leave blank if using a mounted volume instead of a bucket)"
+  VARIABLE_DESCRIPTION "Name of bucket for CFDP file storage (leave blank if using a mounted volume instead of a bucket). The default 'config' works with the COSMOS bundled bucket store. When using AWS S3 (or another S3 service) directly, this must be the actual S3 bucket name"
 
 VARIABLE prevent_received_file_overwrite true
   VARIABLE_DESCRIPTION "Prevent received files from being overwritten by appending a timestamp to the new file if there's a name conflict"
