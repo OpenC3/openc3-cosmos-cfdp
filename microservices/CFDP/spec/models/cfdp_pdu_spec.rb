@@ -15,6 +15,8 @@
 # The development of this software was funded in-whole or in-part by MethaneSAT LLC.
 
 require 'rails_helper'
+require 'openc3/models/microservice_model'
+require 'openc3/utilities/store_autoload'
 
 RSpec.describe CfdpPdu, type: :model do
   # Validate Table 5-1: Fixed PDU Header Fields
@@ -159,6 +161,80 @@ RSpec.describe CfdpPdu, type: :model do
       pdu.enable_method_missing
       pdu.sequence_number_length = 7
       expect(pdu.buffer[3].unpack('C')[0]).to eql 7
+    end
+  end
+
+  # A receiver replies to the file sender with ACK, NAK, Keep Alive and Finished PDUs. The header ids
+  # still name the sender as source and the receiver as destination, so remote_entity is what selects
+  # the peer whose protocol version, CRC, and length settings must be honored.
+  describe "reply PDUs built with remote_entity" do
+    before(:each) do
+      mock_redis()
+      ENV['OPENC3_MICROSERVICE_NAME'] = 'DEFAULT__API__CFDP'
+      @local_entity_id = 1
+      @remote_entity_id = 2
+    end
+
+    def setup_mib(local_options, remote_options)
+      options = [["source_entity_id", @local_entity_id]]
+      options.concat(local_options)
+      options << ["destination_entity_id", @remote_entity_id]
+      options.concat(remote_options)
+      options << ["root_path", SPEC_DIR]
+      model = OpenC3::MicroserviceModel.new(name: ENV['OPENC3_MICROSERVICE_NAME'], scope: "DEFAULT", options: options)
+      model.create
+      CfdpMib.setup
+    end
+
+    def build_reply(type, local, remote)
+      common = { source_entity: remote, transaction_seq_num: 1, destination_entity: local, remote_entity: remote, transmission_mode: "ACKNOWLEDGED" }
+      case type
+      when :ack
+        CfdpPdu.build_ack_pdu(**common, condition_code: "NO_ERROR", ack_directive_code: "EOF", transaction_status: "ACTIVE")
+      when :nak
+        CfdpPdu.build_nak_pdu(**common, file_size: 100, start_of_scope: 0, end_of_scope: 100, segment_requests: [[0, 100]])
+      when :keep_alive
+        CfdpPdu.build_keep_alive_pdu(**common, file_size: 100, progress: 50)
+      when :finished
+        CfdpPdu.build_finished_pdu(**common, condition_code: "NO_ERROR", delivery_code: "DATA_COMPLETE", file_status: "FILESTORE_SUCCESS")
+      end
+    end
+
+    def check_header(buffer, version:, crc:, entity_id_length:, sequence_number_length:)
+      expect(buffer[0].unpack('C')[0] >> 5).to eql version
+      expect((buffer[0].unpack('C')[0] >> 1) & 1).to eql(crc ? 1 : 0)
+      expect((buffer[3].unpack('C')[0] >> 4) & 7).to eql entity_id_length
+      expect(buffer[3].unpack('C')[0] & 7).to eql sequence_number_length
+      # PDU_DATA_LENGTH covers everything after the header, including the CRC when present
+      header_length = 4 + (2 * (entity_id_length + 1)) + (sequence_number_length + 1)
+      expect(buffer[1..2].unpack('n')[0]).to eql(buffer.length - header_length)
+      expect(CfdpPdu::CRC16.calc(buffer[0..-3])).to eql(buffer[-2..-1].unpack('n')[0]) if crc
+    end
+
+    [:ack, :nak, :keep_alive, :finished].each do |type|
+      it "uses the remote entity's version, CRC, and lengths for #{type}" do
+        setup_mib(
+          [["crcs_required", "false"], ["protocol_version_number", "1"], ["entity_id_length", "1"], ["sequence_number_length", "2"]],
+          [["crcs_required", "true"], ["protocol_version_number", "0"], ["entity_id_length", "0"], ["sequence_number_length", "0"]])
+        buffer = build_reply(type, CfdpMib.entity(@local_entity_id), CfdpMib.entity(@remote_entity_id))
+        check_header(buffer, version: 0, crc: true, entity_id_length: 0, sequence_number_length: 0)
+
+        # The local entity accepts the reply because the CRC flag in the header says a CRC is present
+        hash = CfdpPdu.decom(buffer)
+        expect(hash['VERSION']).to eql 0
+        expect(hash['CRC_FLAG']).to eql 'CRC_PRESENT'
+        expect(hash['SOURCE_ENTITY_ID']).to eql @remote_entity_id
+        expect(hash['DESTINATION_ENTITY_ID']).to eql @local_entity_id
+        expect(hash['END_SYSTEM_STATUS']).to eql 1 if type == :finished # Version 0 Finished PDU field
+      end
+
+      it "omits the CRC for #{type} when the remote entity does not require one" do
+        setup_mib(
+          [["crcs_required", "true"], ["protocol_version_number", "0"], ["entity_id_length", "0"], ["sequence_number_length", "0"]],
+          [["crcs_required", "false"], ["protocol_version_number", "1"], ["entity_id_length", "1"], ["sequence_number_length", "1"]])
+        buffer = build_reply(type, CfdpMib.entity(@local_entity_id), CfdpMib.entity(@remote_entity_id))
+        check_header(buffer, version: 1, crc: false, entity_id_length: 1, sequence_number_length: 1)
+      end
     end
   end
 end

@@ -40,18 +40,20 @@ class CfdpPdu < OpenC3::Packet
     transmission_mode: nil,
     start_of_scope:,
     end_of_scope:,
-    segment_requests: [])
+    segment_requests: [],
+    remote_entity: nil)
 
-    pdu = build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, transmission_mode: transmission_mode, file_size: file_size, segmentation_control: segmentation_control)
+    remote_entity ||= destination_entity
+    pdu = build_initial_pdu(type: "FILE_DIRECTIVE", destination_entity: destination_entity, transmission_mode: transmission_mode, file_size: file_size, segmentation_control: segmentation_control, remote_entity: remote_entity)
     pdu.write("DIRECTION", "TOWARD_FILE_SENDER")
     pdu_header_part_1_length = pdu.length # Measured here before writing variable data - Includes CRC if present
-    pdu_header_part_1_length -= CRC_BYTE_SIZE if destination_entity['crcs_required'] # PDU_DATA_LENGTH field should contain CRC length
+    pdu_header_part_1_length -= CRC_BYTE_SIZE if remote_entity['crcs_required'] # PDU_DATA_LENGTH field should contain CRC length
     pdu_header = pdu.build_variable_header(source_entity_id: source_entity['id'], transaction_seq_num: transaction_seq_num, destination_entity_id: destination_entity['id'], directive_code: "NAK")
     pdu_header_part_2_length = pdu_header.length - DIRECTIVE_CODE_BYTE_SIZE # Minus 1 = Directive code is part of data per 5.2.1.1
     pdu_contents = pdu.build_nak_pdu_contents(start_of_scope: start_of_scope, end_of_scope: end_of_scope, segment_requests: segment_requests)
     pdu.write("VARIABLE_DATA", pdu_header + pdu_contents)
     pdu.write("PDU_DATA_LENGTH", pdu.length - pdu_header_part_1_length - pdu_header_part_2_length)
-    if destination_entity['crcs_required']
+    if remote_entity['crcs_required']
       pdu.write("CRC", CRC16.calc(pdu.buffer(false)[0..-3]))
     end
     return pdu.buffer(false)

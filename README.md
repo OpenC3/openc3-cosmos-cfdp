@@ -173,7 +173,8 @@ These settings are applied via `OPTION <name> <value>` after declaring a `destin
 | ----------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------- | ------------------------- |
 | destination_entity_id         | Id of a remote entity to configure                                                                  | Any integer                               | N/A - Must be given       |
 | cmd_info                      | The target_name, packet_name, and item_name to send PDUs for the destination entity                 | COSMOS packet information                 | N/A - Must be given       |
-| protocol_version_number       | CFDP Version Number Needed at Destination                                                           | 0 or 1                                    | 1 - CFDP Blue Book Rev 5+ |
+| protocol_version_number       | CFDP Version Number used for all PDUs sent to this entity                                           | 0 or 1                                    | 1 - CFDP Blue Book Rev 5+ |
+| crcs_required                 | Include a CRC on all PDUs sent to this entity. See note below for the source entity.                | true or false                             | true                      |
 | ack_timer_interval            | Ack timeout in seconds                                                                               | Any integer                               | 600 seconds               |
 | nak_timer_interval            | Nak timeout in seconds                                                                               | Any integer                               | 600 seconds               |
 | maximum_file_segment_length   | Maximum amount of file data in a segment in bytes                                                   | Any integer                               | 1024 bytes                |
@@ -186,11 +187,13 @@ These settings are applied via `OPTION <name> <value>` after declaring a `destin
 | enable_keep_alive             | Send Keep Alives in Acknowledged mode                                                               | true or false                             | true                      |
 | enable_finished               | Send Finished PDU if closure requested or acknowledged mode                                         | true or false                             | true                      |
 | default_transmission_mode     | Default put mode                                                                                    | ACKNOWLEDGED or UNACKNOWLEDGED            | UNACKNOWLEDGED            |
-| entity_id_length              | Size of entity ids in bytes minus one                                                               | 0 to 7                                    | 0 = 1 byte                |
-| sequence_number_length        | Size of sequence numbers in bytes minus one                                                         | 0 to 7                                    | 0 = 1 byte                |
+| entity_id_length              | Size of entity ids in bytes minus one, used for all PDUs sent to this entity                        | 0 to 7                                    | 0 = 1 byte                |
+| sequence_number_length        | Size of sequence numbers in bytes minus one, used for all PDUs sent to this entity                  | 0 to 7                                    | 0 = 1 byte                |
 | default_checksum_type         | Checksum type number                                                                                | 0 to 15                                   | 0 = Default CFDP checksum |
 | incomplete_file_disposition   | What to do with an incomplete file                                                                  | DISCARD or RETAIN                         | DISCARD                   |
 | cmd_delay                     | Delay after sending each PDU in seconds. Defaults to no delay.                                      | Floating point value greater than 0       | nil                       |
+
+All PDUs sent to an entity, including the ACK, NAK, Keep Alive, and Finished PDUs sent back while receiving a file from it, use that entity's protocol_version_number, crcs_required, entity_id_length, and sequence_number_length. Received PDUs are decoded using the version, CRC flag, and lengths carried in each PDU header, so these settings do not need to match on the source entity. The one exception is `crcs_required` on the source entity: when true (the default), received PDUs that do not include a CRC are rejected. Set it to false on the source entity to accept PDUs from entities that do not send CRCs.
 
 ### Settings That Apply to Both Entities
 
@@ -198,7 +201,6 @@ The following settings are read from the local (source) entity in one role and f
 
 | Setting Name        | Description                                            | Allowed Values | Default Value | Read from local entity                              | Read from remote entity                              |
 | ------------------- | ----------------------------------------------------- | -------------- | ------------- | --------------------------------------------------- | ---------------------------------------------------- |
-| crcs_required       | Whether PDUs include/require a CRC                     | true or false  | true          | When decoding any received PDU                      | When building PDUs to send to that entity            |
 | check_interval      | Interval to check for transaction complete in seconds | Any integer    | 600 seconds   | When sending (waiting for closure after EOF)        | When receiving (check timer for completion)          |
 | keep_alive_interval | Keep Alive Period in seconds                          | Any integer    | 600 seconds   | When resuming a transaction (inactivity timeout)    | When receiving (keep alive / inactivity timers)      |
 | immediate_nak_mode  | Send NAKs as soon as something is noticed missing     | true or false  | true          | When receiving, on EOF-triggered NAK decisions      | When receiving, on file-data-triggered NAK decisions |

@@ -239,9 +239,13 @@ class CfdpPdu < OpenC3::Packet
     return pdu_hash
   end
 
-  def self.build_initial_pdu(type:, destination_entity:, file_size:, segmentation_control: "NOT_PRESERVED", transmission_mode: nil)
-    version = destination_entity['protocol_version_number']
-    pdu = self.build(crcs_required: destination_entity['crcs_required'])
+  # remote_entity is the peer the PDU is being sent to. It defaults to destination_entity, but differs
+  # when the receiver replies to the file sender, where destination_entity names the receiver in the
+  # header. All PDUs are encoded with the peer's protocol version, CRC, and length settings.
+  def self.build_initial_pdu(type:, destination_entity:, file_size:, segmentation_control: "NOT_PRESERVED", transmission_mode: nil, remote_entity: nil)
+    remote_entity ||= destination_entity
+    version = remote_entity['protocol_version_number']
+    pdu = self.build(crcs_required: remote_entity['crcs_required'])
     pdu.write("VERSION", version)
     pdu.write("TYPE", type)
     pdu.write("DIRECTION", "TOWARD_FILE_RECEIVER")
@@ -249,9 +253,9 @@ class CfdpPdu < OpenC3::Packet
       transmission_mode = transmission_mode.upcase
       pdu.write("TRANSMISSION_MODE", transmission_mode)
     else
-      pdu.write("TRANSMISSION_MODE", destination_entity['default_transmission_mode'].upcase)
+      pdu.write("TRANSMISSION_MODE", remote_entity['default_transmission_mode'].upcase)
     end
-    if destination_entity['crcs_required']
+    if remote_entity['crcs_required']
       pdu.write("CRC_FLAG", "CRC_PRESENT")
     else
       pdu.write("CRC_FLAG", "CRC_NOT_PRESENT")
@@ -269,9 +273,9 @@ class CfdpPdu < OpenC3::Packet
     else
       pdu.write("SEGMENTATION_CONTROL", segmentation_control)
     end
-    pdu.write("ENTITY_ID_LENGTH", destination_entity['entity_id_length'])
+    pdu.write("ENTITY_ID_LENGTH", remote_entity['entity_id_length'])
     pdu.write("SEGMENT_METADATA_FLAG", "NOT_PRESENT") # Not implemented - always 0
-    pdu.write("SEQUENCE_NUMBER_LENGTH", destination_entity['sequence_number_length'])
+    pdu.write("SEQUENCE_NUMBER_LENGTH", remote_entity['sequence_number_length'])
     return pdu
   end
 

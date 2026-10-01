@@ -169,6 +169,7 @@ class CfdpReceiveTransaction < CfdpTransaction
         raise "cmd_info not defined for source entity: #{@metadata_pdu_hash['SOURCE_ENTITY_ID']}" unless target_name and packet_name and item_name
         @finished_pdu = CfdpPdu.build_finished_pdu(
           source_entity: source_entity,
+          remote_entity: source_entity,
           transaction_seq_num: @transaction_seq_num,
           destination_entity: destination_entity,
           condition_code: @condition_code,
@@ -333,6 +334,7 @@ class CfdpReceiveTransaction < CfdpTransaction
 
     keep_alive_pdu = CfdpPdu.build_keep_alive_pdu(
       source_entity: source_entity,
+      remote_entity: source_entity,
       transaction_seq_num: @transaction_seq_num,
       destination_entity: destination_entity,
       file_size: @file_size,
@@ -422,6 +424,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       if start_of_scope != end_of_scope
         nak_pdu = CfdpPdu.build_nak_pdu(
           source_entity: source_entity,
+          remote_entity: source_entity,
           transaction_seq_num: @transaction_seq_num,
           destination_entity: destination_entity,
           file_size: @file_size,
@@ -533,6 +536,7 @@ class CfdpReceiveTransaction < CfdpTransaction
         # Ack EOF PDU
         ack_pdu = CfdpPdu.build_ack_pdu(
           source_entity: source_entity,
+          remote_entity: source_entity,
           transaction_seq_num: @transaction_seq_num,
           destination_entity: destination_entity,
           segmentation_control: "NOT_PRESERVED",
