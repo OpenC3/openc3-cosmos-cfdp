@@ -1,8 +1,9 @@
-# Example workflow for non-tool (no pnpm) plugins
-# Copy this file to .github/workflows/ in the plugin repo and:
-# 1. Update the workflow name if necessary (if you're in cosmos-enterprise-plugins and have multiple release workflows)
-# 2. Update plugin_directory argument. This should be "." for single repos, and e.g. "openc3-cosmos-orbitview" for cosmos-enterprise-plugins.
-# 3. Add the OpenC3 admin accont API token to the repo secrets as OPENC3_API_TOKEN
+# Builds the gem, publishes it to the OpenC3 App Store and RubyGems, and creates
+# a tag and GitHub release. The workflow itself lives in OpenC3/.github so every
+# plugin shares one copy.
+#
+# Requires the OpenC3 admin account API token as OPENC3_API_TOKEN, and a
+# RubyGems API key as GEM_HOST_API_KEY, in the repo (or org) secrets.
 
 name: Release COSMOS Plugin
 
@@ -18,6 +19,11 @@ on:
         required: false
         type: boolean
         default: true
+      deploy_to_rubygems:
+        description: 'Publish the gem to RubyGems'
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   release:
@@ -25,6 +31,8 @@ jobs:
     with:
       version: ${{ inputs.version }}
       deploy_to_store: ${{ inputs.deploy_to_store }}
-      plugin_directory: .  # Update this
+      deploy_to_rubygems: ${{ inputs.deploy_to_rubygems }}
+      plugin_directory: .
     secrets:
       OPENC3_API_TOKEN: ${{ secrets.OPENC3_API_TOKEN }}
+      RUBYGEMS_API_KEY: ${{ secrets.GEM_HOST_API_KEY }}
