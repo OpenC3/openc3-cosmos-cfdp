@@ -205,7 +205,10 @@ class CfdpUser
     packet_name = topic_split[3]
     stored = OpenC3::ConfigParser.handle_true_false(msg_hash["stored"])
     packet = OpenC3::JsonPacket.new(:TLM, target_name, packet_name, msg_hash["time"].to_i, stored, msg_hash['json_data'])
-    pdu_data = packet.read(@item_name_lookup[topic])
+    item_name = @item_name_lookup[topic]
+    pdu_data = packet.read(item_name)
+    # Decom leaves out items that don't exist in the packet and items marked HIDDEN
+    raise "tlm_info item #{target_name} #{packet_name} #{item_name} not found. Check that the item name is correct and that the item is not HIDDEN" unless pdu_data
     return CfdpPdu.decom(pdu_data)
   end
 
