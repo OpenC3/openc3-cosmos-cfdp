@@ -1,0 +1,63 @@
+# Adversarial AI review: once CI has finished and the Malicious Code Scan has
+# passed, Claude and Codex take turns reviewing each pull request, fixing CI
+# failures and other issues, until one approves without changes. The workflow,
+# scripts and prompt live in OpenC3/.github (ai-review-reusable.yml).
+#
+# The review starts when one of the workflows below completes and all CI is
+# done, so every workflow that runs on pull_request must be listed. Do not list
+# the Malicious Code Scan: the review waits for it once CI is done. workflow_run
+# only uses the copy of this file on the default branch, so edits here take
+# effect after they merge.
+#
+# To review a PR by hand, run this workflow from the Actions tab with the PR
+# number. The run fails with the reason if it cannot review, e.g. when the
+# Malicious Code Scan has not passed on the PR's head: run that for the PR first.
+#
+# Secrets: ANTHROPIC_API_KEY, OPENAI_API_KEY, AI_REVIEW_PUSH_TOKEN
+# Add the `skip-ai-review` label to a PR to opt out.
+
+name: AI Review
+
+on:
+  workflow_run:
+    workflows:
+      - Playwright Tests
+      - Plugin Unit Tests
+    types:
+      - completed
+    branches-ignore:
+      - main
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to review
+        required: true
+      force:
+        description: Review even if this commit was already reviewed
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    uses: OpenC3/.github/.github/workflows/ai-review-reusable.yml@main
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      pull-requests: write
+      statuses: read
+    with:
+      pr_number: ${{ inputs.pr_number }}
+      force: ${{ inputs.force || false }}
+      review_instructions: |
+        - This is a CFDP (CCSDS 727.0-B-5) implementation. Check protocol behavior against the
+          standard, including both protocol version 0 and 1 where they differ.
+        - Settings are documented in the README's MIB Configuration tables; keep those tables in step
+          with which entity (source or remote) the code reads each setting from.
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      AI_REVIEW_PUSH_TOKEN: ${{ secrets.AI_REVIEW_PUSH_TOKEN }}
