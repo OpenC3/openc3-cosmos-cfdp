@@ -562,6 +562,41 @@ RSpec.describe CfdpReceiveTransaction do
     end
   end
 
+  # Replies to the file sender keep the sender as source_entity and the local entity as
+  # destination_entity for the header ids, but must be encoded for the sender via remote_entity
+  describe "reply PDUs" do
+    def reply_args
+      hash_including(source_entity: @source_entity, destination_entity: @destination_entity, remote_entity: @source_entity)
+    end
+
+    it "builds keep alive PDUs for the file sender" do
+      receive_transaction = CfdpReceiveTransaction.new(@metadata_pdu_hash)
+      expect(CfdpPdu).to receive(:build_keep_alive_pdu).with(reply_args)
+      receive_transaction.send_keep_alive
+    end
+
+    it "builds NAK PDUs for the file sender" do
+      receive_transaction = CfdpReceiveTransaction.new(@metadata_pdu_hash)
+      receive_transaction.instance_variable_set(:@file_size, 100)
+      receive_transaction.instance_variable_set(:@segments, {0 => 50})
+      receive_transaction.instance_variable_set(:@progress, 100)
+      expect(CfdpPdu).to receive(:build_nak_pdu).with(reply_args).at_least(:once)
+      receive_transaction.send_naks(true)
+    end
+
+    it "builds EOF ACK PDUs for the file sender" do
+      receive_transaction = CfdpReceiveTransaction.new(@metadata_pdu_hash)
+      expect(CfdpPdu).to receive(:build_ack_pdu).with(reply_args)
+      receive_transaction.handle_pdu(@eof_pdu_hash)
+    end
+
+    it "builds finished PDUs for the file sender" do
+      receive_transaction = CfdpReceiveTransaction.new(@metadata_pdu_hash)
+      expect(CfdpPdu).to receive(:build_finished_pdu).with(reply_args)
+      receive_transaction.notice_of_completion
+    end
+  end
+
   describe "send_keep_alive" do
     it "sends a keep alive PDU" do
       receive_transaction = CfdpReceiveTransaction.new(@metadata_pdu_hash)
