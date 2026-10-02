@@ -11,6 +11,11 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Weekly against whatever COSMOS cosmos-project main runs, so a new COSMOS that
+  # breaks the plugin surfaces even when nothing here has changed. Off the hour
+  # because scheduled runs at :00 get queued behind everyone else's.
+  schedule:
+    - cron: '27 7 * * 1'
 
 jobs:
   openc3-build-test:
