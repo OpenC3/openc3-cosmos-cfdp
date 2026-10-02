@@ -140,6 +140,16 @@ RSpec.describe CfdpUser, type: :model do
       result = @user.receive_packet(topic, msg_id, msg_hash, redis)
       expect(result).to eq(pdu_hash)
     end
+
+    it "raises a descriptive error when the tlm_info item is not in the packet" do
+      topic = "DEFAULT__DECOM__{CFDP}__PDU"
+      msg_hash = {"time" => "123456", "stored" => "FALSE", "json_data" => "{}"}
+      @user.instance_variable_set(:@item_name_lookup, {topic => "DATA"})
+      allow(@packet).to receive(:read).with("DATA").and_return(nil)
+      expect(CfdpPdu).not_to receive(:decom)
+
+      expect { @user.receive_packet(topic, "msg123", msg_hash, double("redis")) }.to raise_error(RuntimeError, "tlm_info item CFDP PDU DATA not found. Check that the item name is correct and that the item is not HIDDEN")
+    end
   end
 
   describe "start_source_transaction" do
