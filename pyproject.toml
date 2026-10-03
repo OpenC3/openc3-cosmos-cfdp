@@ -1,6 +1,6 @@
 [project]
 name = "openc3-cosmos-cfdp"
-version = "2.2.0"
+version = "0.0.0"
 description = "OpenC3 CFDP - Python Implementation"
 readme = "README.md"
 requires-python = ">=3.12"
