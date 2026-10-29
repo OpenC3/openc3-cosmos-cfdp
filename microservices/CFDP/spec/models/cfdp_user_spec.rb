@@ -61,6 +61,19 @@ RSpec.describe CfdpUser, type: :model do
   end
 
   describe "start" do
+    it "does not resume a new Put created during telemetry initialization" do
+      CfdpMib.source_entity['tlm_info'] = [['CFDP', 'PDU', 'DATA']]
+      transaction = double('new source transaction', copy_state: nil)
+      expect(transaction).not_to receive(:clear_shutdown)
+      expect(transaction).not_to receive(:copy_file)
+      allow(OpenC3::Topic).to receive(:update_topic_offsets) do
+        CfdpMib.transactions["#{CfdpMib.source_entity_id}__999"] = transaction
+        @user.instance_variable_set(:@cancel_thread, true)
+      end
+
+      @user.start.join(5)
+    end
+
     it "initializes telemetry offsets before resuming source transactions" do
       CfdpMib.source_entity['tlm_info'] = [['CFDP', 'PDU', 'DATA']]
       events = []
