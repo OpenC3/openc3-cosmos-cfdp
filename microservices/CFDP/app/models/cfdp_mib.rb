@@ -769,7 +769,8 @@ class CfdpMib
     current_time = Time.now.utc
     transaction_retain_seconds = @@entities[@@source_entity_id]['transaction_retain_seconds']
     cleaned_up_count = 0
-    @@transactions.each do |id, transaction|
+    # Iterate a copy because Rails request threads may add transactions concurrently
+    @@transactions.to_a.each do |id, transaction|
       if transaction.complete_time and (current_time - transaction.complete_time) > transaction_retain_seconds
         transaction.delete
         cleaned_up_count += 1

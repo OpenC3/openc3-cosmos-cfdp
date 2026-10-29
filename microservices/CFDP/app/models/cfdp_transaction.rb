@@ -301,6 +301,7 @@ class CfdpTransaction
       'metadata_pdu_hash' => @metadata_pdu_hash,
       'metadata_pdu_count' => @metadata_pdu_count,
       'create_time' => @create_time&.iso8601(6),
+      'complete_time' => @complete_time&.iso8601(6),
       'proxy_response_info' => @proxy_response_info,
       'proxy_response_needed' => @proxy_response_needed,
       'canceling_entity_id' => @canceling_entity_id,
@@ -341,7 +342,10 @@ class CfdpTransaction
     @metadata_pdu_hash = state_data['metadata_pdu_hash']
     @metadata_pdu_count = state_data['metadata_pdu_count'] || 0
     @create_time = state_data['create_time'] ? Time.parse(state_data['create_time']) : nil
-    @complete_time = nil # Completed transactions are not persisted
+    @complete_time = state_data['complete_time'] ? Time.parse(state_data['complete_time']) : nil
+    # State saved before complete_time was persisted has no complete_time even when the
+    # transaction is done, which kept it from ever being cleaned up
+    @complete_time ||= legacy_complete_time if ['FINISHED', 'CANCELED', 'ABANDONED'].include?(@state)
     @proxy_response_info = state_data['proxy_response_info']
     @proxy_response_needed = state_data['proxy_response_needed']
     @canceling_entity_id = state_data['canceling_entity_id']
@@ -351,6 +355,12 @@ class CfdpTransaction
 
     OpenC3::Logger.info("CFDP Transaction #{@id} state loaded", scope: ENV['OPENC3_SCOPE']) unless no_log
     return state_data
+  end
+
+  # Best estimate of when a completed transaction loaded without a complete_time finished. The
+  # create_time is persisted and always precedes completion.
+  def legacy_complete_time
+    @create_time || Time.now.utc
   end
 
   def cfdp_cmd(entity, target_name, packet_name, cmd_params, scope: ENV['OPENC3_SCOPE'])

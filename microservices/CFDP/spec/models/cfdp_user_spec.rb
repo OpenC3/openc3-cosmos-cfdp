@@ -81,6 +81,24 @@ RSpec.describe CfdpUser, type: :model do
       expect(sleeps).to eq(2)
       expect(OpenC3::Logger).to have_received(:error).with(/tlm_info is not configured/, anything)
     end
+
+    it "cleans up old transactions on the first pass and then only every transaction_cleanup_frequency_hours" do
+      # A microservice restarted more often than the cleanup frequency must still clean up
+      CfdpMib.source_entity['tlm_info'] = []
+      allow(OpenC3::Logger).to receive(:error)
+      allow(CfdpMib).to receive(:cleanup_old_transactions)
+
+      sleeps = 0
+      allow(@user).to receive(:sleep) do |seconds|
+        next unless seconds == CfdpUser::READ_TOPICS_TIMEOUT_S
+        sleeps += 1
+        @user.instance_variable_set(:@cancel_thread, true) if sleeps >= 3
+      end
+
+      @user.start.join(5)
+
+      expect(CfdpMib).to have_received(:cleanup_old_transactions).once
+    end
   end
 
   describe "update_transactions" do

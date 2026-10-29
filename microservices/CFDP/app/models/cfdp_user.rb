@@ -44,7 +44,9 @@ class CfdpUser
     # Protected by @source_mutex along with @source_transactions.
     @stopping = false
     @source_mutex = Mutex.new
-    @last_cleanup_time = Time.now.utc
+    # nil so cleanup runs on the first pass through the receive loop. Otherwise a microservice
+    # restarted more often than transaction_cleanup_frequency_hours would never clean up.
+    @last_cleanup_time = nil
 
     at_exit do
       stop()
@@ -86,7 +88,7 @@ class CfdpUser
 
           current_time = Time.now.utc
           frequency_seconds = CfdpMib.transaction_cleanup_frequency_hours * 3600
-          if (current_time - @last_cleanup_time) >= frequency_seconds
+          if @last_cleanup_time.nil? or (current_time - @last_cleanup_time) >= frequency_seconds
             CfdpMib.cleanup_old_transactions()
             @last_cleanup_time = current_time
           end
