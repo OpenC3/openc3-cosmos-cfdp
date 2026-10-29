@@ -61,6 +61,20 @@ RSpec.describe CfdpUser, type: :model do
   end
 
   describe "start" do
+    it "initializes telemetry offsets before resuming source transactions" do
+      CfdpMib.source_entity['tlm_info'] = [['CFDP', 'PDU', 'DATA']]
+      events = []
+      allow(OpenC3::Topic).to receive(:update_topic_offsets) { events << :offsets }
+      allow(@user).to receive(:resume_incomplete_source_transactions) do
+        events << :resume
+        @user.instance_variable_set(:@cancel_thread, true)
+      end
+
+      @user.start.join(5)
+
+      expect(events).to eq([:offsets, :resume])
+    end
+
     it "sleeps instead of spinning when tlm_info is not configured" do
       # Store.read_topics returns immediately when given no topics, so the receive loop has to
       # pace itself or it pins a CPU for the life of the process
