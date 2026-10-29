@@ -99,6 +99,31 @@ RSpec.describe CfdpUser, type: :model do
 
       expect(CfdpMib).to have_received(:cleanup_old_transactions).once
     end
+
+    it "does not clean up transactions whose resumed source thread is still running" do
+      # A transaction canceled before a restart has an old complete_time but its source thread is
+      # resumed to finish sending EOF, so the first cleanup pass must not delete it out from under it
+      CfdpMib.source_entity['tlm_info'] = []
+      allow(OpenC3::Logger).to receive(:error)
+      cleanup_skip_ids = nil
+      allow(CfdpMib).to receive(:cleanup_old_transactions) { |skip_ids: []| cleanup_skip_ids = skip_ids }
+
+      release = Queue.new
+      transaction = double("transaction", id: "1__5", request_shutdown: nil, save_state: nil)
+      allow(@user).to receive(:resume_incomplete_source_transactions) do
+        @user.register_source_transaction(transaction, Thread.new { release.pop })
+      end
+
+      allow(@user).to receive(:sleep) do |seconds|
+        next unless seconds == CfdpUser::READ_TOPICS_TIMEOUT_S
+        @user.instance_variable_set(:@cancel_thread, true)
+      end
+
+      @user.start.join(5)
+      release << true
+
+      expect(cleanup_skip_ids).to eq(["1__5"])
+    end
   end
 
   describe "update_transactions" do

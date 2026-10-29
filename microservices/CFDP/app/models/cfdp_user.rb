@@ -55,6 +55,9 @@ class CfdpUser
 
   def start
     @source_mutex.synchronize { @stopping = false }
+    # Resumed before the receive thread starts so they are registered before the first cleanup
+    # pass, which skips transactions that still have a running source thread
+    resume_incomplete_source_transactions
     @thread = Thread.new do
       begin
         source_entity = CfdpMib.source_entity
@@ -89,7 +92,7 @@ class CfdpUser
           current_time = Time.now.utc
           frequency_seconds = CfdpMib.transaction_cleanup_frequency_hours * 3600
           if @last_cleanup_time.nil? or (current_time - @last_cleanup_time) >= frequency_seconds
-            CfdpMib.cleanup_old_transactions()
+            CfdpMib.cleanup_old_transactions(skip_ids: active_source_transaction_ids())
             @last_cleanup_time = current_time
           end
         end
@@ -98,7 +101,6 @@ class CfdpUser
       end
     end
 
-    resume_incomplete_source_transactions
     return @thread
   end
 
@@ -198,6 +200,15 @@ class CfdpUser
   def reap_source_transactions
     @source_mutex.synchronize do
       @source_transactions.delete_if { |_transaction, thread| !thread.alive? }
+    end
+  end
+
+  # Ids of source transactions whose thread is still running. A canceled transaction already has
+  # a complete_time while its thread finishes sending EOF and waiting for the Finished PDU, so it
+  # must not be cleaned up until the thread is done with it.
+  def active_source_transaction_ids
+    @source_mutex.synchronize do
+      @source_transactions.filter_map { |transaction, thread| transaction.id if thread.alive? }
     end
   end
 

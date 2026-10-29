@@ -919,6 +919,12 @@ RSpec.describe CfdpMib do
       expect(@old_tx).not_to have_received(:delete)
     end
 
+    it 'skips transactions in skip_ids even when they are old' do
+      # A canceled source transaction has a complete_time while its thread is still running
+      CfdpMib.cleanup_old_transactions(skip_ids: ['tx3'])
+      expect(@old_tx).not_to have_received(:delete)
+    end
+
     it 'handles multiple old transactions' do
       # Add another old transaction
       old_tx2 = double('Transaction')
