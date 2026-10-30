@@ -598,6 +598,7 @@ class CfdpSourceTransaction < CfdpTransaction
       end
     end
     @proxy_response_needed = true if @proxy_response_info
+    save_state()
   end
 
   def handle_pdu(pdu_hash)
@@ -724,6 +725,7 @@ class CfdpSourceTransaction < CfdpTransaction
       'metadata_pdu_hash' => @metadata_pdu_hash,
       'metadata_pdu_count' => @metadata_pdu_count,
       'create_time' => @create_time&.iso8601(6),
+      'complete_time' => @complete_time&.iso8601(6),
       'proxy_response_info' => @proxy_response_info,
       'proxy_response_needed' => @proxy_response_needed,
       'canceling_entity_id' => @canceling_entity_id,
@@ -784,6 +786,9 @@ class CfdpSourceTransaction < CfdpTransaction
     @eof_ack_pdu_hash = state_data['eof_ack_pdu_hash']
     @keep_alive_pdu_hash = state_data['keep_alive_pdu_hash']
     @copy_state = state_data['copy_state']
+    # notice_of_completion did not used to save state, so a finished transfer could be saved
+    # with a copy_state of complete while its state was still ACTIVE
+    @complete_time ||= legacy_complete_time if @copy_state == "complete"
     @file_offset = state_data['file_offset']
     @file_checksum = state_data['file_checksum']
     @file_size = state_data['file_size']

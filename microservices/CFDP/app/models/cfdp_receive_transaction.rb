@@ -204,6 +204,12 @@ class CfdpReceiveTransaction < CfdpTransaction
     end
   end
 
+  # Completion is reported before the positive acknowledgment procedure ends. Retain the
+  # transaction so its Finished PDU can still be retransmitted, including after a restart.
+  def cleanup_ready?
+    super && @finished_ack_timeout.nil?
+  end
+
   def complete_file_received?
     return false unless @file_size
     return true if @file_size == 0
@@ -637,6 +643,7 @@ class CfdpReceiveTransaction < CfdpTransaction
       'metadata_pdu_hash' => @metadata_pdu_hash,
       'metadata_pdu_count' => @metadata_pdu_count,
       'create_time' => @create_time&.iso8601(6),
+      'complete_time' => @complete_time&.iso8601(6),
       'proxy_response_info' => @proxy_response_info,
       'proxy_response_needed' => @proxy_response_needed,
       'canceling_entity_id' => @canceling_entity_id,
