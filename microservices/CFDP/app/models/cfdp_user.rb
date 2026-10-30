@@ -186,6 +186,8 @@ class CfdpUser
           proxy_responses << params
           transaction.proxy_response_needed = false
           transaction.proxy_response_info = nil
+          # Completed transactions are persisted, so the response would be sent again on restart
+          transaction.save_state
         end
       rescue => err
         # A single bad transaction must not take down the receive thread, which would leave the

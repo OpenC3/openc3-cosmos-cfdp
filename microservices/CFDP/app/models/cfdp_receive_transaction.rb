@@ -324,6 +324,7 @@ class CfdpReceiveTransaction < CfdpTransaction
               @condition_code = "ACK_LIMIT_REACHED"
               handle_fault()
               @finished_ack_timeout = nil
+              save_state()
             else
               @finished_ack_timeout = Time.now + CfdpMib.entity(@source_entity_id)['ack_timer_interval']
             end
