@@ -357,6 +357,10 @@ class CfdpTransaction
     return state_data
   end
 
+  def cleanup_ready?
+    !@complete_time.nil?
+  end
+
   # Best estimate of when a completed transaction loaded without a complete_time finished. The
   # create_time is persisted and always precedes completion.
   def legacy_complete_time

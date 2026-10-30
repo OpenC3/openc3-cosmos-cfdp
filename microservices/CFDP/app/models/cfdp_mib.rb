@@ -772,7 +772,7 @@ class CfdpMib
     # Iterate a copy because Rails request threads may add transactions concurrently
     @@transactions.to_a.each do |id, transaction|
       next if skip_ids.include?(id)
-      if transaction.complete_time and (current_time - transaction.complete_time) > transaction_retain_seconds
+      if transaction.complete_time and (current_time - transaction.complete_time) > transaction_retain_seconds and transaction.cleanup_ready?
         transaction.delete
         cleaned_up_count += 1
       end

@@ -55,9 +55,9 @@ class CfdpUser
 
   def start
     @source_mutex.synchronize { @stopping = false }
-    # Resumed before the receive thread starts so they are registered before the first cleanup
-    # pass, which skips transactions that still have a running source thread
-    resume_incomplete_source_transactions
+    # Capture restored transactions before returning to Rails. New Put requests start their
+    # own threads and must not also be resumed after telemetry initialization finishes.
+    transactions_to_resume = CfdpMib.transactions.to_a
     @thread = Thread.new do
       begin
         source_entity = CfdpMib.source_entity
@@ -78,6 +78,9 @@ class CfdpUser
         else
           OpenC3::Topic.update_topic_offsets(topics)
         end
+        # Initialize offsets before resumed transfers can generate replies, and register their
+        # threads before the first cleanup pass so active transfers are protected from deletion.
+        resume_incomplete_source_transactions(transactions_to_resume)
         while !@cancel_thread
           # TODO: Handle freezing transactions if interface disconnects (or target goes unhealthy), and unfreezing if comes back to functional
 
@@ -291,8 +294,10 @@ class CfdpUser
     return false
   end
 
-  def resume_incomplete_source_transactions()
-    CfdpMib.transactions.each do |transaction_id, transaction|
+  def resume_incomplete_source_transactions(transactions = CfdpMib.transactions.to_a)
+    # Iterate a copy because this runs on the receive thread while Rails request threads may add
+    # transactions concurrently
+    transactions.each do |transaction_id, transaction|
       if transaction_id.split('__')[0].to_i == CfdpMib.source_entity_id && transaction.copy_state != "complete" # && transaction.copy_state != nil?
         # A transaction that was shut down by a previous stop() in this same process would
         # otherwise exit immediately at its first shutdown check
