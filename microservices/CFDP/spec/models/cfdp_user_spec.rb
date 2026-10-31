@@ -168,6 +168,26 @@ RSpec.describe CfdpUser, type: :model do
       expect(good).to have_received(:update)
       expect(OpenC3::Logger).to have_received(:error).with(/1__1 update failed/, anything)
     end
+
+    it "persists that the proxy put response was sent" do
+      # The completed transaction is saved with proxy_response_needed set, so a restart would send
+      # the response again unless clearing it is saved too
+      transaction = CfdpSourceTransaction.new
+      transaction.proxy_response_info = { "SOURCE_ENTITY_ID" => @destination_entity_id, "SEQUENCE_NUMBER" => 5 }
+      transaction.notice_of_completion
+      allow(transaction).to receive(:update)
+      pdu = double("pdu", build_proxy_put_response_message: "response", build_originating_transaction_id_message: "originating")
+      allow(CfdpPdu).to receive(:build_initial_pdu).and_return(pdu)
+      allow(@user).to receive(:start_source_transaction)
+
+      @user.update_transactions
+
+      expect(@user).to have_received(:start_source_transaction).once
+      loaded = CfdpSourceTransaction.new
+      loaded.load_state(transaction.id)
+      expect(loaded.proxy_response_needed).to be false
+      expect(loaded.proxy_response_info).to be_nil
+    end
   end
 
   describe "reap_source_transactions" do
