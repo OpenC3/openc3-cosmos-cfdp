@@ -44,7 +44,9 @@ class CfdpUser
     # Protected by @source_mutex along with @source_transactions.
     @stopping = false
     @source_mutex = Mutex.new
-    @last_cleanup_time = Time.now.utc
+    # nil so cleanup runs on the first pass through the receive loop. Otherwise a microservice
+    # restarted more often than transaction_cleanup_frequency_hours would never clean up.
+    @last_cleanup_time = nil
 
     at_exit do
       stop()
@@ -53,6 +55,9 @@ class CfdpUser
 
   def start
     @source_mutex.synchronize { @stopping = false }
+    # Capture restored transactions before returning to Rails. New Put requests start their
+    # own threads and must not also be resumed after telemetry initialization finishes.
+    transactions_to_resume = CfdpMib.transactions.to_a
     @thread = Thread.new do
       begin
         source_entity = CfdpMib.source_entity
@@ -73,6 +78,9 @@ class CfdpUser
         else
           OpenC3::Topic.update_topic_offsets(topics)
         end
+        # Initialize offsets before resumed transfers can generate replies, and register their
+        # threads before the first cleanup pass so active transfers are protected from deletion.
+        resume_incomplete_source_transactions(transactions_to_resume)
         while !@cancel_thread
           # TODO: Handle freezing transactions if interface disconnects (or target goes unhealthy), and unfreezing if comes back to functional
 
@@ -86,8 +94,8 @@ class CfdpUser
 
           current_time = Time.now.utc
           frequency_seconds = CfdpMib.transaction_cleanup_frequency_hours * 3600
-          if (current_time - @last_cleanup_time) >= frequency_seconds
-            CfdpMib.cleanup_old_transactions()
+          if @last_cleanup_time.nil? or (current_time - @last_cleanup_time) >= frequency_seconds
+            CfdpMib.cleanup_old_transactions(skip_ids: active_source_transaction_ids())
             @last_cleanup_time = current_time
           end
         end
@@ -96,7 +104,6 @@ class CfdpUser
       end
     end
 
-    resume_incomplete_source_transactions
     return @thread
   end
 
@@ -179,6 +186,8 @@ class CfdpUser
           proxy_responses << params
           transaction.proxy_response_needed = false
           transaction.proxy_response_info = nil
+          # Completed transactions are persisted, so the response would be sent again on restart
+          transaction.save_state
         end
       rescue => err
         # A single bad transaction must not take down the receive thread, which would leave the
@@ -196,6 +205,15 @@ class CfdpUser
   def reap_source_transactions
     @source_mutex.synchronize do
       @source_transactions.delete_if { |_transaction, thread| !thread.alive? }
+    end
+  end
+
+  # Ids of source transactions whose thread is still running. A canceled transaction already has
+  # a complete_time while its thread finishes sending EOF and waiting for the Finished PDU, so it
+  # must not be cleaned up until the thread is done with it.
+  def active_source_transaction_ids
+    @source_mutex.synchronize do
+      @source_transactions.filter_map { |transaction, thread| transaction.id if thread.alive? }
     end
   end
 
@@ -278,8 +296,10 @@ class CfdpUser
     return false
   end
 
-  def resume_incomplete_source_transactions()
-    CfdpMib.transactions.each do |transaction_id, transaction|
+  def resume_incomplete_source_transactions(transactions = CfdpMib.transactions.to_a)
+    # Iterate a copy because this runs on the receive thread while Rails request threads may add
+    # transactions concurrently
+    transactions.each do |transaction_id, transaction|
       if transaction_id.split('__')[0].to_i == CfdpMib.source_entity_id && transaction.copy_state != "complete" # && transaction.copy_state != nil?
         # A transaction that was shut down by a previous stop() in this same process would
         # otherwise exit immediately at its first shutdown check

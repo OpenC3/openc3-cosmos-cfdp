@@ -875,6 +875,7 @@ RSpec.describe CfdpMib do
       allow(@recent_tx).to receive(:delete)
 
       @old_tx = double('Transaction')
+      allow(@old_tx).to receive(:cleanup_ready?).and_return(true)
       allow(@old_tx).to receive(:complete_time).and_return(Time.now.utc - 120)
       allow(@old_tx).to receive(:delete)
 
@@ -919,9 +920,37 @@ RSpec.describe CfdpMib do
       expect(@old_tx).not_to have_received(:delete)
     end
 
+    it 'skips transactions in skip_ids even when they are old' do
+      # A canceled source transaction has a complete_time while its thread is still running
+      CfdpMib.cleanup_old_transactions(skip_ids: ['tx3'])
+      expect(@old_tx).not_to have_received(:delete)
+    end
+
+    %w(FINISHED CANCELED).each do |state|
+      it "retains a restored #{state} receiver until its Finished ACK arrives" do
+        id = '2__123'
+        state_data = { 'id' => id, 'state' => state,
+                       'create_time' => (Time.now.utc - 120).iso8601(6),
+                       'finished_ack_timeout' => (Time.now.utc + 5).iso8601(6) }
+        OpenC3::Store.set("#{CfdpTransaction.redis_key_prefix}cfdp_transaction_state:#{id}", JSON.generate(state_data))
+        transaction = CfdpReceiveTransaction.allocate
+        transaction.load_state(id)
+        CfdpMib.transactions[id] = transaction
+        allow(transaction).to receive(:delete)
+
+        CfdpMib.cleanup_old_transactions
+        expect(transaction).not_to have_received(:delete)
+
+        transaction.handle_pdu({ 'DIRECTIVE_CODE' => 'ACK' })
+        CfdpMib.cleanup_old_transactions
+        expect(transaction).to have_received(:delete)
+      end
+    end
+
     it 'handles multiple old transactions' do
       # Add another old transaction
       old_tx2 = double('Transaction')
+      allow(old_tx2).to receive(:cleanup_ready?).and_return(true)
       allow(old_tx2).to receive(:complete_time).and_return(Time.now.utc - 150)
       allow(old_tx2).to receive(:delete)
       CfdpMib.transactions['tx4'] = old_tx2

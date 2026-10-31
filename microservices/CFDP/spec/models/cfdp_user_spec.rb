@@ -61,6 +61,33 @@ RSpec.describe CfdpUser, type: :model do
   end
 
   describe "start" do
+    it "does not resume a new Put created during telemetry initialization" do
+      CfdpMib.source_entity['tlm_info'] = [['CFDP', 'PDU', 'DATA']]
+      transaction = double('new source transaction', copy_state: nil)
+      expect(transaction).not_to receive(:clear_shutdown)
+      expect(transaction).not_to receive(:copy_file)
+      allow(OpenC3::Topic).to receive(:update_topic_offsets) do
+        CfdpMib.transactions["#{CfdpMib.source_entity_id}__999"] = transaction
+        @user.instance_variable_set(:@cancel_thread, true)
+      end
+
+      @user.start.join(5)
+    end
+
+    it "initializes telemetry offsets before resuming source transactions" do
+      CfdpMib.source_entity['tlm_info'] = [['CFDP', 'PDU', 'DATA']]
+      events = []
+      allow(OpenC3::Topic).to receive(:update_topic_offsets) { events << :offsets }
+      allow(@user).to receive(:resume_incomplete_source_transactions) do
+        events << :resume
+        @user.instance_variable_set(:@cancel_thread, true)
+      end
+
+      @user.start.join(5)
+
+      expect(events).to eq([:offsets, :resume])
+    end
+
     it "sleeps instead of spinning when tlm_info is not configured" do
       # Store.read_topics returns immediately when given no topics, so the receive loop has to
       # pace itself or it pins a CPU for the life of the process
@@ -81,6 +108,49 @@ RSpec.describe CfdpUser, type: :model do
       expect(sleeps).to eq(2)
       expect(OpenC3::Logger).to have_received(:error).with(/tlm_info is not configured/, anything)
     end
+
+    it "cleans up old transactions on the first pass and then only every transaction_cleanup_frequency_hours" do
+      # A microservice restarted more often than the cleanup frequency must still clean up
+      CfdpMib.source_entity['tlm_info'] = []
+      allow(OpenC3::Logger).to receive(:error)
+      allow(CfdpMib).to receive(:cleanup_old_transactions)
+
+      sleeps = 0
+      allow(@user).to receive(:sleep) do |seconds|
+        next unless seconds == CfdpUser::READ_TOPICS_TIMEOUT_S
+        sleeps += 1
+        @user.instance_variable_set(:@cancel_thread, true) if sleeps >= 3
+      end
+
+      @user.start.join(5)
+
+      expect(CfdpMib).to have_received(:cleanup_old_transactions).once
+    end
+
+    it "does not clean up transactions whose resumed source thread is still running" do
+      # A transaction canceled before a restart has an old complete_time but its source thread is
+      # resumed to finish sending EOF, so the first cleanup pass must not delete it out from under it
+      CfdpMib.source_entity['tlm_info'] = []
+      allow(OpenC3::Logger).to receive(:error)
+      cleanup_skip_ids = nil
+      allow(CfdpMib).to receive(:cleanup_old_transactions) { |skip_ids: []| cleanup_skip_ids = skip_ids }
+
+      release = Queue.new
+      transaction = double("transaction", id: "1__5", request_shutdown: nil, save_state: nil)
+      allow(@user).to receive(:resume_incomplete_source_transactions) do
+        @user.register_source_transaction(transaction, Thread.new { release.pop })
+      end
+
+      allow(@user).to receive(:sleep) do |seconds|
+        next unless seconds == CfdpUser::READ_TOPICS_TIMEOUT_S
+        @user.instance_variable_set(:@cancel_thread, true)
+      end
+
+      @user.start.join(5)
+      release << true
+
+      expect(cleanup_skip_ids).to eq(["1__5"])
+    end
   end
 
   describe "update_transactions" do
@@ -97,6 +167,26 @@ RSpec.describe CfdpUser, type: :model do
 
       expect(good).to have_received(:update)
       expect(OpenC3::Logger).to have_received(:error).with(/1__1 update failed/, anything)
+    end
+
+    it "persists that the proxy put response was sent" do
+      # The completed transaction is saved with proxy_response_needed set, so a restart would send
+      # the response again unless clearing it is saved too
+      transaction = CfdpSourceTransaction.new
+      transaction.proxy_response_info = { "SOURCE_ENTITY_ID" => @destination_entity_id, "SEQUENCE_NUMBER" => 5 }
+      transaction.notice_of_completion
+      allow(transaction).to receive(:update)
+      pdu = double("pdu", build_proxy_put_response_message: "response", build_originating_transaction_id_message: "originating")
+      allow(CfdpPdu).to receive(:build_initial_pdu).and_return(pdu)
+      allow(@user).to receive(:start_source_transaction)
+
+      @user.update_transactions
+
+      expect(@user).to have_received(:start_source_transaction).once
+      loaded = CfdpSourceTransaction.new
+      loaded.load_state(transaction.id)
+      expect(loaded.proxy_response_needed).to be false
+      expect(loaded.proxy_response_info).to be_nil
     end
   end
 
