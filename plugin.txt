@@ -59,7 +59,7 @@ VARIABLE allow_duplicate_transaction_ids false
   VARIABLE_STATE "TRUE" true
   VARIABLE_STATE "FALSE" false
 VARIABLE transaction_cleanup_frequency_hours 24
-  VARIABLE_DESCRIPTION "How often to purge old (completed) transactions from RAM and Redis"
+  VARIABLE_DESCRIPTION "How often (and at startup) to purge completed transactions older than the source entity transaction_retain_seconds (default 86400) from RAM and Redis"
 
 VARIABLE plugin_test_mode false
   VARIABLE_DESCRIPTION "Install 2 targets: CFDP and CFDP2 along with the CFDP2 microservice configured to talk to CFDP2 target for testing purposes."

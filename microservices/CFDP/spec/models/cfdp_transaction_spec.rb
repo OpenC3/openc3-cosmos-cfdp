@@ -370,6 +370,15 @@ RSpec.describe CfdpTransaction do
         expect(state_data).not_to have_key("file_status")
         expect(state_data).not_to have_key("complete_time")
       end
+
+      it "saves complete_time when the transaction has completed" do
+        mock_redis
+        transaction.instance_variable_set(:@id, "1__123")
+        transaction.abandon
+
+        state_data = JSON.parse(OpenC3::Store.get("#{@redis_prefix}cfdp_transaction_state:1__123"))
+        expect(Time.parse(state_data["complete_time"]).to_f).to be_within(0.001).of(transaction.complete_time.to_f)
+      end
     end
 
     describe "load_state" do
@@ -438,6 +447,38 @@ RSpec.describe CfdpTransaction do
         expect(transaction.condition_code).to eq("NO_ERROR")
         expect(transaction.metadata_pdu_count).to eq(0)
         expect(transaction.instance_variable_get(:@fault_handler_overrides)).to eq({})
+        expect(transaction.complete_time).to be_nil
+      end
+
+      it "loads complete_time" do
+        mock_redis
+        state_data = {"id" => "1__123", "state" => "FINISHED", "create_time" => "2023-01-01T10:00:00.000000Z",
+                      "complete_time" => "2023-01-01T11:00:00.000000Z"}
+        OpenC3::Store.set("#{@redis_prefix}cfdp_transaction_state:1__123", JSON.generate(state_data))
+
+        transaction.load_state("1__123")
+        expect(transaction.complete_time).to eq(Time.parse("2023-01-01T11:00:00.000000Z"))
+      end
+
+      %w(FINISHED CANCELED ABANDONED).each do |state|
+        it "uses create_time as complete_time for a #{state} transaction saved without one" do
+          # State saved by older versions never included complete_time, so these were never cleaned up
+          mock_redis
+          state_data = {"id" => "1__123", "state" => state, "create_time" => "2023-01-01T10:00:00.000000Z"}
+          OpenC3::Store.set("#{@redis_prefix}cfdp_transaction_state:1__123", JSON.generate(state_data))
+
+          transaction.load_state("1__123")
+          expect(transaction.complete_time).to eq(Time.parse("2023-01-01T10:00:00.000000Z"))
+        end
+      end
+
+      it "leaves complete_time nil for an incomplete transaction" do
+        mock_redis
+        state_data = {"id" => "1__123", "state" => "SUSPENDED", "create_time" => "2023-01-01T10:00:00.000000Z"}
+        OpenC3::Store.set("#{@redis_prefix}cfdp_transaction_state:1__123", JSON.generate(state_data))
+
+        transaction.load_state("1__123")
+        expect(transaction.complete_time).to be_nil
       end
     end
 
@@ -483,7 +524,7 @@ RSpec.describe CfdpTransaction do
         expect(new_transaction.metadata_pdu_hash).to eq("abc123")
         expect(new_transaction.metadata_pdu_count).to eq(3)
         expect(new_transaction.create_time.to_i).to eq(original_time.to_i)
-        expect(new_transaction.complete_time).to be_nil # complete_time is not persisted
+        expect(new_transaction.complete_time).to be_nil # Not complete
         expect(new_transaction.proxy_response_info).to eq("proxy_info")
         expect(new_transaction.proxy_response_needed).to be true
         expect(new_transaction.instance_variable_get(:@canceling_entity_id)).to eq(2)

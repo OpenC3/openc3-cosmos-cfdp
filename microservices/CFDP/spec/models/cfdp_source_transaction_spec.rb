@@ -97,6 +97,31 @@ RSpec.describe CfdpSourceTransaction do
     end
   end
 
+  describe "complete_time persistence" do
+    it "saves complete_time when notice_of_completion runs" do
+      mock_redis
+      transaction = CfdpSourceTransaction.new
+      transaction.notice_of_completion
+
+      loaded = CfdpSourceTransaction.new
+      loaded.load_state(transaction.id)
+      expect(loaded.state).to eq("FINISHED")
+      expect(loaded.complete_time.to_f).to be_within(0.001).of(transaction.complete_time.to_f)
+    end
+
+    it "uses create_time as complete_time for a completed copy saved without one" do
+      # notice_of_completion used to not save state, leaving the transaction saved as ACTIVE
+      mock_redis
+      state_data = {"id" => "1__123", "state" => "ACTIVE", "copy_state" => "complete",
+                    "create_time" => "2023-01-01T10:00:00.000000Z"}
+      OpenC3::Store.set("#{CfdpTransaction.redis_key_prefix}cfdp_transaction_state:1__123", JSON.generate(state_data))
+
+      transaction = CfdpSourceTransaction.new
+      transaction.load_state("1__123")
+      expect(transaction.complete_time).to eq(Time.parse("2023-01-01T10:00:00.000000Z"))
+    end
+  end
+
   describe "save_state optimization during file PDU transmission" do
     before(:each) do
       mock_redis()

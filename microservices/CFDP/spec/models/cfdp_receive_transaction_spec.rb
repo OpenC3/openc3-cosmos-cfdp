@@ -549,8 +549,11 @@ RSpec.describe CfdpReceiveTransaction do
 
     it "handles finished_ack limit reached" do
       receive_transaction = CfdpReceiveTransaction.new(@metadata_pdu_hash)
+      receive_transaction.instance_variable_set(:@state, "FINISHED")
+      receive_transaction.instance_variable_set(:@complete_time, Time.now.utc - 120)
       receive_transaction.instance_variable_set(:@finished_ack_timeout, Time.now - 1)
       receive_transaction.instance_variable_set(:@finished_pdu, "FINISHED_PDU")
+      receive_transaction.save_state
       expect(receive_transaction).to receive(:handle_fault)
 
       # Set count to reach limit
@@ -559,6 +562,11 @@ RSpec.describe CfdpReceiveTransaction do
 
       expect(receive_transaction.instance_variable_get(:@condition_code)).to eq("ACK_LIMIT_REACHED")
       expect(receive_transaction.instance_variable_get(:@finished_ack_timeout)).to be_nil
+
+      restored = CfdpReceiveTransaction.allocate
+      restored.load_state(receive_transaction.id)
+      expect(restored.condition_code).to eq("ACK_LIMIT_REACHED")
+      expect(restored.cleanup_ready?).to be true
     end
   end
 
