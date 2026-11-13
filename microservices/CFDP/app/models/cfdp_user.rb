@@ -296,9 +296,9 @@ class CfdpUser
     return false
   end
 
-  def resume_incomplete_source_transactions(transactions = CfdpMib.transactions.to_a)
-    # Iterate a copy because this runs on the receive thread while Rails request threads may add
-    # transactions concurrently
+  # transactions is a snapshot of CfdpMib.transactions taken by start before Rails can add new
+  # transactions concurrently. Put requests start their own threads and must not be resumed too.
+  def resume_incomplete_source_transactions(transactions)
     transactions.each do |transaction_id, transaction|
       if transaction_id.split('__')[0].to_i == CfdpMib.source_entity_id && transaction.copy_state != "complete" # && transaction.copy_state != nil?
         # A transaction that was shut down by a previous stop() in this same process would
